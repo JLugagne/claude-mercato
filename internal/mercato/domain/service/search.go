@@ -32,6 +32,6 @@ type SearchOpts struct {
 }
 
 type SearchResult struct {
-	Entry domain.Entry
-	Score float64
+	Entry domain.Entry `json:"entry"`
+	Score float64      `json:"score"`
 }

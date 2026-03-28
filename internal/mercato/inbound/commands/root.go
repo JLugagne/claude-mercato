@@ -74,6 +74,8 @@ func NewRootCmd(svc Services) *cobra.Command {
 		newInitCmd(svc, opts),
 		newReadmeCmd(svc, opts),
 		newConfigCmd(svc, opts),
+		newExportCmd(svc, opts),
+		newImportCmd(svc, opts),
 	)
 
 	// Aliases

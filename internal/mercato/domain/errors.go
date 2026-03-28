@@ -34,6 +34,7 @@ func (e *DomainError) Wrap(err error) *DomainError {
 var (
 	ErrMarketNotFound      = &DomainError{Code: "MARKET_NOT_FOUND", Message: "market not found in configuration"}
 	ErrMarketAlreadyExists = &DomainError{Code: "MARKET_ALREADY_EXISTS", Message: "market already exists in configuration"}
+	ErrMarketURLExists     = &DomainError{Code: "MARKET_URL_EXISTS", Message: "a market with this URL is already registered"}
 	ErrMarketUnreachable   = &DomainError{Code: "MARKET_UNREACHABLE", Message: "could not reach market repository"}
 	ErrInvalidMarketName   = &DomainError{Code: "INVALID_MARKET_NAME", Message: "market name must be kebab-case, 2-64 characters"}
 )

@@ -42,14 +42,19 @@ func newConfigSetCmd(svc Services) *cobra.Command {
 }
 
 func newConfigGetCmd(svc Services) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "get [key]",
 		Short: "Show configuration values",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			cfg, err := svc.Config.GetConfig()
 			if err != nil {
 				return err
+			}
+
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), cfg)
 			}
 
 			if len(args) == 1 {
@@ -88,4 +93,6 @@ func newConfigGetCmd(svc Services) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "JSON output")
+	return cmd
 }

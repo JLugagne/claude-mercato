@@ -12,13 +12,17 @@ import (
 )
 
 func newRefreshCmd(svc Services, opts *GlobalOpts) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "refresh",
 		Short: "Fetch latest from all markets",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			results, err := svc.Sync.Refresh(service.RefreshOpts{CI: opts.CI})
 			if err != nil {
 				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), results)
 			}
 			for _, r := range results {
 				if r.Err != nil {
@@ -34,6 +38,8 @@ func newRefreshCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "JSON output")
+	return cmd
 }
 
 func newUpdateCmd(svc Services, opts *GlobalOpts) *cobra.Command {
@@ -50,6 +56,7 @@ func newUpdateCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			allDelete, _ := cmd.Flags().GetBool("all-delete")
 			allMerge, _ := cmd.Flags().GetBool("all-merge")
 			acceptBreaking, _ := cmd.Flags().GetBool("accept-breaking")
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			results, err := svc.Sync.Update(service.UpdateOpts{
 				Ref:            domain.MctRef(ref),
 				Market:         market,
@@ -64,6 +71,9 @@ func newUpdateCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			})
 			if err != nil {
 				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), results)
 			}
 			for _, r := range results {
 				if r.Err != nil {
@@ -84,6 +94,7 @@ func newUpdateCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Flags().Bool("all-delete", false, "delete all local changes")
 	cmd.Flags().Bool("all-merge", false, "merge all changes")
 	cmd.Flags().Bool("accept-breaking", false, "accept breaking changes")
+	cmd.Flags().Bool("json", false, "JSON output")
 	return cmd
 }
 
@@ -96,6 +107,7 @@ func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			acceptBreaking, _ := cmd.Flags().GetBool("accept-breaking")
 			allMerge, _ := cmd.Flags().GetBool("all-merge")
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			results, err := svc.Sync.Sync(service.SyncOpts{
 				Market:         market,
 				DryRun:         dryRun,
@@ -105,6 +117,9 @@ func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			})
 			if err != nil {
 				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), results)
 			}
 			for _, r := range results {
 				if r.Refresh.Err != nil {
@@ -123,6 +138,7 @@ func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Flags().Bool("dry-run", false, "preview changes")
 	cmd.Flags().Bool("accept-breaking", false, "accept breaking changes")
 	cmd.Flags().Bool("all-merge", false, "merge all changes")
+	cmd.Flags().Bool("json", false, "JSON output")
 	return cmd
 }
 
@@ -140,6 +156,9 @@ func newCheckCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			})
 			if err != nil {
 				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), statuses)
 			}
 			indicators := map[domain.EntryState]string{
 				domain.StateClean:           "ok",
@@ -181,6 +200,7 @@ func newAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			noDeps, _ := cmd.Flags().GetBool("no-deps")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			acceptBreaking, _ := cmd.Flags().GetBool("accept-breaking")
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			ref := domain.MctRef(args[0])
 			err := svc.Entries.Add(ref, service.AddOpts{
 				Pin:            pin,
@@ -191,6 +211,9 @@ func newAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), map[string]any{"ref": ref, "status": "installed"})
+			}
 			cmd.Printf("  ok  installed %s\n", ref)
 			return nil
 		},
@@ -199,6 +222,7 @@ func newAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Flags().Bool("no-deps", false, "skip dependency resolution")
 	cmd.Flags().Bool("dry-run", false, "preview install")
 	cmd.Flags().Bool("accept-breaking", false, "accept breaking changes")
+	cmd.Flags().Bool("json", false, "JSON output")
 	return cmd
 }
 
@@ -215,10 +239,19 @@ func newRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 		Short: "Remove an installed entry",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref, _ := cmd.Flags().GetString("ref")
-			return svc.Entries.Remove(domain.MctRef(ref))
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			if err := svc.Entries.Remove(domain.MctRef(ref)); err != nil {
+				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), map[string]any{"ref": ref, "status": "removed"})
+			}
+			cmd.Printf("  ok  removed %s\n", ref)
+			return nil
 		},
 	}
 	cmd.Flags().String("ref", "", "entry ref to remove")
+	cmd.Flags().Bool("json", false, "JSON output")
 	cmd.MarkFlagRequired("ref")
 	return cmd
 }
@@ -231,6 +264,7 @@ func newPruneCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			ref, _ := cmd.Flags().GetString("ref")
 			allKeep, _ := cmd.Flags().GetBool("all-keep")
 			allRemove, _ := cmd.Flags().GetBool("all-remove")
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			results, err := svc.Entries.Prune(service.PruneOpts{
 				Ref:       domain.MctRef(ref),
 				AllKeep:   allKeep,
@@ -238,6 +272,9 @@ func newPruneCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			})
 			if err != nil {
 				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), results)
 			}
 			for _, r := range results {
 				cmd.Printf("  %s  %s\n", r.Action, r.Ref)
@@ -248,6 +285,7 @@ func newPruneCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Flags().String("ref", "", "specific entry ref")
 	cmd.Flags().Bool("all-keep", false, "keep all deleted entries")
 	cmd.Flags().Bool("all-remove", false, "remove all deleted entries")
+	cmd.Flags().Bool("json", false, "JSON output")
 	return cmd
 }
 
@@ -311,6 +349,10 @@ func newSearchCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				return err
 			}
 
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), results)
+			}
+
 			cmd.Printf("\n  %d results\n\n", len(results))
 			for i, r := range results {
 				indicator := " "
@@ -343,13 +385,17 @@ func newSearchCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 }
 
 func newListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all installed entries",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			entries, err := svc.Entries.List(service.ListOpts{Installed: true})
 			if err != nil {
 				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), entries)
 			}
 			for _, e := range entries {
 				cmd.Printf("  %s  %s  %s  %s\n", e.Ref, e.Type, e.Version, e.Market)
@@ -357,16 +403,22 @@ func newListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "JSON output")
+	return cmd
 }
 
 func newMarketsCmd(svc Services, opts *GlobalOpts) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "markets",
 		Short: "List configured markets (alias for market list)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			markets, err := svc.Markets.ListMarkets()
 			if err != nil {
 				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), markets)
 			}
 			for _, m := range markets {
 				status := "rw"
@@ -378,16 +430,22 @@ func newMarketsCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "JSON output")
+	return cmd
 }
 
 func newConflictsCmd(svc Services, opts *GlobalOpts) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "conflicts",
 		Short: "Show all conflicts",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			conflicts, err := svc.Entries.Conflicts()
 			if err != nil {
 				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), conflicts)
 			}
 			if len(conflicts) == 0 {
 				cmd.Println("  No conflicts")
@@ -399,16 +457,22 @@ func newConflictsCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "JSON output")
+	return cmd
 }
 
 func newSyncStateCmd(svc Services, opts *GlobalOpts) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "sync-state",
 		Short: "Print sync state",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			state, err := svc.Sync.SyncState()
 			if err != nil {
 				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), state)
 			}
 			for name, ms := range state.Markets {
 				cmd.Printf("  %s: %s (%s) synced %s\n", name, ms.LastSyncedSHA[:7], ms.Status, ms.LastSyncedAt.Format("2006-01-02 15:04"))
@@ -416,6 +480,8 @@ func newSyncStateCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "JSON output")
+	return cmd
 }
 
 func newIndexCmd(svc Services, opts *GlobalOpts) *cobra.Command {
