@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -109,6 +110,28 @@ const (
 	StateOrphaned
 	StateUnknown
 )
+
+var entryStateNames = map[EntryState]string{
+	StateClean:           "clean",
+	StateUpdateAvailable: "update_available",
+	StateDrift:           "drift",
+	StateUpdateAndDrift:  "update_and_drift",
+	StateDeleted:         "deleted",
+	StateNewInRegistry:   "new",
+	StateOrphaned:        "orphaned",
+	StateUnknown:         "unknown",
+}
+
+func (s EntryState) String() string {
+	if name, ok := entryStateNames[s]; ok {
+		return name
+	}
+	return "unknown"
+}
+
+func (s EntryState) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
+}
 
 type EntryStatus struct {
 	Ref        MctRef     `json:"ref"`

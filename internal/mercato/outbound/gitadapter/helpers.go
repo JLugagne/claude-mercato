@@ -1,11 +1,13 @@
 package gitadapter
 
 import (
+	"fmt"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/transport"
@@ -39,9 +41,9 @@ func resolveAuth(url string) transport.AuthMethod {
 
 	hostKeyCB := hostKeyCallback()
 
-	// Try SSH agent first.
+	// Try SSH agent first (with timeout to avoid hanging on unresponsive agents).
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		if conn, err := net.Dial("unix", sock); err == nil {
+		if conn, err := net.DialTimeout("unix", sock, 5*time.Second); err == nil {
 			ag := agent.NewClient(conn)
 			if keys, err := ag.List(); err == nil && len(keys) > 0 {
 				conn.Close()
@@ -132,7 +134,11 @@ func hostKeyCallback() ssh.HostKeyCallback {
 	if err == nil {
 		return cb
 	}
-	return ssh.InsecureIgnoreHostKey()
+	// If known_hosts is missing or unreadable, reject all host keys rather
+	// than silently accepting them (which would allow MITM attacks).
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		return fmt.Errorf("host key verification failed for %s: no known_hosts file found at %s", hostname, knownHostsPath)
+	}
 }
 
 // resolveAuthFromRepo reads the origin remote URL from an opened repo and returns auth.
@@ -151,5 +157,5 @@ func resolveAuthFromRepo(repo *git.Repository) transport.AuthMethod {
 func isSSHURL(url string) bool {
 	return strings.HasPrefix(url, "git@") ||
 		strings.HasPrefix(url, "ssh://") ||
-		strings.Contains(url, "@") && !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://")
+		(strings.Contains(url, "@") && !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://"))
 }

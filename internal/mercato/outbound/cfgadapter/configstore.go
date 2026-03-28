@@ -63,7 +63,7 @@ func (c *ConfigStoreAdapter) Save(path string, cfg domain.Config) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 func (c *ConfigStoreAdapter) AddMarket(path string, market domain.MarketConfig) error {

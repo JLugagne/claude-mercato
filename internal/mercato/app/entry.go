@@ -130,7 +130,10 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 		return err
 	}
 
-	localPath := a.resolveLocalPath(cfg, relPath)
+	localPath, err := a.resolveLocalPath(cfg, relPath)
+	if err != nil {
+		return err
+	}
 
 	if err := a.fs.WriteFile(localPath, injected); err != nil {
 		return err
@@ -419,15 +422,25 @@ func (a *App) Init(opts service.InitOpts) error {
 	return nil
 }
 
-func (a *App) resolveLocalPath(cfg domain.Config, relPath string) string {
-	filename := filepath.Base(relPath)
-	parts := strings.Split(relPath, "/")
-	for _, p := range parts {
-		if p == "agents" || p == "skills" {
-			return filepath.Join(cfg.LocalPath, p, filename)
+func (a *App) resolveLocalPath(cfg domain.Config, relPath string) (string, error) {
+	// Reject paths with traversal or absolute components.
+	cleaned := filepath.Clean(relPath)
+	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+		return "", &domain.DomainError{
+			Code:    "UNSAFE_PATH",
+			Message: "entry path must be relative and cannot traverse upward: " + relPath,
 		}
 	}
-	return filepath.Join(cfg.LocalPath, filename)
+
+	filename := filepath.Base(cleaned)
+	parts := strings.Split(cleaned, string(filepath.Separator))
+	for _, p := range parts {
+		if p == "agents" || p == "skills" {
+			resolved := filepath.Join(cfg.LocalPath, p, filename)
+			return resolved, nil
+		}
+	}
+	return filepath.Join(cfg.LocalPath, filename), nil
 }
 
 func checksumEntryToDomainEntry(ref domain.MctRef, ce *domain.ChecksumEntry) domain.Entry {
@@ -478,7 +491,6 @@ func validateEntryType(t domain.EntryType, relPath string) error {
 	}
 	return nil
 }
-
 
 func resolveDifftool(configuredTool string, git interface{ ReadGlobalDifftool() (string, error) }) string {
 	if configuredTool != "" {
