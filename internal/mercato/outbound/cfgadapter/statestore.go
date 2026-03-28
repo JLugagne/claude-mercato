@@ -45,7 +45,7 @@ func (s *StateStoreAdapter) SaveSyncState(cacheDir string, state domain.SyncStat
 	if err != nil {
 		return fmt.Errorf("marshal sync state: %w", err)
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 func (s *StateStoreAdapter) LoadChecksums(cacheDir string) (domain.ChecksumState, error) {
@@ -79,7 +79,7 @@ func (s *StateStoreAdapter) SaveChecksums(cacheDir string, state domain.Checksum
 	if err != nil {
 		return fmt.Errorf("marshal checksums: %w", err)
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 func (s *StateStoreAdapter) SetMarketSyncDirty(cacheDir string, market string) error {

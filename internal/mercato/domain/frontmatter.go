@@ -3,6 +3,7 @@ package domain
 import (
 	"bytes"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -49,7 +50,33 @@ func ParseFrontmatter(content []byte) (Frontmatter, error) {
 	if err := yaml.Unmarshal(fmBytes, &fm); err != nil {
 		return fm, fmt.Errorf("parse frontmatter: %w", err)
 	}
+	for _, dep := range fm.RequiresSkills {
+		if err := validateSkillDepPath(dep.File); err != nil {
+			return Frontmatter{}, err
+		}
+	}
 	return fm, nil
+}
+
+// safePathRe allows only alphanumerics, hyphens, underscores, dots, and forward slashes.
+var safePathRe = regexp.MustCompile(`^[a-zA-Z0-9/_.\-]+$`)
+
+// validateSkillDepPath ensures a skill dependency path is safe:
+// no path traversal, no absolute paths, no shell metacharacters.
+func validateSkillDepPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("requires_skills: empty file path")
+	}
+	if filepath.IsAbs(path) {
+		return fmt.Errorf("requires_skills: absolute path not allowed: %s", path)
+	}
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("requires_skills: path traversal not allowed: %s", path)
+	}
+	if !safePathRe.MatchString(path) {
+		return fmt.Errorf("requires_skills: invalid characters in path: %s", path)
+	}
+	return nil
 }
 
 func ExtractFrontmatterBytes(content []byte) ([]byte, error) {
