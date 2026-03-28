@@ -39,9 +39,9 @@ type PruneOpts struct {
 }
 
 type PruneResult struct {
-	Ref    domain.MctRef
-	Action string
-	Err    error
+	Ref    domain.MctRef `json:"ref"`
+	Action string        `json:"action"`
+	Err    error         `json:"error,omitempty"`
 }
 
 type InitOpts struct {

@@ -44,37 +44,37 @@ const (
 )
 
 type Market struct {
-	Name      string
-	URL       string
-	Branch    string
-	ClonePath string
-	Trusted   bool
-	ReadOnly  bool
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	Branch    string `json:"branch"`
+	ClonePath string `json:"clone_path,omitempty"`
+	Trusted   bool   `json:"trusted"`
+	ReadOnly  bool   `json:"read_only"`
 }
 
 type Entry struct {
-	Ref            MctRef
-	Market         string
-	RelPath        string
-	Filename       string
-	Category       string
-	Type           EntryType
-	Description    string
-	Author         string
-	MctTags        []string // inherited from profile README.md frontmatter
-	Version        MctVersion
-	Deleted        bool
-	Installed      bool
-	BreakingChange bool
-	Deprecated     bool
-	RequiresSkills []SkillDep
+	Ref            MctRef     `json:"ref"`
+	Market         string     `json:"market"`
+	RelPath        string     `json:"rel_path"`
+	Filename       string     `json:"filename"`
+	Category       string     `json:"category"`
+	Type           EntryType  `json:"type"`
+	Description    string     `json:"description"`
+	Author         string     `json:"author,omitempty"`
+	MctTags        []string   `json:"mct_tags,omitempty"`
+	Version        MctVersion `json:"version"`
+	Deleted        bool       `json:"deleted"`
+	Installed      bool       `json:"installed"`
+	BreakingChange bool       `json:"breaking_change"`
+	Deprecated     bool       `json:"deprecated"`
+	RequiresSkills []SkillDep `json:"requires_skills,omitempty"`
 	ReadmeContext      string `json:"-"`
 	ProfileDescription string `json:"-"`
 }
 
 type SkillDep struct {
-	File string `yaml:"file"`
-	Pin  string `yaml:"pin,omitempty"`
+	File string `yaml:"file" json:"file"`
+	Pin  string `yaml:"pin,omitempty" json:"pin,omitempty"`
 }
 
 type Tombstone struct {
@@ -111,16 +111,16 @@ const (
 )
 
 type EntryStatus struct {
-	Ref        MctRef
-	State      EntryState
-	NewVersion MctVersion
+	Ref        MctRef     `json:"ref"`
+	State      EntryState `json:"state"`
+	NewVersion MctVersion `json:"new_version,omitempty"`
 }
 
 type Conflict struct {
-	Type        string
-	Refs        []MctRef
-	Description string
-	Severity    string
+	Type        string   `json:"type"`
+	Refs        []MctRef `json:"refs"`
+	Description string   `json:"description"`
+	Severity    string   `json:"severity"`
 }
 
 type ReadmeEntry struct {

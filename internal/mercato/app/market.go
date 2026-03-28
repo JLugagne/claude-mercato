@@ -46,6 +46,23 @@ func validateMarketName(name string) error {
 	return nil
 }
 
+// normalizeURL strips protocol prefixes, trailing .git, and trailing slashes
+// so that "git@github.com:org/repo.git", "https://github.com/org/repo", and
+// "https://github.com/org/repo.git" all compare as equal.
+func normalizeURL(u string) string {
+	u = strings.TrimSpace(u)
+	// SSH shorthand: git@host:path -> host/path
+	if strings.Contains(u, "://") {
+		u = u[strings.Index(u, "://")+3:]
+	} else if at := strings.Index(u, "@"); at >= 0 {
+		u = u[at+1:]
+		u = strings.Replace(u, ":", "/", 1)
+	}
+	u = strings.TrimSuffix(u, ".git")
+	u = strings.TrimSuffix(u, "/")
+	return strings.ToLower(u)
+}
+
 func (a *App) clonePath(marketName string) string {
 	return filepath.Join(a.cacheDir, marketName)
 }
@@ -162,6 +179,12 @@ func (a *App) AddMarket(name, url string, opts service.AddMarketOpts) (service.A
 	for _, mc := range cfg.Markets {
 		if mc.Name == name {
 			return result, domain.ErrMarketAlreadyExists
+		}
+		if normalizeURL(mc.URL) == normalizeURL(url) {
+			return result, &domain.DomainError{
+				Code:    domain.ErrMarketURLExists.Code,
+				Message: fmt.Sprintf("market %q already uses URL %s", mc.Name, mc.URL),
+			}
 		}
 	}
 

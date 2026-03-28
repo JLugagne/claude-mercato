@@ -34,6 +34,7 @@ func newMarketAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			trusted, _ := cmd.Flags().GetBool("trusted")
 			readOnly, _ := cmd.Flags().GetBool("read-only")
 			noClone, _ := cmd.Flags().GetBool("no-clone")
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			result, err := svc.Markets.AddMarket(args[0], args[1], service.AddMarketOpts{
 				Branch:   branch,
 				Trusted:  trusted,
@@ -43,6 +44,15 @@ func newMarketAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), map[string]any{
+					"name":     args[0],
+					"url":      args[1],
+					"profiles": result.Profiles,
+					"agents":   result.Agents,
+					"skills":   result.Skills,
+				})
+			}
 			cmd.Printf("  %d profiles, %d agents, %d skills\n", result.Profiles, result.Agents, result.Skills)
 			return nil
 		},
@@ -51,6 +61,7 @@ func newMarketAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Flags().Bool("trusted", false, "skip breaking change confirmation")
 	cmd.Flags().Bool("read-only", false, "index only, never install")
 	cmd.Flags().Bool("no-clone", false, "register without cloning")
+	cmd.Flags().Bool("json", false, "JSON output")
 	return cmd
 }
 
@@ -74,13 +85,17 @@ func newMarketRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 }
 
 func newMarketListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List configured markets",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			markets, err := svc.Markets.ListMarkets()
 			if err != nil {
 				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), markets)
 			}
 			for _, m := range markets {
 				status := "●"
@@ -92,17 +107,23 @@ func newMarketListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "JSON output")
+	return cmd
 }
 
 func newMarketInfoCmd(svc Services, opts *GlobalOpts) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "info <name>",
 		Short: "Show market details",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			info, err := svc.Markets.MarketInfo(args[0])
 			if err != nil {
 				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), info)
 			}
 			cmd.Printf("  Name:      %s\n", info.Market.Name)
 			cmd.Printf("  URL:       %s\n", info.Market.URL)
@@ -118,6 +139,8 @@ func newMarketInfoCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "JSON output")
+	return cmd
 }
 
 func newMarketRenameCmd(svc Services, opts *GlobalOpts) *cobra.Command {

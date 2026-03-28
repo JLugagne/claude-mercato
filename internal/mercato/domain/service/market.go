@@ -39,9 +39,9 @@ type RemoveMarketOpts struct {
 }
 
 type MarketInfoResult struct {
-	Market         domain.Market
-	EntryCount     int
-	InstalledCount int
-	LastSynced     time.Time
-	Status         string
+	Market         domain.Market `json:"market"`
+	EntryCount     int           `json:"entry_count"`
+	InstalledCount int           `json:"installed_count"`
+	LastSynced     time.Time     `json:"last_synced"`
+	Status         string        `json:"status"`
 }

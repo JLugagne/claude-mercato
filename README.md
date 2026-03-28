@@ -20,30 +20,6 @@ No central registry. No server. Just Git.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    subgraph Markets["Markets (Git repos)"]
-        A1[agents/foo.md]
-        A2[skills/bar.md]
-        A3[skills/baz.md]
-    end
-
-    subgraph MCT["mct"]
-        B1[clone / fetch]
-        B2[diff / merge]
-        B3[checksum]
-        B4[frontmatter inject]
-    end
-
-    subgraph Local[".claude/"]
-        C1[agents/foo.md]
-        C2[skills/bar.md]
-        C3["(with mct_* fields)"]
-    end
-
-    Markets --> MCT --> Local
-```
-
 1. Register a market: `mct market add mymarket git@github.com:org/agents-repo.git`
 2. `mct` clones it to `~/.cache/mct/mymarket/`
 3. Install a definition: `mct add mymarket/profile/agents/foo`
@@ -84,6 +60,12 @@ mct search "cli automation"
 mct config set ssh_enabled true
 mct config get
 
+# Import/Export
+mct export settings.json     # Export all markets + entries to file
+mct import settings.json     # Import from file (skips existing URLs)
+mct export                   # Export to stdout
+mct import settings.json --dry-run  # Preview without changes
+
 # Other
 mct pin --ref mymarket/profile/agents/foo --sha abc1234
 mct diff --ref mymarket/profile/agents/foo
@@ -92,6 +74,74 @@ mct list
 mct index --bench
 mct tui
 ```
+
+## JSON output
+
+Most commands support `--json` for machine-readable output, making `mct` easy to use in scripts and pipelines:
+
+```bash
+mct market list --json
+mct check --json
+mct search "automation" --json
+mct list --json
+mct export                    # Always JSON (it's the export format)
+mct config get --json
+mct sync --json
+```
+
+## SSH and private repositories
+
+`mct` supports SSH for Git operations, which makes it straightforward to use private repositories as markets. If your team maintains internal agent/skill definitions in a private repo, SSH is the easiest way to manage access -- anyone with SSH keys configured for the Git host can register and sync the market without extra credential setup.
+
+### Setup
+
+```bash
+# Enable SSH globally
+mct config set ssh_enabled true
+
+# Or via environment variable
+export MCT_SSH_ENABLED=true
+
+# Register a private market using SSH URL
+mct market add internal git@github.com:my-org/private-agents.git
+```
+
+### How it works
+
+- `mct` uses the system SSH agent (`SSH_AUTH_SOCK`) for authentication
+- Falls back to key files in `~/.ssh/` (supports ed25519, ecdsa, rsa)
+- Reads `~/.ssh/config` for per-host `IdentityFile` settings
+- Validates host keys against `~/.ssh/known_hosts`
+
+### When to use SSH
+
+- **Private markets** -- teams sharing internal agent/skill definitions in private repos
+- **GitHub/GitLab with SSH keys** -- if you already authenticate via SSH, no extra setup needed
+- **Air-gapped or VPN-only hosts** -- SSH works where HTTPS may require proxy configuration
+
+HTTPS is used by default when SSH is not enabled.
+
+## Import / Export
+
+Share your `mct` setup across machines or with teammates:
+
+```bash
+# Export everything: markets, installed entries, and config
+mct export setup.json
+
+# Import on another machine (markets with the same URL are skipped)
+mct import setup.json
+
+# Preview what would happen
+mct import setup.json --dry-run
+```
+
+The export format is a portable JSON file containing:
+- All registered markets (name, URL, branch, flags)
+- All installed entries and their pins
+- Configuration settings (local_path, policies, ssh_enabled)
+
+Duplicate detection is by URL, not by name -- if you renamed a market locally, `mct import` will still recognize it as the same repository and skip re-registering.
 
 ## Creating a market
 
