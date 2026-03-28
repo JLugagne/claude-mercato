@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -29,11 +30,7 @@ type ExportMarket struct {
 }
 
 type ExportEntry struct {
-	Ref          string `json:"ref"`
-	Pin          string `json:"pin,omitempty"`
-	DriftAllowed bool   `json:"drift_allowed,omitempty"`
-	Managed      bool   `json:"managed,omitempty"`
-	ManagedBy    string `json:"managed_by,omitempty"`
+	Profile string `json:"profile"`
 }
 
 type ExportConfig struct {
@@ -68,24 +65,21 @@ func newExportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				})
 			}
 
-			// Entries
-			managed := make(map[string]domain.ManagedSkillConfig)
-			for _, ms := range cfg.ManagedSkills {
-				managed[string(ms.Ref)] = ms
-			}
+			// Entries: group by profile (market/seg1/seg2)
+			profiles := make(map[string]struct{})
 			for _, ec := range cfg.Entries {
-				export.Entries = append(export.Entries, ExportEntry{
-					Ref:          string(ec.Ref),
-					Pin:          ec.Pin,
-					DriftAllowed: ec.DriftAllowed,
-				})
+				profiles[entryProfile(string(ec.Ref))] = struct{}{}
 			}
 			for _, ms := range cfg.ManagedSkills {
-				export.Entries = append(export.Entries, ExportEntry{
-					Ref:       string(ms.Ref),
-					Managed:   true,
-					ManagedBy: string(ms.ManagedBy),
-				})
+				profiles[entryProfile(string(ms.Ref))] = struct{}{}
+			}
+			sorted := make([]string, 0, len(profiles))
+			for p := range profiles {
+				sorted = append(sorted, p)
+			}
+			sort.Strings(sorted)
+			for _, p := range sorted {
+				export.Entries = append(export.Entries, ExportEntry{Profile: p})
 			}
 
 			// Config
@@ -184,24 +178,49 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				}
 			}
 
-			// Import entries (skip managed, they'll be auto-installed via deps)
+			// Import entries: each entry is a profile, list all entries in it and install
 			for _, e := range imp.Entries {
-				if e.Managed {
+				profile := e.Profile
+				// profile is "market/seg1/seg2", extract market name
+				market, relProfile, _ := domain.MctRef(profile).Parse()
+				if market == "" {
+					results = append(results, importResult{Action: "error", Type: "profile", Ref: profile, Detail: "invalid profile ref"})
 					continue
 				}
 
-				if dryRun {
-					results = append(results, importResult{Action: "add", Type: "entry", Ref: e.Ref, Detail: "(dry-run)"})
-					continue
-				}
-
-				err := svc.Entries.Add(domain.MctRef(e.Ref), service.AddOpts{
-					Pin: e.Pin,
-				})
+				// List all entries in the market and filter to this profile
+				entries, err := svc.Entries.List(service.ListOpts{Market: market})
 				if err != nil {
-					results = append(results, importResult{Action: "error", Type: "entry", Ref: e.Ref, Detail: err.Error()})
-				} else {
-					results = append(results, importResult{Action: "add", Type: "entry", Ref: e.Ref})
+					results = append(results, importResult{Action: "error", Type: "profile", Ref: profile, Detail: err.Error()})
+					continue
+				}
+
+				installed := 0
+				for _, entry := range entries {
+					if !strings.HasPrefix(entry.RelPath, relProfile+"/") {
+						continue
+					}
+					if entry.Installed {
+						continue
+					}
+
+					if dryRun {
+						results = append(results, importResult{Action: "add", Type: "entry", Ref: string(entry.Ref), Detail: "(dry-run)"})
+						installed++
+						continue
+					}
+
+					err := svc.Entries.Add(entry.Ref, service.AddOpts{})
+					if err != nil {
+						results = append(results, importResult{Action: "error", Type: "entry", Ref: string(entry.Ref), Detail: err.Error()})
+					} else {
+						results = append(results, importResult{Action: "add", Type: "entry", Ref: string(entry.Ref)})
+						installed++
+					}
+				}
+
+				if installed == 0 && !dryRun {
+					results = append(results, importResult{Action: "skip", Type: "profile", Ref: profile, Detail: "all entries already installed"})
 				}
 			}
 
@@ -229,6 +248,18 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Flags().Bool("dry-run", false, "preview import without changes")
 	cmd.Flags().Bool("json", false, "JSON output")
 	return cmd
+}
+
+// entryProfile extracts the profile portion from a full ref.
+// "market/seg1/seg2/agents/foo.md" -> "market/seg1/seg2"
+func entryProfile(ref string) string {
+	parts := strings.Split(ref, "/")
+	// ref = market / profile1 / profile2 / (agents|skills) / file.md
+	// profile = first 3 segments (market + 2 profile segments)
+	if len(parts) >= 3 {
+		return strings.Join(parts[:3], "/")
+	}
+	return ref
 }
 
 // normalizeMarketURL normalizes a git URL for comparison.
