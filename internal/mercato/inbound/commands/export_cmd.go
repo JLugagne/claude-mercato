@@ -15,10 +15,9 @@ import (
 
 // ExportData is the portable format for sharing mct configurations.
 type ExportData struct {
-	Version int                      `json:"version"`
-	Markets []ExportMarket           `json:"markets"`
-	Entries []ExportEntry            `json:"entries"`
-	Config  ExportConfig             `json:"config"`
+	Version int            `json:"version"`
+	Markets []ExportMarket `json:"markets"`
+	Entries []ExportEntry  `json:"entries"`
 }
 
 type ExportMarket struct {
@@ -31,13 +30,6 @@ type ExportMarket struct {
 
 type ExportEntry struct {
 	Profile string `json:"profile"`
-}
-
-type ExportConfig struct {
-	LocalPath      string `json:"local_path,omitempty"`
-	ConflictPolicy string `json:"conflict_policy,omitempty"`
-	DriftPolicy    string `json:"drift_policy,omitempty"`
-	SSHEnabled     *bool  `json:"ssh_enabled,omitempty"`
 }
 
 func newExportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
@@ -80,14 +72,6 @@ func newExportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			sort.Strings(sorted)
 			for _, p := range sorted {
 				export.Entries = append(export.Entries, ExportEntry{Profile: p})
-			}
-
-			// Config
-			export.Config = ExportConfig{
-				LocalPath:      cfg.LocalPath,
-				ConflictPolicy: cfg.ConflictPolicy,
-				DriftPolicy:    cfg.DriftPolicy,
-				SSHEnabled:     cfg.SSHEnabled,
 			}
 
 			data, err := json.MarshalIndent(export, "", "  ")
