@@ -138,8 +138,7 @@ mct import setup.json --dry-run
 
 The export format is a portable JSON file containing:
 - All registered markets (name, URL, branch, flags)
-- All installed entries and their pins
-- Configuration settings (local_path, policies, ssh_enabled)
+- All installed profiles, grouped by profile path
 
 Duplicate detection is by URL, not by name -- if you renamed a market locally, `mct import` will still recognize it as the same repository and skip re-registering.
 
