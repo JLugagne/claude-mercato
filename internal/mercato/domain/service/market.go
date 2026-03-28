@@ -1,0 +1,47 @@
+package service
+
+import (
+	"time"
+
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+)
+
+type MarketQueries interface {
+	ListMarkets() ([]domain.Market, error)
+	GetMarket(name string) (domain.Market, error)
+	MarketInfo(name string) (MarketInfoResult, error)
+}
+
+type MarketCommands interface {
+	MarketQueries
+	AddMarket(name, url string, opts AddMarketOpts) (AddMarketResult, error)
+	RemoveMarket(name string, opts RemoveMarketOpts) error
+	RenameMarket(oldName, newName string) error
+	SetMarketProperty(name, key, value string) error
+}
+
+type AddMarketResult struct {
+	Profiles int
+	Agents   int
+	Skills   int
+}
+
+type AddMarketOpts struct {
+	Branch   string
+	Trusted  bool
+	ReadOnly bool
+	NoClone  bool
+}
+
+type RemoveMarketOpts struct {
+	Force     bool
+	KeepCache bool
+}
+
+type MarketInfoResult struct {
+	Market         domain.Market
+	EntryCount     int
+	InstalledCount int
+	LastSynced     time.Time
+	Status         string
+}
