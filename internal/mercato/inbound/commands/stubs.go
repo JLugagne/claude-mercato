@@ -1,0 +1,471 @@
+package commands
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+)
+
+func newRefreshCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	return &cobra.Command{
+		Use:   "refresh",
+		Short: "Fetch latest from all markets",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			results, err := svc.Sync.Refresh(service.RefreshOpts{CI: opts.CI})
+			if err != nil {
+				return err
+			}
+			for _, r := range results {
+				if r.Err != nil {
+					cmd.PrintErrf("  x  %s: %v\n", r.Market, r.Err)
+					continue
+				}
+				if r.OldSHA == r.NewSHA {
+					cmd.Printf("  ok  %s (up to date at %s)\n", r.Market, r.NewSHA[:7])
+				} else {
+					cmd.Printf("  up  %s %s -> %s (%d files changed)\n", r.Market, r.OldSHA[:7], r.NewSHA[:7], r.ChangedFiles)
+				}
+			}
+			return nil
+		},
+	}
+}
+
+func newUpdateCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Apply pending changes to local files",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ref, _ := cmd.Flags().GetString("ref")
+			market, _ := cmd.Flags().GetString("market")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			agentsOnly, _ := cmd.Flags().GetBool("agents-only")
+			skillsOnly, _ := cmd.Flags().GetBool("skills-only")
+			allKeep, _ := cmd.Flags().GetBool("all-keep")
+			allDelete, _ := cmd.Flags().GetBool("all-delete")
+			allMerge, _ := cmd.Flags().GetBool("all-merge")
+			acceptBreaking, _ := cmd.Flags().GetBool("accept-breaking")
+			results, err := svc.Sync.Update(service.UpdateOpts{
+				Ref:            domain.MctRef(ref),
+				Market:         market,
+				DryRun:         dryRun,
+				AgentsOnly:     agentsOnly,
+				SkillsOnly:     skillsOnly,
+				AllKeep:        allKeep,
+				AllDelete:      allDelete,
+				AllMerge:       allMerge,
+				AcceptBreaking: acceptBreaking,
+				CI:             opts.CI,
+			})
+			if err != nil {
+				return err
+			}
+			for _, r := range results {
+				if r.Err != nil {
+					cmd.PrintErrf("  x  %s: %v\n", r.Ref, r.Err)
+				} else {
+					cmd.Printf("  %s  %s %s -> %s\n", r.Action, r.Ref, r.OldVersion, r.NewVersion)
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().String("ref", "", "specific entry ref")
+	cmd.Flags().String("market", "", "filter to market")
+	cmd.Flags().Bool("dry-run", false, "preview changes")
+	cmd.Flags().Bool("agents-only", false, "only update agents")
+	cmd.Flags().Bool("skills-only", false, "only update skills")
+	cmd.Flags().Bool("all-keep", false, "keep all local changes")
+	cmd.Flags().Bool("all-delete", false, "delete all local changes")
+	cmd.Flags().Bool("all-merge", false, "merge all changes")
+	cmd.Flags().Bool("accept-breaking", false, "accept breaking changes")
+	return cmd
+}
+
+func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Refresh and update in one step",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			market, _ := cmd.Flags().GetString("market")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			acceptBreaking, _ := cmd.Flags().GetBool("accept-breaking")
+			allMerge, _ := cmd.Flags().GetBool("all-merge")
+			results, err := svc.Sync.Sync(service.SyncOpts{
+				Market:         market,
+				DryRun:         dryRun,
+				CI:             opts.CI,
+				AcceptBreaking: acceptBreaking,
+				AllMerge:       allMerge,
+			})
+			if err != nil {
+				return err
+			}
+			for _, r := range results {
+				if r.Refresh.Err != nil {
+					cmd.PrintErrf("  x  %s: %v\n", r.Refresh.Market, r.Refresh.Err)
+				} else {
+					cmd.Printf("  up  %s %s -> %s\n", r.Refresh.Market, r.Refresh.OldSHA[:7], r.Refresh.NewSHA[:7])
+				}
+				for _, u := range r.Updates {
+					cmd.Printf("     %s  %s\n", u.Action, u.Ref)
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().String("market", "", "filter to market")
+	cmd.Flags().Bool("dry-run", false, "preview changes")
+	cmd.Flags().Bool("accept-breaking", false, "accept breaking changes")
+	cmd.Flags().Bool("all-merge", false, "merge all changes")
+	return cmd
+}
+
+func newCheckCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "check",
+		Short: "Show status of installed entries",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			market, _ := cmd.Flags().GetString("market")
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			statuses, err := svc.Sync.Check(service.CheckOpts{
+				Market: market,
+				JSON:   jsonOut,
+				CI:     opts.CI,
+			})
+			if err != nil {
+				return err
+			}
+			indicators := map[domain.EntryState]string{
+				domain.StateClean:           "ok",
+				domain.StateUpdateAvailable: "up",
+				domain.StateDrift:           "~",
+				domain.StateUpdateAndDrift:  "!",
+				domain.StateDeleted:         "x",
+				domain.StateNewInRegistry:   "+",
+				domain.StateOrphaned:        "o",
+				domain.StateUnknown:         "?",
+			}
+			for _, s := range statuses {
+				ind := indicators[s.State]
+				cmd.Printf("  %s  %s\n", ind, s.Ref)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().String("market", "", "filter to market")
+	cmd.Flags().Bool("short", false, "one-line summary")
+	cmd.Flags().Bool("json", false, "JSON output")
+	return cmd
+}
+
+func newStatusCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := newCheckCmd(svc, opts)
+	cmd.Use = "status"
+	cmd.Short = "Show status of installed entries (alias for check)"
+	return cmd
+}
+
+func newAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add <ref>",
+		Short: "Install an entry from a market",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pin, _ := cmd.Flags().GetString("pin")
+			noDeps, _ := cmd.Flags().GetBool("no-deps")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			acceptBreaking, _ := cmd.Flags().GetBool("accept-breaking")
+			ref := domain.MctRef(args[0])
+			err := svc.Entries.Add(ref, service.AddOpts{
+				Pin:            pin,
+				NoDeps:         noDeps,
+				DryRun:         dryRun,
+				AcceptBreaking: acceptBreaking,
+			})
+			if err != nil {
+				return err
+			}
+			cmd.Printf("  ok  installed %s\n", ref)
+			return nil
+		},
+	}
+	cmd.Flags().String("pin", "", "pin to specific SHA")
+	cmd.Flags().Bool("no-deps", false, "skip dependency resolution")
+	cmd.Flags().Bool("dry-run", false, "preview install")
+	cmd.Flags().Bool("accept-breaking", false, "accept breaking changes")
+	return cmd
+}
+
+func newInstallCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := newAddCmd(svc, opts)
+	cmd.Use = "install <ref>"
+	cmd.Short = "Install an entry from a market (alias for add)"
+	return cmd
+}
+
+func newRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "remove",
+		Short: "Remove an installed entry",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ref, _ := cmd.Flags().GetString("ref")
+			return svc.Entries.Remove(domain.MctRef(ref))
+		},
+	}
+	cmd.Flags().String("ref", "", "entry ref to remove")
+	cmd.MarkFlagRequired("ref")
+	return cmd
+}
+
+func newPruneCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "prune",
+		Short: "Process deleted entries",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ref, _ := cmd.Flags().GetString("ref")
+			allKeep, _ := cmd.Flags().GetBool("all-keep")
+			allRemove, _ := cmd.Flags().GetBool("all-remove")
+			results, err := svc.Entries.Prune(service.PruneOpts{
+				Ref:       domain.MctRef(ref),
+				AllKeep:   allKeep,
+				AllRemove: allRemove,
+			})
+			if err != nil {
+				return err
+			}
+			for _, r := range results {
+				cmd.Printf("  %s  %s\n", r.Action, r.Ref)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().String("ref", "", "specific entry ref")
+	cmd.Flags().Bool("all-keep", false, "keep all deleted entries")
+	cmd.Flags().Bool("all-remove", false, "remove all deleted entries")
+	return cmd
+}
+
+func newPinCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "pin",
+		Short: "Pin entry to specific version",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ref, _ := cmd.Flags().GetString("ref")
+			sha, _ := cmd.Flags().GetString("sha")
+			return svc.Entries.Pin(domain.MctRef(ref), sha)
+		},
+	}
+	cmd.Flags().String("ref", "", "entry ref")
+	cmd.Flags().String("sha", "", "commit SHA to pin to")
+	cmd.MarkFlagRequired("ref")
+	cmd.MarkFlagRequired("sha")
+	return cmd
+}
+
+func newDiffCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "diff",
+		Short: "Open difftool for an entry",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ref, _ := cmd.Flags().GetString("ref")
+			return svc.Entries.Diff(domain.MctRef(ref))
+		},
+	}
+	cmd.Flags().String("ref", "", "entry ref")
+	cmd.MarkFlagRequired("ref")
+	return cmd
+}
+
+func newSearchCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Search entries across all markets",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			limit, _ := cmd.Flags().GetInt("limit")
+			market, _ := cmd.Flags().GetString("market")
+			entryType, _ := cmd.Flags().GetString("type")
+			category, _ := cmd.Flags().GetString("category")
+			installed, _ := cmd.Flags().GetBool("installed")
+			notInstalled, _ := cmd.Flags().GetBool("not-installed")
+			includeDeleted, _ := cmd.Flags().GetBool("include-deleted")
+			jsonOut, _ := cmd.Flags().GetBool("json")
+
+			results, err := svc.Search.Search(args[0], service.SearchOpts{
+				Type:           domain.EntryType(entryType),
+				Market:         market,
+				Category:       category,
+				Installed:      installed,
+				NotInstalled:   notInstalled,
+				IncludeDeleted: includeDeleted,
+				Limit:          limit,
+				JSON:           jsonOut,
+			})
+			if err != nil {
+				return err
+			}
+
+			cmd.Printf("\n  %d results\n\n", len(results))
+			for i, r := range results {
+				indicator := " "
+				if r.Entry.Installed {
+					indicator = "ok"
+				}
+				cmd.Printf("  %d  %s  %s  %s  %s  score: %.1f\n",
+					i+1, r.Entry.Ref, r.Entry.Type, r.Entry.Version, indicator, r.Score)
+				cmd.Printf("     %s\n", r.Entry.Description)
+				if len(r.Entry.MctTags) > 0 {
+					cmd.Printf("     Tags: %s\n", strings.Join(r.Entry.MctTags, ", "))
+				}
+				if !r.Entry.Installed {
+					cmd.Printf("     mct add %s\n", r.Entry.Ref)
+				}
+				cmd.Println()
+			}
+			return nil
+		},
+	}
+	cmd.Flags().Int("limit", 10, "max results")
+	cmd.Flags().String("type", "", "filter by type (agent|skill)")
+	cmd.Flags().String("market", "", "filter by market")
+	cmd.Flags().String("category", "", "filter by category")
+	cmd.Flags().Bool("installed", false, "only installed")
+	cmd.Flags().Bool("not-installed", false, "only not installed")
+	cmd.Flags().Bool("include-deleted", false, "include deleted entries")
+	cmd.Flags().Bool("json", false, "JSON output")
+	return cmd
+}
+
+func newListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all installed entries",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			entries, err := svc.Entries.List(service.ListOpts{Installed: true})
+			if err != nil {
+				return err
+			}
+			for _, e := range entries {
+				cmd.Printf("  %s  %s  %s  %s\n", e.Ref, e.Type, e.Version, e.Market)
+			}
+			return nil
+		},
+	}
+}
+
+func newMarketsCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	return &cobra.Command{
+		Use:   "markets",
+		Short: "List configured markets (alias for market list)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			markets, err := svc.Markets.ListMarkets()
+			if err != nil {
+				return err
+			}
+			for _, m := range markets {
+				status := "rw"
+				if m.ReadOnly {
+					status = "ro"
+				}
+				cmd.Printf("  %s  %-20s  %s\n", status, m.Name, m.URL)
+			}
+			return nil
+		},
+	}
+}
+
+func newConflictsCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	return &cobra.Command{
+		Use:   "conflicts",
+		Short: "Show all conflicts",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			conflicts, err := svc.Entries.Conflicts()
+			if err != nil {
+				return err
+			}
+			if len(conflicts) == 0 {
+				cmd.Println("  No conflicts")
+				return nil
+			}
+			for _, c := range conflicts {
+				cmd.Printf("  %s [%s]  %s\n", c.Severity, c.Type, c.Description)
+			}
+			return nil
+		},
+	}
+}
+
+func newSyncStateCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	return &cobra.Command{
+		Use:   "sync-state",
+		Short: "Print sync state",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			state, err := svc.Sync.SyncState()
+			if err != nil {
+				return err
+			}
+			for name, ms := range state.Markets {
+				cmd.Printf("  %s: %s (%s) synced %s\n", name, ms.LastSyncedSHA[:7], ms.Status, ms.LastSyncedAt.Format("2006-01-02 15:04"))
+			}
+			return nil
+		},
+	}
+}
+
+func newIndexCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "index",
+		Short: "Index operations",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			bench, _ := cmd.Flags().GetBool("bench")
+			dump, _ := cmd.Flags().GetBool("dump")
+
+			if bench {
+				r, err := svc.Search.BenchIndex()
+				if err != nil {
+					return err
+				}
+				cmd.Printf("  entries:  %d\n", r.Entries)
+				cmd.Printf("  vocab:    %d terms\n", r.Vocab)
+				cmd.Printf("  scan:     %s\n", r.Scan)
+				cmd.Printf("  index:    %s\n", r.Index)
+				cmd.Printf("  total:    %s\n", r.Total)
+				return nil
+			}
+
+			if dump {
+				entries, err := svc.Search.DumpIndex()
+				if err != nil {
+					return err
+				}
+				data, _ := json.MarshalIndent(entries, "", "  ")
+				cmd.Println(string(data))
+				return nil
+			}
+
+			return fmt.Errorf("use --bench or --dump")
+		},
+	}
+	cmd.Flags().Bool("dump", false, "dump index as JSON")
+	cmd.Flags().Bool("bench", false, "measure indexing time")
+	return cmd
+}
+
+func newInitCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	return &cobra.Command{
+		Use:   "init",
+		Short: "Initialize mct in current project",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return svc.Entries.Init(service.InitOpts{
+				LocalPath: ".claude/",
+				CI:        opts.CI,
+			})
+		},
+	}
+}

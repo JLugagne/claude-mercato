@@ -1,0 +1,497 @@
+package app
+
+import (
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+)
+
+type DiffInfo struct {
+	LeftPath  string
+	RightPath string
+	Tool      string
+}
+
+func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
+	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var entries []domain.Entry
+	for ref, ce := range checksums.Entries {
+		if ce == nil {
+			continue
+		}
+		entry := checksumEntryToDomainEntry(ref, ce)
+
+		if opts.Market != "" && ref.Market() != opts.Market {
+			continue
+		}
+		if opts.Type != "" && entry.Type != opts.Type {
+			continue
+		}
+		if opts.Installed && !entry.Installed {
+			continue
+		}
+
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+func (a *App) ReadEntryContent(market, relPath string) ([]byte, error) {
+	cfg, err := a.cfg.Load(a.configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	mc := findMarketConfig(cfg, market)
+	if mc == nil {
+		return nil, domain.ErrMarketNotFound
+	}
+
+	clonePath := filepath.Join(a.cacheDir, market)
+	return a.git.ReadFileAtRef(clonePath, mc.Branch, relPath, "HEAD")
+}
+
+func (a *App) GetEntry(ref domain.MctRef) (domain.Entry, error) {
+	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	if err != nil {
+		return domain.Entry{}, err
+	}
+
+	ce, ok := checksums.Entries[ref]
+	if !ok || ce == nil {
+		return domain.Entry{}, domain.ErrEntryNotFound
+	}
+
+	return checksumEntryToDomainEntry(ref, ce), nil
+}
+
+func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
+	marketName, relPath, err := ref.Parse()
+	if err != nil {
+		return err
+	}
+
+	cfg, err := a.cfg.Load(a.configPath)
+	if err != nil {
+		return err
+	}
+
+	mc := findMarketConfig(cfg, marketName)
+	if mc == nil {
+		return domain.ErrMarketNotFound
+	}
+
+	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	if err != nil {
+		return err
+	}
+	if existing, ok := checksums.Entries[ref]; ok && existing != nil {
+		return domain.ErrEntryAlreadyInstalled
+	}
+
+	clonePath := filepath.Join(a.cacheDir, marketName)
+
+	content, err := a.git.ReadFileAtRef(clonePath, mc.Branch, relPath, "HEAD")
+	if err != nil {
+		return err
+	}
+
+	fm, err := domain.ParseFrontmatter(content)
+	if err != nil {
+		return domain.ErrInvalidFrontmatter.Wrap(err)
+	}
+
+	if fm.MctRef != "" || fm.MctVersion != "" || fm.MctMarket != "" {
+		return domain.ErrMctFieldsInRepo
+	}
+
+	if err := validateEntryType(fm.Type, relPath); err != nil {
+		return err
+	}
+
+	version, err := a.git.FileVersion(clonePath, relPath)
+	if err != nil {
+		return err
+	}
+
+	if opts.DryRun {
+		return nil
+	}
+
+	injected, err := domain.InjectMctFields(content, ref, version, marketName)
+	if err != nil {
+		return err
+	}
+
+	localPath := a.resolveLocalPath(cfg, relPath)
+
+	if err := a.fs.WriteFile(localPath, injected); err != nil {
+		return err
+	}
+
+	checksum := a.fs.MD5Checksum(injected)
+
+	ce := domain.ChecksumEntry{
+		LocalPath:         localPath,
+		MctRef:            ref,
+		MctVersion:        version,
+		InstalledAt:       time.Now().UTC(),
+		ChecksumAtInstall: checksum,
+		Status:            "clean",
+	}
+	if err := a.state.UpdateChecksum(a.cacheDir, ref, ce); err != nil {
+		return err
+	}
+
+	ec := domain.EntryConfig{
+		Ref: ref,
+		Pin: opts.Pin,
+	}
+	if err := a.cfg.AddEntry(a.configPath, ec); err != nil {
+		return err
+	}
+
+	if !opts.NoDeps && len(fm.RequiresSkills) > 0 {
+		for _, dep := range fm.RequiresSkills {
+			skillRef := domain.MctRef(marketName + "/" + dep.File)
+
+			existing, ok := checksums.Entries[skillRef]
+			if ok && existing != nil {
+				continue
+			}
+
+			depOpts := service.AddOpts{
+				NoDeps: true,
+				Pin:    dep.Pin,
+			}
+			if err := a.Add(skillRef, depOpts); err != nil {
+				return err
+			}
+
+			managedSkill := domain.ManagedSkillConfig{
+				Ref:        skillRef,
+				ManagedBy:  ref,
+				MctVersion: version,
+			}
+			if err := a.cfg.AddManagedSkill(a.configPath, managedSkill); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (a *App) Remove(ref domain.MctRef) error {
+	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	if err != nil {
+		return err
+	}
+
+	ce, ok := checksums.Entries[ref]
+	if !ok || ce == nil {
+		return domain.ErrEntryNotInstalled
+	}
+
+	if err := a.fs.DeleteFile(ce.LocalPath); err != nil {
+		return err
+	}
+
+	if err := a.state.RemoveChecksum(a.cacheDir, ref); err != nil {
+		return err
+	}
+
+	if err := a.cfg.RemoveEntry(a.configPath, ref); err != nil {
+		return err
+	}
+
+	if err := a.cfg.RemoveManagedSkill(a.configPath, ref); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (a *App) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
+	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var tombstoned []domain.MctRef
+	for ref, ce := range checksums.Entries {
+		if ce == nil {
+			continue
+		}
+		if ce.Status == "deleted" {
+			tombstoned = append(tombstoned, ref)
+		}
+	}
+
+	var results []service.PruneResult
+
+	for _, ref := range tombstoned {
+		ce := checksums.Entries[ref]
+
+		if opts.AllKeep {
+			ce.Status = "kept"
+			if err := a.state.UpdateChecksum(a.cacheDir, ref, *ce); err != nil {
+				results = append(results, service.PruneResult{Ref: ref, Action: "keep", Err: err})
+				continue
+			}
+			results = append(results, service.PruneResult{Ref: ref, Action: "kept"})
+		} else if opts.AllRemove {
+			if err := a.fs.DeleteFile(ce.LocalPath); err != nil {
+				results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
+				continue
+			}
+			if err := a.state.RemoveChecksum(a.cacheDir, ref); err != nil {
+				results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
+				continue
+			}
+			if err := a.cfg.RemoveEntry(a.configPath, ref); err != nil {
+				results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
+				continue
+			}
+			results = append(results, service.PruneResult{Ref: ref, Action: "removed"})
+		}
+	}
+
+	return results, nil
+}
+
+func (a *App) Pin(ref domain.MctRef, sha string) error {
+	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	if err != nil {
+		return err
+	}
+
+	ce, ok := checksums.Entries[ref]
+	if !ok || ce == nil {
+		return domain.ErrEntryNotInstalled
+	}
+
+	return a.cfg.SetEntryPin(a.configPath, ref, sha)
+}
+
+func (a *App) Diff(ref domain.MctRef) error {
+	_, _, _, err := a.PrepareDiff(ref)
+	return err
+}
+
+func (a *App) PrepareDiff(ref domain.MctRef) (leftTmpPath, rightPath, tool string, err error) {
+	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	ce, ok := checksums.Entries[ref]
+	if !ok || ce == nil {
+		return "", "", "", domain.ErrEntryNotFound
+	}
+
+	marketName, relPath, err := ref.Parse()
+	if err != nil {
+		return "", "", "", err
+	}
+
+	cfg, err := a.cfg.Load(a.configPath)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	marketCfg := findMarketConfig(cfg, marketName)
+	if marketCfg == nil {
+		return "", "", "", domain.ErrMarketNotFound
+	}
+
+	clonePath := filepath.Join(a.cacheDir, marketName)
+	registryContent, err := a.git.ReadFileAtRef(clonePath, marketCfg.Branch, relPath, "HEAD")
+	if err != nil {
+		return "", "", "", err
+	}
+
+	filename := filepath.Base(relPath)
+	tmpPath, err := a.fs.TempFile(filename, registryContent)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	resolvedTool := resolveDifftool(cfg.Difftool, a.git)
+
+	return tmpPath, ce.LocalPath, resolvedTool, nil
+}
+
+func (a *App) Init(opts service.InitOpts) error {
+	localPath := opts.LocalPath
+	if localPath == "" {
+		localPath = "."
+	}
+
+	if err := a.fs.MkdirAll(a.cacheDir); err != nil {
+		return err
+	}
+
+	cfg := domain.Config{
+		LocalPath: localPath,
+		Markets:   []domain.MarketConfig{},
+		Entries:   []domain.EntryConfig{},
+	}
+
+	for name, url := range opts.Markets {
+		clonePath := filepath.Join(a.cacheDir, name)
+		if err := a.git.Clone(url, clonePath); err != nil {
+			return err
+		}
+		mc := domain.MarketConfig{
+			Name:   name,
+			URL:    url,
+			Branch: "main",
+		}
+		cfg.Markets = append(cfg.Markets, mc)
+
+		sha, err := a.git.RemoteHEAD(clonePath, "main")
+		if err != nil {
+			return err
+		}
+		if err := a.state.SetMarketSyncClean(a.cacheDir, name, sha); err != nil {
+			return err
+		}
+	}
+
+	checksums := domain.ChecksumState{
+		Version: 1,
+		Entries: make(map[domain.MctRef]*domain.ChecksumEntry),
+	}
+
+	agentsDir := filepath.Join(localPath, "agents")
+	skillsDir := filepath.Join(localPath, "skills")
+
+	for _, dir := range []string{agentsDir, skillsDir} {
+		if !a.fs.DirExists(dir) {
+			continue
+		}
+		files, err := listMdFiles(a.fs, dir)
+		if err != nil {
+			continue
+		}
+		for _, filePath := range files {
+			content, err := a.fs.ReadFile(filePath)
+			if err != nil {
+				continue
+			}
+			fm, err := domain.ParseFrontmatter(content)
+			if err != nil {
+				continue
+			}
+			if fm.MctRef == "" {
+				continue
+			}
+			checksum := a.fs.MD5Checksum(content)
+			ce := &domain.ChecksumEntry{
+				LocalPath:         filePath,
+				MctRef:            fm.MctRef,
+				MctVersion:        fm.MctVersion,
+				InstalledAt:       time.Now().UTC(),
+				ChecksumAtInstall: checksum,
+				Status:            "clean",
+			}
+			checksums.Entries[fm.MctRef] = ce
+			cfg.Entries = append(cfg.Entries, domain.EntryConfig{Ref: fm.MctRef})
+		}
+	}
+
+	if err := a.state.SaveChecksums(a.cacheDir, checksums); err != nil {
+		return err
+	}
+
+	if err := a.cfg.Save(a.configPath, cfg); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (a *App) resolveLocalPath(cfg domain.Config, relPath string) string {
+	filename := filepath.Base(relPath)
+	parts := strings.Split(relPath, "/")
+	for _, p := range parts {
+		if p == "agents" || p == "skills" {
+			return filepath.Join(cfg.LocalPath, p, filename)
+		}
+	}
+	return filepath.Join(cfg.LocalPath, filename)
+}
+
+func checksumEntryToDomainEntry(ref domain.MctRef, ce *domain.ChecksumEntry) domain.Entry {
+	marketName := ref.Market()
+	relPath := ref.RelPath()
+	entryType := inferEntryType(relPath)
+
+	return domain.Entry{
+		Ref:       ref,
+		Market:    marketName,
+		RelPath:   relPath,
+		Filename:  filepath.Base(relPath),
+		Type:      entryType,
+		Version:   ce.MctVersion,
+		Installed: ce.Status != "orphaned" && ce.Status != "deleted",
+		Deleted:   ce.Status == "deleted",
+	}
+}
+
+func inferEntryType(relPath string) domain.EntryType {
+	parts := strings.Split(relPath, "/")
+	for _, p := range parts {
+		switch p {
+		case "agents":
+			return domain.EntryTypeAgent
+		case "skills":
+			return domain.EntryTypeSkill
+		}
+	}
+	return ""
+}
+
+func validateEntryType(t domain.EntryType, relPath string) error {
+	parts := strings.Split(relPath, "/")
+	for _, p := range parts {
+		switch p {
+		case "agents":
+			if t != domain.EntryTypeAgent {
+				return domain.ErrInvalidEntryType
+			}
+			return nil
+		case "skills":
+			if t != domain.EntryTypeSkill {
+				return domain.ErrInvalidEntryType
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+
+func resolveDifftool(configuredTool string, git interface{ ReadGlobalDifftool() (string, error) }) string {
+	if configuredTool != "" {
+		return configuredTool
+	}
+	if tool, err := git.ReadGlobalDifftool(); err == nil && tool != "" {
+		return tool
+	}
+	return "diff"
+}
+
+func listMdFiles(fs interface {
+	ListFiles(dir, suffix string) ([]string, error)
+}, dir string) ([]string, error) {
+	return fs.ListFiles(dir, ".md")
+}
