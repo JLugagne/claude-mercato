@@ -56,7 +56,7 @@ func newExportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			// Entries: group by profile (market/seg1/seg2), only installed ones
 			profiles := make(map[string]struct{})
 			for _, e := range installed {
-				profiles[entryProfile(string(e.Ref))] = struct{}{}
+				profiles[e.Profile] = struct{}{}
 			}
 
 			// Markets: only those referenced by installed entries
@@ -270,18 +270,6 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Flags().Bool("json", false, "JSON output")
 	cmd.Flags().Bool("yes", false, "automatically confirm adding markets not registered locally")
 	return cmd
-}
-
-// entryProfile extracts the profile portion from a full ref.
-// "market/seg1/seg2/agents/foo.md" -> "market/seg1/seg2"
-func entryProfile(ref string) string {
-	parts := strings.Split(ref, "/")
-	// ref = market / profile1 / profile2 / (agents|skills) / file.md
-	// profile = first 3 segments (market + 2 profile segments)
-	if len(parts) >= 3 {
-		return strings.Join(parts[:3], "/")
-	}
-	return ref
 }
 
 // normalizeMarketURL normalizes a git URL for comparison.

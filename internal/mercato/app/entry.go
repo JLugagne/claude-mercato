@@ -42,6 +42,7 @@ func (a *App) scanInstalledEntries(cfg domain.Config) (domain.ChecksumState, err
 				LocalPath:         filePath,
 				MctRef:            fm.MctRef,
 				MctVersion:        fm.MctVersion,
+				MctProfile:        fm.MctProfile,
 				InstalledAt:       fm.MctInstalledAt,
 				ChecksumAtInstall: fm.MctChecksum,
 			}
@@ -139,6 +140,16 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 	if err != nil {
 		return err
 	}
+
+	if isProfileRef(relPath) {
+		opts.Profile = string(ref)
+		return a.addProfile(marketName, relPath, mc, installed, opts)
+	}
+
+	if opts.Profile == "" {
+		opts.Profile = refProfile(ref)
+	}
+
 	if existing, ok := installed.Entries[ref]; ok && existing != nil {
 		return domain.ErrEntryAlreadyInstalled
 	}
@@ -159,10 +170,6 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 		return domain.ErrMctFieldsInRepo
 	}
 
-	if err := validateEntryType(fm.Type, relPath); err != nil {
-		return err
-	}
-
 	version, err := a.git.FileVersion(clonePath, relPath)
 	if err != nil {
 		return err
@@ -174,7 +181,7 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 
 	checksum := a.fs.MD5Checksum(content)
 
-	injected, err := domain.InjectMctFields(content, ref, version, marketName, checksum)
+	injected, err := domain.InjectMctFields(content, ref, version, marketName, checksum, opts.Profile)
 	if err != nil {
 		return err
 	}
@@ -185,14 +192,6 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 	}
 
 	if err := a.fs.WriteFile(localPath, injected); err != nil {
-		return err
-	}
-
-	ec := domain.EntryConfig{
-		Ref: ref,
-		Pin: opts.Pin,
-	}
-	if err := a.cfg.AddEntry(a.configPath, ec); err != nil {
 		return err
 	}
 
@@ -207,24 +206,69 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 
 			depOpts := service.AddOpts{
 				NoDeps: true,
-				Pin:    dep.Pin,
 			}
 			if err := a.Add(skillRef, depOpts); err != nil {
-				return err
-			}
-
-			managedSkill := domain.ManagedSkillConfig{
-				Ref:        skillRef,
-				ManagedBy:  ref,
-				MctVersion: version,
-			}
-			if err := a.cfg.AddManagedSkill(a.configPath, managedSkill); err != nil {
 				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+func (a *App) addProfile(
+	marketName, relPath string,
+	mc *domain.MarketConfig,
+	installed domain.ChecksumState,
+	opts service.AddOpts,
+) error {
+	clonePath := filepath.Join(a.cacheDir, marketName)
+	mfiles, err := a.git.ReadMarketFiles(clonePath, mc.Branch)
+	if err != nil {
+		return err
+	}
+
+	prefix := relPath + "/"
+	installedCount := 0
+	skippedCount := 0
+
+	for _, mf := range mfiles {
+		if !strings.HasPrefix(mf.Path, prefix) {
+			continue
+		}
+		if isReadme(mf.Path) {
+			continue
+		}
+		fileRef := domain.MctRef(marketName + "/" + mf.Path)
+		if existing, ok := installed.Entries[fileRef]; ok && existing != nil {
+			skippedCount++
+			continue
+		}
+		if err := a.Add(fileRef, opts); err != nil {
+			return err
+		}
+		installedCount++
+	}
+
+	if installedCount == 0 && skippedCount > 0 {
+		return domain.ErrEntryAlreadyInstalled
+	}
+	return nil
+}
+
+// isProfileRef returns true when relPath is a profile directory path
+// (e.g. "dev/go-hexagonal") rather than a concrete file path.
+// A profile path never ends in ".md" and has no "agents" or "skills" segment.
+func isProfileRef(relPath string) bool {
+	if strings.HasSuffix(relPath, ".md") {
+		return false
+	}
+	for _, seg := range strings.Split(relPath, "/") {
+		if seg == "agents" || seg == "skills" {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *App) Remove(ref domain.MctRef) error {
@@ -243,19 +287,7 @@ func (a *App) Remove(ref domain.MctRef) error {
 		return domain.ErrEntryNotInstalled
 	}
 
-	if err := a.deleteEntryFile(ce.LocalPath); err != nil {
-		return err
-	}
-
-	if err := a.cfg.RemoveEntry(a.configPath, ref); err != nil {
-		return err
-	}
-
-	if err := a.cfg.RemoveManagedSkill(a.configPath, ref); err != nil {
-		return err
-	}
-
-	return nil
+	return a.deleteEntryFile(ce.LocalPath)
 }
 
 func (a *App) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
@@ -294,33 +326,11 @@ func (a *App) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
 				results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
 				continue
 			}
-			if err := a.cfg.RemoveEntry(a.configPath, ref); err != nil {
-				results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
-				continue
-			}
 			results = append(results, service.PruneResult{Ref: ref, Action: "removed"})
 		}
 	}
 
 	return results, nil
-}
-
-func (a *App) Pin(ref domain.MctRef, sha string) error {
-	cfg, err := a.cfg.Load(a.configPath)
-	if err != nil {
-		return err
-	}
-
-	installed, err := a.scanInstalledEntries(cfg)
-	if err != nil {
-		return err
-	}
-
-	if _, ok := installed.Entries[ref]; !ok {
-		return domain.ErrEntryNotInstalled
-	}
-
-	return a.cfg.SetEntryPin(a.configPath, ref, sha)
 }
 
 func (a *App) Diff(ref domain.MctRef) error {
@@ -384,7 +394,6 @@ func (a *App) Init(opts service.InitOpts) error {
 	cfg := domain.Config{
 		LocalPath: localPath,
 		Markets:   []domain.MarketConfig{},
-		Entries:   []domain.EntryConfig{},
 	}
 
 	for name, url := range opts.Markets {
@@ -405,33 +414,6 @@ func (a *App) Init(opts service.InitOpts) error {
 		}
 		if err := a.state.SetMarketSyncClean(a.cacheDir, name, sha); err != nil {
 			return err
-		}
-	}
-
-	agentsDir := filepath.Join(localPath, "agents")
-	skillsDir := filepath.Join(localPath, "skills")
-
-	for _, dir := range []string{agentsDir, skillsDir} {
-		if !fsrepo.DirExists(a.fs, dir) {
-			continue
-		}
-		files, err := listMdFiles(a.fs, dir)
-		if err != nil {
-			continue
-		}
-		for _, filePath := range files {
-			content, err := a.fs.ReadFile(filePath)
-			if err != nil {
-				continue
-			}
-			fm, err := domain.ParseFrontmatter(content)
-			if err != nil {
-				continue
-			}
-			if fm.MctRef == "" {
-				continue
-			}
-			cfg.Entries = append(cfg.Entries, domain.EntryConfig{Ref: fm.MctRef})
 		}
 	}
 
@@ -470,6 +452,11 @@ func checksumEntryToDomainEntry(ref domain.MctRef, ce *domain.ChecksumEntry) dom
 	relPath := ref.RelPath()
 	entryType := inferEntryType(relPath)
 
+	profile := ce.MctProfile
+	if profile == "" {
+		profile = refProfile(ref)
+	}
+
 	return domain.Entry{
 		Ref:       ref,
 		Market:    marketName,
@@ -477,8 +464,20 @@ func checksumEntryToDomainEntry(ref domain.MctRef, ce *domain.ChecksumEntry) dom
 		Filename:  filepath.Base(relPath),
 		Type:      entryType,
 		Version:   ce.MctVersion,
+		Profile:   profile,
 		Installed: true,
 	}
+}
+
+// refProfile extracts the profile portion from a full ref.
+// "market/seg1/seg2/agents/foo.md" -> "market/seg1/seg2"
+// Falls back to "market" if there are fewer than 3 segments.
+func refProfile(ref domain.MctRef) string {
+	parts := strings.Split(string(ref), "/")
+	if len(parts) >= 3 {
+		return strings.Join(parts[:3], "/")
+	}
+	return parts[0]
 }
 
 func inferEntryType(relPath string) domain.EntryType {
@@ -494,24 +493,6 @@ func inferEntryType(relPath string) domain.EntryType {
 	return ""
 }
 
-func validateEntryType(t domain.EntryType, relPath string) error {
-	parts := strings.Split(relPath, "/")
-	for _, p := range parts {
-		switch p {
-		case "agents":
-			if t != domain.EntryTypeAgent {
-				return domain.ErrInvalidEntryType
-			}
-			return nil
-		case "skills":
-			if t != domain.EntryTypeSkill {
-				return domain.ErrInvalidEntryType
-			}
-			return nil
-		}
-	}
-	return nil
-}
 
 func resolveDifftool(configuredTool string, git interface{ ReadGlobalDifftool() (string, error) }) string {
 	if configuredTool != "" {

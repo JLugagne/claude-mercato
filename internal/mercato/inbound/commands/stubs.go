@@ -196,14 +196,12 @@ func newAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 		Short: "Install an entry from a market",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pin, _ := cmd.Flags().GetString("pin")
 			noDeps, _ := cmd.Flags().GetBool("no-deps")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			acceptBreaking, _ := cmd.Flags().GetBool("accept-breaking")
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			ref := domain.MctRef(args[0])
 			err := svc.Entries.Add(ref, service.AddOpts{
-				Pin:            pin,
 				NoDeps:         noDeps,
 				DryRun:         dryRun,
 				AcceptBreaking: acceptBreaking,
@@ -218,7 +216,6 @@ func newAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("pin", "", "pin to specific SHA")
 	cmd.Flags().Bool("no-deps", false, "skip dependency resolution")
 	cmd.Flags().Bool("dry-run", false, "preview install")
 	cmd.Flags().Bool("accept-breaking", false, "accept breaking changes")
@@ -354,23 +351,6 @@ func newPruneCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Flags().Bool("all-keep", false, "keep all deleted entries")
 	cmd.Flags().Bool("all-remove", false, "remove all deleted entries")
 	cmd.Flags().Bool("json", false, "JSON output")
-	return cmd
-}
-
-func newPinCmd(svc Services, opts *GlobalOpts) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "pin",
-		Short: "Pin entry to specific version",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ref, _ := cmd.Flags().GetString("ref")
-			sha, _ := cmd.Flags().GetString("sha")
-			return svc.Entries.Pin(domain.MctRef(ref), sha)
-		},
-	}
-	cmd.Flags().String("ref", "", "entry ref")
-	cmd.Flags().String("sha", "", "commit SHA to pin to")
-	cmd.MarkFlagRequired("ref")
-	cmd.MarkFlagRequired("sha")
 	return cmd
 }
 

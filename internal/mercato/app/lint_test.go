@@ -36,8 +36,8 @@ func TestLintMarket_EmptyDir(t *testing.T) {
 func TestLintMarket_ValidProfile(t *testing.T) {
 	fsys := fstest.MapFS{
 		"dev/go/README.md":     {Data: []byte("---\ntags:\n  - golang\ndescription: Go tools\n---\n# README\n")},
-		"dev/go/agents/foo.md": {Data: []byte("---\ntype: agent\ndescription: test\n---\n# foo\n")},
-		"dev/go/skills/bar.md": {Data: []byte("---\ntype: skill\ndescription: test\n---\n# bar\n")},
+		"dev/go/agents/foo.md": {Data: []byte("---\ndescription: test\n---\n# foo\n")},
+		"dev/go/skills/bar.md": {Data: []byte("---\ndescription: test\n---\n# bar\n")},
 	}
 	a := newLintTestApp()
 	result, err := a.LintMarket(fsys, ".")
@@ -60,7 +60,7 @@ func TestLintMarket_ValidProfile(t *testing.T) {
 
 func TestLintMarket_MissingReadme(t *testing.T) {
 	fsys := fstest.MapFS{
-		"dev/go/agents/foo.md": {Data: []byte("---\ntype: agent\ndescription: test\n---\n# foo\n")},
+		"dev/go/agents/foo.md": {Data: []byte("---\ndescription: test\n---\n# foo\n")},
 	}
 	a := newLintTestApp()
 	result, err := a.LintMarket(fsys, ".")
@@ -99,7 +99,7 @@ func TestLintMarket_BadFrontmatter(t *testing.T) {
 }
 
 func TestLintMarket_MissingSkillDep(t *testing.T) {
-	agentContent := []byte("---\ntype: agent\ndescription: test\nrequires_skills:\n  - file: dev/go/skills/missing.md\n---\n# agent\n")
+	agentContent := []byte("---\ndescription: test\nrequires_skills:\n  - file: dev/go/skills/missing.md\n---\n# agent\n")
 	fsys := fstest.MapFS{
 		"dev/go/README.md":     {Data: []byte("---\ntags:\n  - golang\n---\n# README\n")},
 		"dev/go/agents/foo.md": {Data: agentContent},
@@ -123,7 +123,7 @@ func TestLintMarket_MissingSkillDep(t *testing.T) {
 func TestLintMarket_ReadmeNoTags(t *testing.T) {
 	fsys := fstest.MapFS{
 		"dev/go/README.md":     {Data: []byte("---\ndescription: no tags here\n---\n# README\n")},
-		"dev/go/agents/foo.md": {Data: []byte("---\ntype: agent\ndescription: test\n---\n# foo\n")},
+		"dev/go/agents/foo.md": {Data: []byte("---\ndescription: test\n---\n# foo\n")},
 	}
 	a := newLintTestApp()
 	result, err := a.LintMarket(fsys, ".")

@@ -139,7 +139,6 @@ type stubEntries struct {
 	addFn              func(ref domain.MctRef, opts service.AddOpts) error
 	removeFn           func(ref domain.MctRef) error
 	pruneFn            func(opts service.PruneOpts) ([]service.PruneResult, error)
-	pinFn              func(ref domain.MctRef, sha string) error
 	diffFn             func(ref domain.MctRef) error
 	initFn             func(opts service.InitOpts) error
 }
@@ -191,13 +190,6 @@ func (s *stubEntries) Prune(opts service.PruneOpts) ([]service.PruneResult, erro
 		return s.pruneFn(opts)
 	}
 	return nil, nil
-}
-
-func (s *stubEntries) Pin(ref domain.MctRef, sha string) error {
-	if s.pinFn != nil {
-		return s.pinFn(ref, sha)
-	}
-	return nil
 }
 
 func (s *stubEntries) Diff(ref domain.MctRef) error {
@@ -846,9 +838,6 @@ func TestExportToStdout(t *testing.T) {
 				Markets: []domain.MarketConfig{
 					{Name: "mkt", URL: "https://mkt.com", Branch: "main"},
 				},
-				Entries: []domain.EntryConfig{
-					{Ref: "mkt/profile/sub/agents/foo.md"},
-				},
 			}, nil
 		},
 	}
@@ -875,9 +864,6 @@ func TestExportToFile(t *testing.T) {
 			return domain.Config{
 				Markets: []domain.MarketConfig{
 					{Name: "mkt", URL: "https://mkt.com", Branch: "main"},
-				},
-				Entries: []domain.EntryConfig{
-					{Ref: "mkt/profile/sub/agents/foo.md"},
 				},
 			}, nil
 		},

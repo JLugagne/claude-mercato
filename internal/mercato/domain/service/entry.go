@@ -14,7 +14,6 @@ type EntryCommands interface {
 	Add(ref domain.MctRef, opts AddOpts) error
 	Remove(ref domain.MctRef) error
 	Prune(opts PruneOpts) ([]PruneResult, error)
-	Pin(ref domain.MctRef, sha string) error
 	Diff(ref domain.MctRef) error
 	Init(opts InitOpts) error
 }
@@ -26,7 +25,7 @@ type ListOpts struct {
 }
 
 type AddOpts struct {
-	Pin            string
+	Profile        string
 	AcceptBreaking bool
 	NoDeps         bool
 	DryRun         bool

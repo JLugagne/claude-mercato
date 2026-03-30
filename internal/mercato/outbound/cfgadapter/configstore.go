@@ -90,54 +90,6 @@ func (c *ConfigStoreAdapter) RemoveMarket(path string, name string) error {
 	return c.Save(path, cfg)
 }
 
-func (c *ConfigStoreAdapter) AddEntry(path string, entry domain.EntryConfig) error {
-	cfg, err := c.Load(path)
-	if err != nil {
-		return err
-	}
-	cfg.Entries = append(cfg.Entries, entry)
-	return c.Save(path, cfg)
-}
-
-func (c *ConfigStoreAdapter) RemoveEntry(path string, ref domain.MctRef) error {
-	cfg, err := c.Load(path)
-	if err != nil {
-		return err
-	}
-	entries := make([]domain.EntryConfig, 0, len(cfg.Entries))
-	for _, e := range cfg.Entries {
-		if e.Ref != ref {
-			entries = append(entries, e)
-		}
-	}
-	cfg.Entries = entries
-	return c.Save(path, cfg)
-}
-
-func (c *ConfigStoreAdapter) AddManagedSkill(path string, skill domain.ManagedSkillConfig) error {
-	cfg, err := c.Load(path)
-	if err != nil {
-		return err
-	}
-	cfg.ManagedSkills = append(cfg.ManagedSkills, skill)
-	return c.Save(path, cfg)
-}
-
-func (c *ConfigStoreAdapter) RemoveManagedSkill(path string, ref domain.MctRef) error {
-	cfg, err := c.Load(path)
-	if err != nil {
-		return err
-	}
-	skills := make([]domain.ManagedSkillConfig, 0, len(cfg.ManagedSkills))
-	for _, s := range cfg.ManagedSkills {
-		if s.Ref != ref {
-			skills = append(skills, s)
-		}
-	}
-	cfg.ManagedSkills = skills
-	return c.Save(path, cfg)
-}
-
 func (c *ConfigStoreAdapter) SetConfigField(path string, key string, value string) error {
 	cfg, err := c.Load(path)
 	if err != nil {
@@ -159,20 +111,6 @@ func (c *ConfigStoreAdapter) SetConfigField(path string, key string, value strin
 		return fmt.Errorf("unknown config field: %s", key)
 	}
 	return c.Save(path, cfg)
-}
-
-func (c *ConfigStoreAdapter) SetEntryPin(path string, ref domain.MctRef, pin string) error {
-	cfg, err := c.Load(path)
-	if err != nil {
-		return err
-	}
-	for i := range cfg.Entries {
-		if cfg.Entries[i].Ref == ref {
-			cfg.Entries[i].Pin = pin
-			return c.Save(path, cfg)
-		}
-	}
-	return fmt.Errorf("entry %q not found in config", ref)
 }
 
 func (c *ConfigStoreAdapter) SetMarketProperty(path string, marketName string, key string, value string) error {

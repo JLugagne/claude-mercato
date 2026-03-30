@@ -55,13 +55,10 @@ func TestExtractFrontmatterBytes(t *testing.T) {
 
 func TestParseFrontmatter(t *testing.T) {
 	t.Run("valid agent frontmatter parsed correctly", func(t *testing.T) {
-		content := makeFrontmatter("type: agent\ndescription: A test agent\nauthor: alice\nbreaking_change: true\ndeprecated: false")
+		content := makeFrontmatter("description: A test agent\nauthor: alice\nbreaking_change: true\ndeprecated: false")
 		fm, err := ParseFrontmatter(content)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
-		}
-		if fm.Type != EntryTypeAgent {
-			t.Errorf("expected type %q, got %q", EntryTypeAgent, fm.Type)
 		}
 		if fm.Description != "A test agent" {
 			t.Errorf("expected description %q, got %q", "A test agent", fm.Description)
@@ -78,7 +75,7 @@ func TestParseFrontmatter(t *testing.T) {
 	})
 
 	t.Run("valid frontmatter with requires_skills populates SkillDep slice", func(t *testing.T) {
-		content := makeFrontmatter("type: agent\nrequires_skills:\n  - file: skills/foo.md\n  - file: skills/bar.md\n    pin: abc123")
+		content := makeFrontmatter("requires_skills:\n  - file: skills/foo.md\n  - file: skills/bar.md\n    pin: abc123")
 		fm, err := ParseFrontmatter(content)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -98,7 +95,7 @@ func TestParseFrontmatter(t *testing.T) {
 	})
 
 	t.Run("missing --- markers returns error", func(t *testing.T) {
-		content := []byte("type: agent\ndescription: no markers")
+		content := []byte("description: no markers")
 		_, err := ParseFrontmatter(content)
 		if err == nil {
 			t.Fatal("expected error, got nil")
@@ -106,7 +103,7 @@ func TestParseFrontmatter(t *testing.T) {
 	})
 
 	t.Run("requires_skills path with .. returns error", func(t *testing.T) {
-		content := makeFrontmatter("type: agent\nrequires_skills:\n  - file: ../escape.md")
+		content := makeFrontmatter("requires_skills:\n  - file: ../escape.md")
 		_, err := ParseFrontmatter(content)
 		if err == nil {
 			t.Fatal("expected error for path traversal, got nil")
@@ -117,7 +114,7 @@ func TestParseFrontmatter(t *testing.T) {
 	})
 
 	t.Run("requires_skills with absolute path returns error", func(t *testing.T) {
-		content := makeFrontmatter("type: agent\nrequires_skills:\n  - file: /etc/passwd")
+		content := makeFrontmatter("requires_skills:\n  - file: /etc/passwd")
 		_, err := ParseFrontmatter(content)
 		if err == nil {
 			t.Fatal("expected error for absolute path, got nil")
@@ -128,7 +125,7 @@ func TestParseFrontmatter(t *testing.T) {
 	})
 
 	t.Run("mct_ref, mct_version, mct_market, mct_checksum are parsed if present", func(t *testing.T) {
-		content := makeFrontmatter("type: agent\nmct_ref: mymarket/agents/foo.md\nmct_version: v1.2.3\nmct_market: mymarket\nmct_checksum: abc123def456")
+		content := makeFrontmatter("mct_ref: mymarket/agents/foo.md\nmct_version: v1.2.3\nmct_market: mymarket\nmct_checksum: abc123def456")
 		fm, err := ParseFrontmatter(content)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -194,14 +191,15 @@ func TestParseReadmeFrontmatter(t *testing.T) {
 // --- TestInjectMctFields ---
 
 func TestInjectMctFields(t *testing.T) {
-	content := makeFrontmatter("type: agent\ndescription: Test agent\nauthor: bob")
+	content := makeFrontmatter("description: Test agent\nauthor: bob")
 
 	ref := MctRef("mymarket/agents/test.md")
 	version := MctVersion("v2.0.0")
 	market := "mymarket"
 	checksum := "sha256abc"
+	profile := "mymarket/agents"
 
-	result, err := InjectMctFields(content, ref, version, market, checksum)
+	result, err := InjectMctFields(content, ref, version, market, checksum, profile)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -220,6 +218,9 @@ func TestInjectMctFields(t *testing.T) {
 	if fm.MctMarket != market {
 		t.Errorf("expected mct_market %q, got %q", market, fm.MctMarket)
 	}
+	if fm.MctProfile != profile {
+		t.Errorf("expected mct_profile %q, got %q", profile, fm.MctProfile)
+	}
 	if fm.MctChecksum != checksum {
 		t.Errorf("expected mct_checksum %q, got %q", checksum, fm.MctChecksum)
 	}
@@ -229,7 +230,7 @@ func TestInjectMctFields(t *testing.T) {
 
 func TestPatchMctVersion(t *testing.T) {
 	t.Run("patches existing mct_version field", func(t *testing.T) {
-		content := makeFrontmatter("type: agent\nmct_version: v1.0.0")
+		content := makeFrontmatter("mct_version: v1.0.0")
 		result, err := PatchMctVersion(content, "v2.0.0")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -243,7 +244,7 @@ func TestPatchMctVersion(t *testing.T) {
 	})
 
 	t.Run("content without mct_version returns error", func(t *testing.T) {
-		content := makeFrontmatter("type: agent\ndescription: no version field")
+		content := makeFrontmatter("description: no version field")
 		_, err := PatchMctVersion(content, "v1.0.0")
 		if err == nil {
 			t.Fatal("expected error, got nil")
@@ -255,7 +256,7 @@ func TestPatchMctVersion(t *testing.T) {
 
 func TestPatchMctChecksum(t *testing.T) {
 	t.Run("patches existing mct_checksum field", func(t *testing.T) {
-		content := makeFrontmatter("type: agent\nmct_checksum: oldchecksum")
+		content := makeFrontmatter("mct_checksum: oldchecksum")
 		result, err := PatchMctChecksum(content, "newchecksum")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -269,7 +270,7 @@ func TestPatchMctChecksum(t *testing.T) {
 	})
 
 	t.Run("content without mct_checksum returns error", func(t *testing.T) {
-		content := makeFrontmatter("type: agent\ndescription: no checksum field")
+		content := makeFrontmatter("description: no checksum field")
 		_, err := PatchMctChecksum(content, "somechecksum")
 		if err == nil {
 			t.Fatal("expected error, got nil")
@@ -321,7 +322,7 @@ func TestValidateSkillDepPath(t *testing.T) {
 			} else {
 				skillsField = "requires_skills:\n  - file: " + tc.file
 			}
-			content := makeFrontmatter("type: agent\n" + skillsField)
+			content := makeFrontmatter("" + skillsField)
 			_, err := ParseFrontmatter(content)
 			if tc.wantErr && err == nil {
 				t.Errorf("expected error for file=%q, got nil", tc.file)

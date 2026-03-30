@@ -10,6 +10,7 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
@@ -17,12 +18,12 @@ import (
 
 // agentFile returns minimal valid agent frontmatter content (no mct fields).
 func agentFile() []byte {
-	return []byte("---\ntype: agent\ndescription: test agent\nauthor: alice\n---\n# Agent\nDo stuff.\n")
+	return []byte("---\ndescription: test agent\nauthor: alice\n---\n# Agent\nDo stuff.\n")
 }
 
 // installedAgentFile returns agent frontmatter with mct fields set (simulates installed file).
 func installedAgentFile(ref, version string) []byte {
-	return []byte("---\nmct_ref: " + ref + "\nmct_version: " + version + "\ntype: agent\ndescription: test\n---\n# content\n")
+	return []byte("---\nmct_ref: " + ref + "\nmct_version: " + version + "\ndescription: test\n---\n# content\n")
 }
 
 // cfgWithMarket returns a config with one market and a given local path.
@@ -165,15 +166,10 @@ func TestGetEntry_NotFound(t *testing.T) {
 
 func TestAdd_Success(t *testing.T) {
 	writeFileCalled := false
-	addEntryCalled := false
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
-		},
-		AddEntryFn: func(path string, entry domain.EntryConfig) error {
-			addEntryCalled = true
-			return nil
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
@@ -200,9 +196,6 @@ func TestAdd_Success(t *testing.T) {
 	}
 	if !writeFileCalled {
 		t.Error("expected WriteFile to be called")
-	}
-	if !addEntryCalled {
-		t.Error("expected AddEntry to be called")
 	}
 }
 
@@ -285,7 +278,7 @@ func TestAdd_MarketNotFound(t *testing.T) {
 }
 
 func TestAdd_MctFieldsInRepo(t *testing.T) {
-	contentWithMctFields := []byte("---\nmct_ref: mkt/agents/foo.md\ntype: agent\ndescription: test\n---\n# content\n")
+	contentWithMctFields := []byte("---\nmct_ref: mkt/agents/foo.md\ndescription: test\n---\n# content\n")
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
@@ -311,20 +304,14 @@ func TestAdd_MctFieldsInRepo(t *testing.T) {
 }
 
 func TestAdd_WithDependency(t *testing.T) {
-	agentContent := []byte("---\ntype: agent\ndescription: test agent\nauthor: alice\nrequires_skills:\n  - file: skills/dep.md\n---\n# Agent\nDo stuff.\n")
-	skillContent := []byte("---\ntype: skill\ndescription: a dep skill\nauthor: alice\n---\n# Skill\n")
+	agentContent := []byte("---\ndescription: test agent\nauthor: alice\nrequires_skills:\n  - file: skills/dep.md\n---\n# Agent\nDo stuff.\n")
+	skillContent := []byte("---\ndescription: a dep skill\nauthor: alice\n---\n# Skill\n")
 
 	readFileAtRefCalls := 0
-	addManagedSkillCalled := false
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
-		},
-		AddEntryFn: func(path string, entry domain.EntryConfig) error { return nil },
-		AddManagedSkillFn: func(path string, skill domain.ManagedSkillConfig) error {
-			addManagedSkillCalled = true
-			return nil
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
@@ -356,8 +343,195 @@ func TestAdd_WithDependency(t *testing.T) {
 	if readFileAtRefCalls < 2 {
 		t.Errorf("expected ReadFileAtRef to be called at least twice (agent + skill), got %d", readFileAtRefCalls)
 	}
-	if !addManagedSkillCalled {
-		t.Error("expected AddManagedSkill to be called for dependency")
+}
+
+// ---------------------------------------------------------------------------
+// Add — profile-level refs
+// ---------------------------------------------------------------------------
+
+func skillFile() []byte {
+	return []byte("---\ndescription: test skill\nauthor: alice\n---\n# Skill\nDo stuff.\n")
+}
+
+func TestAdd_ProfileExpand_Success(t *testing.T) {
+	writeFilePaths := []string{}
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		MD5ChecksumFn: func(content []byte) string { return "md5" },
+		WriteFileFn: func(path string, content []byte) error {
+			writeFilePaths = append(writeFilePaths, path)
+			return nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ReadMarketFilesFn: func(clonePath, branch string) ([]gitrepo.MarketFile, error) {
+			return []gitrepo.MarketFile{
+				{Path: "dev/go/agents/foo.md", Content: agentFile()},
+				{Path: "dev/go/skills/bar.md", Content: skillFile()},
+			}, nil
+		},
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			if filePath == "dev/go/agents/foo.md" {
+				return agentFile(), nil
+			}
+			if filePath == "dev/go/skills/bar.md" {
+				return skillFile(), nil
+			}
+			return nil, errors.New("unexpected file: " + filePath)
+		},
+		FileVersionFn: func(clonePath, filePath string) (domain.MctVersion, error) {
+			return "sha1", nil
+		},
+	}
+
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+
+	err := a.Add("mkt/dev/go", service.AddOpts{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(writeFilePaths) != 2 {
+		t.Errorf("expected WriteFile called twice, got %d", len(writeFilePaths))
+	}
+}
+
+func TestAdd_ProfileExpand_DryRun(t *testing.T) {
+	writeFileCalled := false
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		WriteFileFn: func(path string, content []byte) error {
+			writeFileCalled = true
+			return nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ReadMarketFilesFn: func(clonePath, branch string) ([]gitrepo.MarketFile, error) {
+			return []gitrepo.MarketFile{
+				{Path: "dev/go/agents/foo.md", Content: agentFile()},
+			}, nil
+		},
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			return agentFile(), nil
+		},
+		FileVersionFn: func(clonePath, filePath string) (domain.MctVersion, error) {
+			return "sha1", nil
+		},
+	}
+
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+
+	err := a.Add("mkt/dev/go", service.AddOpts{DryRun: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if writeFileCalled {
+		t.Error("expected WriteFile NOT to be called in dry-run mode")
+	}
+}
+
+func TestAdd_ProfileExpand_AllAlreadyInstalled(t *testing.T) {
+	const agentLocalPath = ".claude/agents/foo.md"
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		FS: fstest.MapFS{
+			agentLocalPath: {Data: installedAgentFile("mkt/dev/go/agents/foo.md", "sha1")},
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ReadMarketFilesFn: func(clonePath, branch string) ([]gitrepo.MarketFile, error) {
+			return []gitrepo.MarketFile{
+				{Path: "dev/go/agents/foo.md"},
+			}, nil
+		},
+	}
+
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+
+	err := a.Add("mkt/dev/go", service.AddOpts{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !isDomainErrorWithCode(err, "ENTRY_ALREADY_INSTALLED") {
+		t.Errorf("expected ENTRY_ALREADY_INSTALLED, got %v", err)
+	}
+}
+
+func TestAdd_ProfileExpand_PartialInstall(t *testing.T) {
+	const agentLocalPath = ".claude/agents/foo.md"
+	writeFilePaths := []string{}
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		FS: fstest.MapFS{
+			// foo.md already installed
+			agentLocalPath: {Data: installedAgentFile("mkt/dev/go/agents/foo.md", "sha1")},
+		},
+		MD5ChecksumFn: func(content []byte) string { return "md5" },
+		WriteFileFn: func(path string, content []byte) error {
+			writeFilePaths = append(writeFilePaths, path)
+			return nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ReadMarketFilesFn: func(clonePath, branch string) ([]gitrepo.MarketFile, error) {
+			return []gitrepo.MarketFile{
+				{Path: "dev/go/agents/foo.md"},   // already installed
+				{Path: "dev/go/skills/bar.md"},   // not installed
+			}, nil
+		},
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			return skillFile(), nil
+		},
+		FileVersionFn: func(clonePath, filePath string) (domain.MctVersion, error) {
+			return "sha1", nil
+		},
+	}
+
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+
+	err := a.Add("mkt/dev/go", service.AddOpts{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(writeFilePaths) != 1 {
+		t.Errorf("expected WriteFile called once (only bar.md), got %d", len(writeFilePaths))
+	}
+}
+
+func TestAdd_ProfileExpand_MarketNotFound(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{LocalPath: ".claude"}, nil
+		},
+	}
+
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	err := a.Add("unknown/dev/go", service.AddOpts{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !isDomainErrorWithCode(err, "MARKET_NOT_FOUND") {
+		t.Errorf("expected MARKET_NOT_FOUND, got %v", err)
 	}
 }
 
@@ -368,15 +542,10 @@ func TestAdd_WithDependency(t *testing.T) {
 func TestRemove_Success(t *testing.T) {
 	filePath := ".claude/agents/foo.md"
 	deleteFileCalled := false
-	removeEntryCalled := false
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return domain.Config{LocalPath: ".claude"}, nil
-		},
-		RemoveEntryFn: func(path string, ref domain.MctRef) error {
-			removeEntryCalled = true
-			return nil
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
@@ -398,9 +567,6 @@ func TestRemove_Success(t *testing.T) {
 	if !deleteFileCalled {
 		t.Error("expected DeleteFile to be called")
 	}
-	if !removeEntryCalled {
-		t.Error("expected RemoveEntry to be called")
-	}
 }
 
 func TestRemove_NotInstalled(t *testing.T) {
@@ -414,69 +580,6 @@ func TestRemove_NotInstalled(t *testing.T) {
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
 
 	err := a.Remove("mkt/agents/foo.md")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !isDomainErrorWithCode(err, "ENTRY_NOT_INSTALLED") {
-		t.Errorf("expected ENTRY_NOT_INSTALLED, got %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Pin
-// ---------------------------------------------------------------------------
-
-func TestPin_Success(t *testing.T) {
-	filePath := ".claude/agents/foo.md"
-	setEntryPinCalled := false
-	var gotRef domain.MctRef
-	var gotPin string
-
-	cfg := &configstoretest.MockConfigStore{
-		LoadFn: func(path string) (domain.Config, error) {
-			return domain.Config{LocalPath: ".claude"}, nil
-		},
-		SetEntryPinFn: func(path string, ref domain.MctRef, pin string) error {
-			setEntryPinCalled = true
-			gotRef = ref
-			gotPin = pin
-			return nil
-		},
-	}
-	fsMock := &filesystemtest.MockFilesystem{
-		FS: fstest.MapFS{
-			filePath: {Data: installedAgentFile("mkt/agents/foo.md", "sha1")},
-		},
-	}
-
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
-
-	err := a.Pin("mkt/agents/foo.md", "deadbeef")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !setEntryPinCalled {
-		t.Error("expected SetEntryPin to be called")
-	}
-	if gotRef != "mkt/agents/foo.md" {
-		t.Errorf("expected ref mkt/agents/foo.md, got %q", gotRef)
-	}
-	if gotPin != "deadbeef" {
-		t.Errorf("expected pin deadbeef, got %q", gotPin)
-	}
-}
-
-func TestPin_NotInstalled(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{
-		LoadFn: func(path string) (domain.Config, error) {
-			return domain.Config{LocalPath: ".claude"}, nil
-		},
-	}
-	fsMock := &filesystemtest.MockFilesystem{}
-
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
-
-	err := a.Pin("mkt/agents/foo.md", "deadbeef")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -575,11 +678,6 @@ func TestPrune_AllRemove(t *testing.T) {
 		deleteFileCalled = true
 		return nil
 	}
-	removeEntryCalled := false
-	cfg.RemoveEntryFn = func(path string, ref domain.MctRef) error {
-		removeEntryCalled = true
-		return nil
-	}
 
 	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
 	results, err := a.Prune(service.PruneOpts{AllRemove: true})
@@ -594,9 +692,6 @@ func TestPrune_AllRemove(t *testing.T) {
 	}
 	if !deleteFileCalled {
 		t.Error("expected DeleteFile to be called")
-	}
-	if !removeEntryCalled {
-		t.Error("expected RemoveEntry to be called")
 	}
 }
 
@@ -688,69 +783,6 @@ func TestInit_EmptyDir(t *testing.T) {
 	}
 	if savedCfg.LocalPath != ".claude" {
 		t.Errorf("expected LocalPath=.claude, got %q", savedCfg.LocalPath)
-	}
-	if len(savedCfg.Entries) != 0 {
-		t.Errorf("expected no entries, got %d", len(savedCfg.Entries))
-	}
-}
-
-func TestInit_WithManagedFiles(t *testing.T) {
-	// Content has mct_ref frontmatter to simulate an already-managed file.
-	managedContent := []byte("---\nmct_ref: mkt/agents/foo.md\nmct_version: sha1\ntype: agent\ndescription: test\n---\n# foo\n")
-
-	var savedCfg domain.Config
-	cfg := &configstoretest.MockConfigStore{
-		SaveFn: func(path string, c domain.Config) error {
-			savedCfg = c
-			return nil
-		},
-	}
-	fsMock := &filesystemtest.MockFilesystem{
-		FS: fstest.MapFS{
-			"agents/foo.md": &fstest.MapFile{Data: managedContent},
-		},
-		MkdirAllFn: func(path string) error { return nil },
-	}
-
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
-	err := a.Init(service.InitOpts{LocalPath: "."})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(savedCfg.Entries) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(savedCfg.Entries))
-	}
-	if savedCfg.Entries[0].Ref != "mkt/agents/foo.md" {
-		t.Errorf("expected ref mkt/agents/foo.md, got %q", savedCfg.Entries[0].Ref)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// validateEntryType
-// ---------------------------------------------------------------------------
-
-func TestValidateEntryType(t *testing.T) {
-	cases := []struct {
-		entryType domain.EntryType
-		relPath   string
-		wantErr   bool
-	}{
-		{domain.EntryTypeAgent, "dev/go/agents/foo.md", false},
-		{domain.EntryTypeSkill, "dev/go/skills/bar.md", false},
-		{domain.EntryTypeSkill, "dev/go/agents/foo.md", true},
-		{domain.EntryTypeAgent, "dev/go/skills/bar.md", true},
-		{domain.EntryTypeAgent, "dev/go/README.md", false},
-	}
-	for _, tc := range cases {
-		t.Run(string(tc.entryType)+"/"+tc.relPath, func(t *testing.T) {
-			err := validateEntryType(tc.entryType, tc.relPath)
-			if tc.wantErr && err == nil {
-				t.Errorf("expected error for type=%q path=%q", tc.entryType, tc.relPath)
-			}
-			if !tc.wantErr && err != nil {
-				t.Errorf("unexpected error for type=%q path=%q: %v", tc.entryType, tc.relPath, err)
-			}
-		})
 	}
 }
 

@@ -92,7 +92,7 @@ func (a *App) LintMarket(fsys fs.FS, dir string) (service.LintResult, error) {
 			profileOrder = append(profileOrder, profile)
 		}
 		pd := profiles[profile]
-		switch fm.Type {
+		switch inferEntryType(rel) {
 		case domain.EntryTypeAgent:
 			pd.agents = append(pd.agents, rel)
 			knownPaths[rel] = struct{}{}
@@ -106,7 +106,7 @@ func (a *App) LintMarket(fsys fs.FS, dir string) (service.LintResult, error) {
 			result.Issues = append(result.Issues, service.LintIssue{
 				Profile:  profile,
 				Severity: "error",
-				Message:  rel + ": unknown type " + string(fm.Type),
+				Message:  rel + ": cannot determine type from path",
 			})
 		}
 

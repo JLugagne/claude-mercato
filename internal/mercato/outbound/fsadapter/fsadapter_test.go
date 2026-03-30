@@ -208,12 +208,6 @@ func TestTempFile(t *testing.T) {
 		t.Errorf("temp file content mismatch: got %q, want %q", got, content)
 	}
 
-	if err := a.RemoveTempFile(path); err != nil {
-		t.Fatalf("RemoveTempFile: %v", err)
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Error("file still exists after RemoveTempFile")
-	}
 }
 
 func TestReadDir(t *testing.T) {

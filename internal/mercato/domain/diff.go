@@ -6,7 +6,6 @@ const (
 	DiffInsert DiffAction = iota
 	DiffModify
 	DiffDelete
-	DiffRename
 )
 
 type FileDiff struct {

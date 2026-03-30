@@ -3,17 +3,12 @@ package configstoretest
 import "github.com/JLugagne/claude-mercato/internal/mercato/domain"
 
 type MockConfigStore struct {
-	LoadFn               func(path string) (domain.Config, error)
-	SaveFn               func(path string, cfg domain.Config) error
-	AddMarketFn          func(path string, market domain.MarketConfig) error
-	RemoveMarketFn       func(path string, name string) error
-	AddEntryFn           func(path string, entry domain.EntryConfig) error
-	RemoveEntryFn        func(path string, ref domain.MctRef) error
-	AddManagedSkillFn    func(path string, skill domain.ManagedSkillConfig) error
-	RemoveManagedSkillFn func(path string, ref domain.MctRef) error
-	SetMarketPropertyFn  func(path string, marketName string, key string, value string) error
-	SetEntryPinFn        func(path string, ref domain.MctRef, pin string) error
-	SetConfigFieldFn     func(path string, key string, value string) error
+	LoadFn              func(path string) (domain.Config, error)
+	SaveFn              func(path string, cfg domain.Config) error
+	AddMarketFn         func(path string, market domain.MarketConfig) error
+	RemoveMarketFn      func(path string, name string) error
+	SetMarketPropertyFn func(path string, marketName string, key string, value string) error
+	SetConfigFieldFn    func(path string, key string, value string) error
 }
 
 func (m *MockConfigStore) Load(path string) (domain.Config, error) {
@@ -44,44 +39,9 @@ func (m *MockConfigStore) RemoveMarket(path string, name string) error {
 	return nil
 }
 
-func (m *MockConfigStore) AddEntry(path string, entry domain.EntryConfig) error {
-	if m.AddEntryFn != nil {
-		return m.AddEntryFn(path, entry)
-	}
-	return nil
-}
-
-func (m *MockConfigStore) RemoveEntry(path string, ref domain.MctRef) error {
-	if m.RemoveEntryFn != nil {
-		return m.RemoveEntryFn(path, ref)
-	}
-	return nil
-}
-
-func (m *MockConfigStore) AddManagedSkill(path string, skill domain.ManagedSkillConfig) error {
-	if m.AddManagedSkillFn != nil {
-		return m.AddManagedSkillFn(path, skill)
-	}
-	return nil
-}
-
-func (m *MockConfigStore) RemoveManagedSkill(path string, ref domain.MctRef) error {
-	if m.RemoveManagedSkillFn != nil {
-		return m.RemoveManagedSkillFn(path, ref)
-	}
-	return nil
-}
-
 func (m *MockConfigStore) SetMarketProperty(path string, marketName string, key string, value string) error {
 	if m.SetMarketPropertyFn != nil {
 		return m.SetMarketPropertyFn(path, marketName, key, value)
-	}
-	return nil
-}
-
-func (m *MockConfigStore) SetEntryPin(path string, ref domain.MctRef, pin string) error {
-	if m.SetEntryPinFn != nil {
-		return m.SetEntryPinFn(path, ref, pin)
 	}
 	return nil
 }

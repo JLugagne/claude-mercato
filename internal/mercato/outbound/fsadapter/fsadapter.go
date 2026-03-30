@@ -82,7 +82,3 @@ func (a *Adapter) TempFile(name string, content []byte) (string, error) {
 	f.Close()
 	return f.Name(), nil
 }
-
-func (a *Adapter) RemoveTempFile(path string) error {
-	return os.Remove(path)
-}

@@ -48,12 +48,6 @@ func TestSaveAndLoadConfig(t *testing.T) {
 		Markets: []domain.MarketConfig{
 			{Name: "core", URL: "https://example.com/core.git", Branch: "main", Trusted: true, ReadOnly: false},
 		},
-		Entries: []domain.EntryConfig{
-			{Ref: "core/my-skill", Pin: "abc123"},
-		},
-		ManagedSkills: []domain.ManagedSkillConfig{
-			{Ref: "core/managed", ManagedBy: "core/manager", MctVersion: "1.0.0"},
-		},
 	}
 
 	if err := cs.Save(path, cfg); err != nil {
@@ -82,21 +76,6 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	}
 	if !got.Markets[0].Trusted {
 		t.Error("Markets[0].Trusted = false, want true")
-	}
-	if len(got.Entries) != 1 {
-		t.Fatalf("len(Entries) = %d, want 1", len(got.Entries))
-	}
-	if got.Entries[0].Ref != "core/my-skill" {
-		t.Errorf("Entries[0].Ref = %q, want %q", got.Entries[0].Ref, "core/my-skill")
-	}
-	if got.Entries[0].Pin != "abc123" {
-		t.Errorf("Entries[0].Pin = %q, want %q", got.Entries[0].Pin, "abc123")
-	}
-	if len(got.ManagedSkills) != 1 {
-		t.Fatalf("len(ManagedSkills) = %d, want 1", len(got.ManagedSkills))
-	}
-	if got.ManagedSkills[0].Ref != "core/managed" {
-		t.Errorf("ManagedSkills[0].Ref = %q, want %q", got.ManagedSkills[0].Ref, "core/managed")
 	}
 }
 
@@ -145,104 +124,6 @@ func TestRemoveMarket(t *testing.T) {
 	for _, m := range cfg.Markets {
 		if m.Name == "removeme" {
 			t.Error("market 'removeme' still present after RemoveMarket")
-		}
-	}
-}
-
-func TestAddEntry(t *testing.T) {
-	cs, path := newConfigStore(t)
-
-	entry := domain.EntryConfig{Ref: "core/my-agent"}
-	if err := cs.AddEntry(path, entry); err != nil {
-		t.Fatalf("AddEntry: %v", err)
-	}
-
-	cfg, err := cs.Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-
-	found := false
-	for _, e := range cfg.Entries {
-		if e.Ref == "core/my-agent" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("entry 'core/my-agent' not found after AddEntry")
-	}
-}
-
-func TestRemoveEntry(t *testing.T) {
-	cs, path := newConfigStore(t)
-
-	entry := domain.EntryConfig{Ref: "core/to-remove"}
-	if err := cs.AddEntry(path, entry); err != nil {
-		t.Fatalf("AddEntry: %v", err)
-	}
-
-	if err := cs.RemoveEntry(path, "core/to-remove"); err != nil {
-		t.Fatalf("RemoveEntry: %v", err)
-	}
-
-	cfg, err := cs.Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-
-	for _, e := range cfg.Entries {
-		if e.Ref == "core/to-remove" {
-			t.Error("entry 'core/to-remove' still present after RemoveEntry")
-		}
-	}
-}
-
-func TestAddManagedSkill(t *testing.T) {
-	cs, path := newConfigStore(t)
-
-	skill := domain.ManagedSkillConfig{Ref: "core/skill-a", ManagedBy: "core/manager", MctVersion: "2.0.0"}
-	if err := cs.AddManagedSkill(path, skill); err != nil {
-		t.Fatalf("AddManagedSkill: %v", err)
-	}
-
-	cfg, err := cs.Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-
-	found := false
-	for _, s := range cfg.ManagedSkills {
-		if s.Ref == "core/skill-a" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("managed skill 'core/skill-a' not found after AddManagedSkill")
-	}
-}
-
-func TestRemoveManagedSkill(t *testing.T) {
-	cs, path := newConfigStore(t)
-
-	skill := domain.ManagedSkillConfig{Ref: "core/skill-b", ManagedBy: "core/manager", MctVersion: "1.0.0"}
-	if err := cs.AddManagedSkill(path, skill); err != nil {
-		t.Fatalf("AddManagedSkill: %v", err)
-	}
-
-	if err := cs.RemoveManagedSkill(path, "core/skill-b"); err != nil {
-		t.Fatalf("RemoveManagedSkill: %v", err)
-	}
-
-	cfg, err := cs.Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-
-	for _, s := range cfg.ManagedSkills {
-		if s.Ref == "core/skill-b" {
-			t.Error("managed skill 'core/skill-b' still present after RemoveManagedSkill")
 		}
 	}
 }
@@ -296,34 +177,6 @@ func TestSetMarketProperty(t *testing.T) {
 			break
 		}
 	}
-}
-
-func TestSetEntryPin(t *testing.T) {
-	cs, path := newConfigStore(t)
-
-	entry := domain.EntryConfig{Ref: "core/pinme"}
-	if err := cs.AddEntry(path, entry); err != nil {
-		t.Fatalf("AddEntry: %v", err)
-	}
-
-	if err := cs.SetEntryPin(path, "core/pinme", "abc123"); err != nil {
-		t.Fatalf("SetEntryPin: %v", err)
-	}
-
-	cfg, err := cs.Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-
-	for _, e := range cfg.Entries {
-		if e.Ref == "core/pinme" {
-			if e.Pin != "abc123" {
-				t.Errorf("Pin = %q, want %q", e.Pin, "abc123")
-			}
-			return
-		}
-	}
-	t.Error("entry 'core/pinme' not found after SetEntryPin")
 }
 
 func TestSetConfigField(t *testing.T) {

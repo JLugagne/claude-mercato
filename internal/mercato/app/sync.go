@@ -275,7 +275,7 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 
 			newChecksum := a.fs.MD5Checksum(newContent)
 
-			injected, err := domain.InjectMctFields(newContent, ref, newVersion, ref.Market(), newChecksum)
+			injected, err := domain.InjectMctFields(newContent, ref, newVersion, ref.Market(), newChecksum, entry.MctProfile)
 			if err != nil {
 				injected, err = domain.PatchMctVersion(newContent, newVersion)
 				if err != nil {

@@ -24,8 +24,7 @@ type MockFilesystem struct {
 	MkdirAllFn       func(path string) error
 	RemoveAllFn      func(path string) error
 	MD5ChecksumFn    func(content []byte) string
-	TempFileFn       func(name string, content []byte) (string, error)
-	RemoveTempFileFn func(path string) error
+	TempFileFn func(name string, content []byte) (string, error)
 }
 
 func (m *MockFilesystem) mapFS() fstest.MapFS {
@@ -99,9 +98,3 @@ func (m *MockFilesystem) TempFile(name string, content []byte) (string, error) {
 	return "", nil
 }
 
-func (m *MockFilesystem) RemoveTempFile(path string) error {
-	if m.RemoveTempFileFn != nil {
-		return m.RemoveTempFileFn(path)
-	}
-	return nil
-}

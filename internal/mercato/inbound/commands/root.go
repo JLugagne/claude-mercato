@@ -61,7 +61,6 @@ func NewRootCmd(svc Services) *cobra.Command {
 		newAddCmd(svc, opts),
 		newRemoveCmd(svc, opts),
 		newPruneCmd(svc, opts),
-		newPinCmd(svc, opts),
 		newDiffCmd(svc, opts),
 		newSearchCmd(svc, opts),
 		newListCmd(svc, opts),

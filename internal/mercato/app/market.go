@@ -344,23 +344,6 @@ func (a *App) RenameMarket(oldName, newName string) error {
 		}
 	}
 
-	cfg2, err := a.cfg.Load(a.configPath)
-	if err != nil {
-		return err
-	}
-	for _, skill := range cfg2.ManagedSkills {
-		if skill.Ref.Market() == oldName {
-			newRef := domain.MctRef(newName + "/" + skill.Ref.RelPath())
-			if err := a.cfg.RemoveManagedSkill(a.configPath, skill.Ref); err != nil {
-				return err
-			}
-			skill.Ref = newRef
-			if err := a.cfg.AddManagedSkill(a.configPath, skill); err != nil {
-				return err
-			}
-		}
-	}
-
 	return nil
 }
 

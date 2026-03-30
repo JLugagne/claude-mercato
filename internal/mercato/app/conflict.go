@@ -39,46 +39,5 @@ func (a *App) Conflicts() ([]domain.Conflict, error) {
 		}
 	}
 
-	skillPins := make(map[domain.MctRef]map[string]domain.MctRef)
-	for _, ms := range cfg.ManagedSkills {
-		if skillPins[ms.Ref] == nil {
-			skillPins[ms.Ref] = make(map[string]domain.MctRef)
-		}
-		skillPins[ms.Ref][string(ms.MctVersion)] = ms.ManagedBy
-	}
-	for skillRef, versions := range skillPins {
-		if len(versions) > 1 {
-			var parents []domain.MctRef
-			for _, parent := range versions {
-				parents = append(parents, parent)
-			}
-			conflicts = append(conflicts, domain.Conflict{
-				Type:        "dep-version-mismatch",
-				Refs:        append([]domain.MctRef{skillRef}, parents...),
-				Description: fmt.Sprintf("skill %s required at %d different versions", skillRef, len(versions)),
-				Severity:    "error",
-			})
-		}
-	}
-
-	for _, ms := range cfg.ManagedSkills {
-		marketName := ms.Ref.Market()
-		relPath := ms.Ref.RelPath()
-		clonePath := a.clonePath(marketName)
-		mc := findMarketConfig(cfg, marketName)
-		if mc == nil {
-			continue
-		}
-		_, err := a.git.ReadFileAtRef(clonePath, mc.Branch, relPath, "HEAD")
-		if err != nil {
-			conflicts = append(conflicts, domain.Conflict{
-				Type:        "dep-deleted",
-				Refs:        []domain.MctRef{ms.Ref, ms.ManagedBy},
-				Description: fmt.Sprintf("skill %s required by %s has been deleted", ms.Ref, ms.ManagedBy),
-				Severity:    "error",
-			})
-		}
-	}
-
 	return conflicts, nil
 }

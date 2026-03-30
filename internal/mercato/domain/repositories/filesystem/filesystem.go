@@ -20,5 +20,4 @@ type Filesystem interface {
 	RemoveAll(path string) error
 	MD5Checksum(content []byte) string
 	TempFile(name string, content []byte) (string, error)
-	RemoveTempFile(path string) error
 }

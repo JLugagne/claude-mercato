@@ -20,13 +20,13 @@ func noInstalledEntries(fs *filesystemtest.MockFilesystem) {
 }
 
 // agentContent is a minimal agent frontmatter for search tests.
-var agentContent = []byte("---\ntype: agent\ndescription: Go expert\nauthor: alice\n---\n# foo\n")
+var agentContent = []byte("---\ndescription: Go expert\nauthor: alice\n---\n# foo\n")
 
 // readmeContentBytes is a minimal README frontmatter for search tests.
 var readmeContentBytes = []byte("---\ntags:\n  - golang\n  - dev\ndescription: Go profile\n---\n# README\n")
 
 // rustAgentContent is an agent not related to Go, ensuring BM25 IDF is non-zero for "go".
-var rustAgentContent = []byte("---\ntype: agent\ndescription: Rust expert\nauthor: bob\n---\n# bar\n")
+var rustAgentContent = []byte("---\ndescription: Rust expert\nauthor: bob\n---\n# bar\n")
 
 // rustReadmeContentBytes is a README for the rust profile.
 var rustReadmeContentBytes = []byte("---\ntags:\n  - rust\n  - systems\ndescription: Rust profile\n---\n# README\n")

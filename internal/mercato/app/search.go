@@ -182,7 +182,7 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 				RelPath:        mf.Path,
 				Filename:       filepath.Base(mf.Path),
 				Category:       inferCategory(mf.Path),
-				Type:           fm.Type,
+				Type:           inferEntryType(mf.Path),
 				Description:    fm.Description,
 				Author:         fm.Author,
 				Version:        mf.Version,
