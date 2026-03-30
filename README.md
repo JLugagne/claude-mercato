@@ -14,8 +14,8 @@ No central registry. No server. Just Git.
 - **Install/Remove** -- Add definitions to your local `.claude/` directory with dependency resolution (skills can require other skills)
 - **Sync** -- Fetch upstream changes and update installed definitions while detecting local drift
 - **Search** -- Full-text BM25 search with fuzzy matching across all registered markets
-- **Pin** -- Lock definitions to a specific commit SHA
 - **Drift detection** -- Knows when you've modified an installed file locally, and handles conflicts on update
+- **Prune** -- Handle entries deleted upstream with keep/remove decisions
 - **TUI** -- Interactive terminal UI for browsing markets and managing installations
 
 ## How it works
@@ -38,25 +38,49 @@ go install github.com/JLugagne/claude-mercato/cmd/mct@latest
 ## Usage
 
 ```bash
+# Project setup
+mct init                     # Initialize mct in current project
+
 # Market management
 mct market add mymarket git@github.com:org/agents-repo.git
 mct market list
 mct market info mymarket
+mct market remove mymarket
+mct market rename mymarket newname
+mct market set mymarket <property> <value>
+mct markets                  # alias for market list
+mct readme mymarket          # Show market README
+mct readme mymarket skills/README.md
+mct readme mymarket --list   # List all READMEs in market
 
 # Install / remove
 mct add mymarket/profile/agents/foo
+mct add mymarket/profile/agents/foo --dry-run
+mct add mymarket/profile/agents/foo --no-deps
+mct add mymarket/profile/agents/foo --accept-breaking
+mct install mymarket/profile/agents/foo  # alias for add
 mct remove --ref mymarket/profile/agents/foo
 mct remove --all          # Remove all installed entries (prompts for confirmation)
 mct remove --all --yes    # Remove all without prompt
 
 # Sync
 mct refresh          # Fetch updates from all markets
-mct update           # Apply updates to installed entries
+mct update           # Apply pending changes to local files
 mct sync             # refresh + update in one step
 mct check            # Show status of all installed entries
+mct status           # alias for check
+mct prune            # Process deleted entries
+mct prune --ref mymarket/profile/agents/foo
+mct prune --all-keep
+mct prune --all-remove
 
 # Search
 mct search "cli automation"
+mct search "cli automation" --type skill
+mct search "cli automation" --market mymarket
+mct search "cli automation" --installed
+mct search "cli automation" --not-installed
+mct search "cli automation" --limit 20
 
 # Config
 mct config set ssh_enabled true
@@ -71,11 +95,13 @@ mct save                     # Save current setup to .mct.json
 mct restore                  # Restore setup from .mct.json
 
 # Other
-mct pin --ref mymarket/profile/agents/foo --sha abc1234
 mct diff --ref mymarket/profile/agents/foo
 mct conflicts
 mct list              # List installed profiles and their entry refs
+mct sync-state        # Print sync state
 mct index --bench
+mct index --dump      # Dump index as JSON
+mct lint [dir]        # Check a local directory as a market
 mct tui
 ```
 
