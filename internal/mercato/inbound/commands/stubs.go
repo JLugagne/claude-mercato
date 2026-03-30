@@ -353,21 +353,58 @@ func newSearchCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				return printJSON(cmd.OutOrStdout(), results)
 			}
 
-			cmd.Printf("\n  %d results\n\n", len(results))
-			for i, r := range results {
-				indicator := " "
+			type profileKey struct{ market, category string }
+			type profileInfo struct {
+				market    string
+				category  string
+				desc      string
+				tags      []string
+				score     float64
+				installed bool
+			}
+			seen := make(map[profileKey]*profileInfo)
+			var order []profileKey
+			for _, r := range results {
+				key := profileKey{r.Entry.Market, r.Entry.Category}
+				if _, ok := seen[key]; !ok {
+					desc := r.Entry.ProfileDescription
+					if desc == "" {
+						desc = r.Entry.Description
+					}
+					seen[key] = &profileInfo{
+						market:   r.Entry.Market,
+						category: r.Entry.Category,
+						desc:     desc,
+						tags:     r.Entry.MctTags,
+						score:    r.Score,
+					}
+					order = append(order, key)
+				}
+				p := seen[key]
 				if r.Entry.Installed {
+					p.installed = true
+				}
+				if r.Score > p.score {
+					p.score = r.Score
+				}
+			}
+
+			cmd.Printf("\n  %d results\n\n", len(order))
+			for i, key := range order {
+				p := seen[key]
+				indicator := " "
+				if p.installed {
 					indicator = "ok"
 				}
-				cmd.Printf("  %d  %s  %s  %s  %s  score: %.1f\n",
-					i+1, r.Entry.Ref, r.Entry.Type, r.Entry.Version, indicator, r.Score)
-				cmd.Printf("     %s\n", r.Entry.Description)
-				if len(r.Entry.MctTags) > 0 {
-					cmd.Printf("     Tags: %s\n", strings.Join(r.Entry.MctTags, ", "))
+				cmd.Printf("  %d  %s/%s  %s  score: %.1f\n",
+					i+1, p.market, p.category, indicator, p.score)
+				if p.desc != "" {
+					cmd.Printf("     %s\n", p.desc)
 				}
-				if !r.Entry.Installed {
-					cmd.Printf("     mct add %s\n", r.Entry.Ref)
+				if len(p.tags) > 0 {
+					cmd.Printf("     Tags: %s\n", strings.Join(p.tags, ", "))
 				}
+				cmd.Printf("     mct add %s/%s\n", p.market, p.category)
 				cmd.Println()
 			}
 			return nil
@@ -387,18 +424,52 @@ func newSearchCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 func newListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List all installed entries",
+		Short: "List locally installed profiles",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			entries, err := svc.Entries.List(service.ListOpts{Installed: true})
 			if err != nil {
 				return err
 			}
-			if jsonOut {
-				return printJSON(cmd.OutOrStdout(), entries)
+
+			type profileKey struct{ market, profile string }
+			type profileInfo struct {
+				Market  string `json:"market"`
+				Profile string `json:"profile"`
+				Agents  int    `json:"agents"`
+				Skills  int    `json:"skills"`
 			}
+			seen := make(map[profileKey]*profileInfo)
+			var order []profileKey
 			for _, e := range entries {
-				cmd.Printf("  %s  %s  %s  %s\n", e.Ref, e.Type, e.Version, e.Market)
+				_, relPath, _ := e.Ref.Parse()
+				parts := strings.SplitN(relPath, "/", 3)
+				profile := relPath
+				if len(parts) >= 2 {
+					profile = parts[0] + "/" + parts[1]
+				}
+				key := profileKey{e.Market, profile}
+				if _, ok := seen[key]; !ok {
+					seen[key] = &profileInfo{Market: e.Market, Profile: profile}
+					order = append(order, key)
+				}
+				if e.Type == domain.EntryTypeAgent {
+					seen[key].Agents++
+				} else {
+					seen[key].Skills++
+				}
+			}
+
+			if jsonOut {
+				result := make([]profileInfo, 0, len(order))
+				for _, k := range order {
+					result = append(result, *seen[k])
+				}
+				return printJSON(cmd.OutOrStdout(), result)
+			}
+			for _, k := range order {
+				p := seen[k]
+				cmd.Printf("  %s/%s  (%d agents, %d skills)\n", p.Market, p.Profile, p.Agents, p.Skills)
 			}
 			return nil
 		},

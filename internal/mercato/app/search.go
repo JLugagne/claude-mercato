@@ -137,7 +137,7 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	installed, err := a.scanInstalledEntries(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,6 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 			continue
 		}
 
-		// Build readme index from the batch results.
 		readmeByProfile := make(map[string]readmeInfo)
 		for _, mf := range mfiles {
 			if !isReadme(mf.Path) {
@@ -173,7 +172,8 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 				continue
 			}
 			ref := domain.MctRef(mc.Name + "/" + mf.Path)
-			_, installed := checksums.Entries[ref]
+			ce, inInstalled := installed.Entries[ref]
+			isInstalled := inInstalled && ce != nil && a.fs.FileExists(ce.LocalPath)
 
 			entry := domain.Entry{
 				Ref:            ref,
@@ -185,7 +185,7 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 				Description:    fm.Description,
 				Author:         fm.Author,
 				Version:        mf.Version,
-				Installed:      installed,
+				Installed:      isInstalled,
 				BreakingChange: fm.BreakingChange,
 				Deprecated:     fm.Deprecated,
 				RequiresSkills: fm.RequiresSkills,
@@ -220,21 +220,13 @@ func profilePrefix(path string) string {
 }
 
 func buildDoc(entry domain.Entry) string {
-	slug := strings.ReplaceAll(strings.TrimSuffix(entry.Filename, ".md"), "-", " ")
-	cat := strings.ReplaceAll(entry.Category, "/", " ")
-	tags := strings.Join(entry.MctTags, " ")
-
-	parts := []string{
-		slug, slug, slug,
-		tags, tags,
-		entry.Description,
-		cat,
-		string(entry.Type),
-	}
+	path := strings.ReplaceAll(entry.RelPath, "/", " ")
+	path = strings.ReplaceAll(path, "-", " ")
+	path = strings.ReplaceAll(path, "_", " ")
 	if entry.ReadmeContext != "" {
-		parts = append(parts, entry.ReadmeContext)
+		return path + " " + entry.ReadmeContext
 	}
-	return strings.ToLower(strings.Join(parts, " "))
+	return path
 }
 
 func inferCategory(relPath string) string {
