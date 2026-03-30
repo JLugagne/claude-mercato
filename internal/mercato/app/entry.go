@@ -457,12 +457,14 @@ func (a *App) resolveLocalPath(cfg domain.Config, relPath string) (string, error
 	}
 
 	filename := filepath.Base(cleaned)
-	stem := strings.TrimSuffix(filename, ".md")
+	nameWithoutExt := strings.TrimSuffix(filename, ".md")
 	parts := strings.Split(cleaned, string(filepath.Separator))
 	for _, p := range parts {
-		if p == "agents" {
-			resolved := filepath.Join(cfg.LocalPath, p, filename)
-			return resolved, nil
+		switch p {
+		case "agents":
+			return filepath.Join(cfg.LocalPath, "agents", filename), nil
+		case "skills":
+			return filepath.Join(cfg.LocalPath, "skills", nameWithoutExt, "SKILL.md"), nil
 		}
 		if p == "skills" {
 			resolved := filepath.Join(cfg.LocalPath, p, stem, "SKILL.md")
@@ -542,16 +544,8 @@ func (a *App) deleteEntryFile(localPath string) error {
 	return nil
 }
 
-func listMdFiles(fsys fs.ReadDirFS, dir string) ([]string, error) {
-	var files []string
-	err := fs.WalkDir(fsys, dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && strings.HasSuffix(path, ".md") {
-			files = append(files, path)
-		}
-		return nil
-	})
-	return files, err
+func listMdFiles(fs interface {
+	ListFiles(dir, suffix string) ([]string, error)
+}, dir string) ([]string, error) {
+	return fs.ListFiles(dir, ".md")
 }
