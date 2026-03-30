@@ -1,9 +1,6 @@
 package commands
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/spf13/cobra"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
@@ -89,11 +86,3 @@ func NewRootCmd(svc Services) *cobra.Command {
 	return root
 }
 
-// Execute runs the root command
-func Execute(svc Services) {
-	root := NewRootCmd(svc)
-	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(3)
-	}
-}

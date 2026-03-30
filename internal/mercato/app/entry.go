@@ -10,11 +10,6 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
-type DiffInfo struct {
-	LeftPath  string
-	RightPath string
-	Tool      string
-}
 
 func (a *App) scanInstalledEntries(cfg domain.Config) (domain.ChecksumState, error) {
 	state := domain.ChecksumState{
