@@ -246,7 +246,7 @@ func (a *App) Remove(ref domain.MctRef) error {
 		return domain.ErrEntryNotInstalled
 	}
 
-	if err := a.fs.DeleteFile(ce.LocalPath); err != nil {
+	if err := a.deleteEntryFile(ce.LocalPath); err != nil {
 		return err
 	}
 
@@ -293,7 +293,7 @@ func (a *App) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
 		if opts.AllKeep {
 			results = append(results, service.PruneResult{Ref: ref, Action: "kept"})
 		} else if opts.AllRemove {
-			if err := a.fs.DeleteFile(ce.LocalPath); err != nil {
+			if err := a.deleteEntryFile(ce.LocalPath); err != nil {
 				results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
 				continue
 			}
@@ -455,11 +455,14 @@ func (a *App) resolveLocalPath(cfg domain.Config, relPath string) (string, error
 	}
 
 	filename := filepath.Base(cleaned)
+	nameWithoutExt := strings.TrimSuffix(filename, ".md")
 	parts := strings.Split(cleaned, string(filepath.Separator))
 	for _, p := range parts {
-		if p == "agents" || p == "skills" {
-			resolved := filepath.Join(cfg.LocalPath, p, filename)
-			return resolved, nil
+		switch p {
+		case "agents":
+			return filepath.Join(cfg.LocalPath, "agents", filename), nil
+		case "skills":
+			return filepath.Join(cfg.LocalPath, "skills", nameWithoutExt, "SKILL.md"), nil
 		}
 	}
 	return filepath.Join(cfg.LocalPath, filename), nil
@@ -521,6 +524,18 @@ func resolveDifftool(configuredTool string, git interface{ ReadGlobalDifftool() 
 		return tool
 	}
 	return "diff"
+}
+
+// deleteEntryFile deletes the entry file. For skills installed as
+// skills/<name>/SKILL.md, it also removes the now-empty parent directory.
+func (a *App) deleteEntryFile(localPath string) error {
+	if err := a.fs.DeleteFile(localPath); err != nil {
+		return err
+	}
+	if filepath.Base(localPath) == "SKILL.md" {
+		_ = a.fs.RemoveAll(filepath.Dir(localPath))
+	}
+	return nil
 }
 
 func listMdFiles(fs interface {
