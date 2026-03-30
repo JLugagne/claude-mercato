@@ -12,6 +12,8 @@ type MockConfigStore struct {
 	AddManagedSkillFn    func(path string, skill domain.ManagedSkillConfig) error
 	RemoveManagedSkillFn func(path string, ref domain.MctRef) error
 	SetMarketPropertyFn  func(path string, marketName string, key string, value string) error
+	SetEntryPinFn        func(path string, ref domain.MctRef, pin string) error
+	SetConfigFieldFn     func(path string, key string, value string) error
 }
 
 func (m *MockConfigStore) Load(path string) (domain.Config, error) {
@@ -73,6 +75,20 @@ func (m *MockConfigStore) RemoveManagedSkill(path string, ref domain.MctRef) err
 func (m *MockConfigStore) SetMarketProperty(path string, marketName string, key string, value string) error {
 	if m.SetMarketPropertyFn != nil {
 		return m.SetMarketPropertyFn(path, marketName, key, value)
+	}
+	return nil
+}
+
+func (m *MockConfigStore) SetEntryPin(path string, ref domain.MctRef, pin string) error {
+	if m.SetEntryPinFn != nil {
+		return m.SetEntryPinFn(path, ref, pin)
+	}
+	return nil
+}
+
+func (m *MockConfigStore) SetConfigField(path string, key string, value string) error {
+	if m.SetConfigFieldFn != nil {
+		return m.SetConfigFieldFn(path, key, value)
 	}
 	return nil
 }

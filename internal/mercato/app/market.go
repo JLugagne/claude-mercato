@@ -8,7 +8,7 @@ import (
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
+	fsrepo "github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
@@ -18,14 +18,14 @@ var marketNameRegexp = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
 
 type App struct {
 	git        gitrepo.GitRepo
-	fs         filesystem.Filesystem
+	fs         fsrepo.Filesystem
 	cfg        configstore.ConfigStore
 	state      statestore.StateStore
 	configPath string
 	cacheDir   string
 }
 
-func New(git gitrepo.GitRepo, fs filesystem.Filesystem, cfg configstore.ConfigStore, state statestore.StateStore, configPath, cacheDir string) *App {
+func New(git gitrepo.GitRepo, fs fsrepo.Filesystem, cfg configstore.ConfigStore, state statestore.StateStore, configPath, cacheDir string) *App {
 	return &App{
 		git:        git,
 		fs:         fs,
@@ -188,7 +188,7 @@ func (a *App) AddMarket(name, url string, opts service.AddMarketOpts) (service.A
 	}
 
 	clonePath := filepath.Join(a.cacheDir, name)
-	if a.fs.DirExists(clonePath) {
+	if fsrepo.DirExists(a.fs, clonePath) {
 		return result, domain.ErrCloneExists
 	}
 

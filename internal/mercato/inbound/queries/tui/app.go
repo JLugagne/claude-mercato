@@ -833,8 +833,17 @@ func (m AppModel) viewProfileAction() string {
 	bold := lipgloss.NewStyle().Bold(true)
 	muted := lipgloss.NewStyle().Foreground(ColorMuted)
 
-	width := 50
-	if m.width < 60 {
+	maxRef := 0
+	for _, e := range p.Entries {
+		if l := len(string(e.Ref)); l > maxRef {
+			maxRef = l
+		}
+	}
+	width := maxRef + 8 // prefix ("  - ") + padding
+	if width < 50 {
+		width = 50
+	}
+	if width > m.width-10 {
 		width = m.width - 10
 	}
 
