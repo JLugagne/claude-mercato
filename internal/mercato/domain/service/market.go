@@ -1,6 +1,7 @@
 package service
 
 import (
+	"io/fs"
 	"time"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
@@ -18,7 +19,7 @@ type MarketCommands interface {
 	RemoveMarket(name string, opts RemoveMarketOpts) error
 	RenameMarket(oldName, newName string) error
 	SetMarketProperty(name, key, value string) error
-	LintMarket(dir string) (LintResult, error)
+	LintMarket(fsys fs.FS, dir string) (LintResult, error)
 }
 
 type LintResult struct {

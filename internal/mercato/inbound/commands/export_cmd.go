@@ -46,18 +46,20 @@ func newExportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				return err
 			}
 
+			installed, err := svc.Entries.List(service.ListOpts{Installed: true})
+			if err != nil {
+				return err
+			}
+
 			export := ExportData{Version: 1}
 
-			// Entries: group by profile (market/seg1/seg2)
+			// Entries: group by profile (market/seg1/seg2), only installed ones
 			profiles := make(map[string]struct{})
-			for _, ec := range cfg.Entries {
-				profiles[entryProfile(string(ec.Ref))] = struct{}{}
-			}
-			for _, ms := range cfg.ManagedSkills {
-				profiles[entryProfile(string(ms.Ref))] = struct{}{}
+			for _, e := range installed {
+				profiles[entryProfile(string(e.Ref))] = struct{}{}
 			}
 
-			// Markets: only those referenced by entries
+			// Markets: only those referenced by installed entries
 			usedMarkets := make(map[string]struct{})
 			for p := range profiles {
 				if market := domain.MctRef(p).Market(); market != "" {

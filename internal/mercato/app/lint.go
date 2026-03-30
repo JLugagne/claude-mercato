@@ -1,15 +1,14 @@
 package app
 
 import (
-	"os"
-	"path/filepath"
+	"io/fs"
 	"strings"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
-func (a *App) LintMarket(dir string) (service.LintResult, error) {
+func (a *App) LintMarket(fsys fs.FS, dir string) (service.LintResult, error) {
 	var result service.LintResult
 
 	type agentDeps struct {
@@ -27,7 +26,7 @@ func (a *App) LintMarket(dir string) (service.LintResult, error) {
 	knownPaths := make(map[string]struct{}) // all valid entry rel paths
 	var agentDepsList []agentDeps
 
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+	err := fs.WalkDir(fsys, dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -35,11 +34,10 @@ func (a *App) LintMarket(dir string) (service.LintResult, error) {
 			return nil
 		}
 
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return nil
+		rel := path
+		if dir != "." && dir != "" {
+			rel = strings.TrimPrefix(path, dir+"/")
 		}
-		rel = filepath.ToSlash(rel)
 
 		parts := strings.SplitN(rel, "/", 3)
 		if len(parts) < 2 {
@@ -56,7 +54,7 @@ func (a *App) LintMarket(dir string) (service.LintResult, error) {
 			pd := profiles[profile]
 			pd.hasReadme = true
 
-			content, readErr := a.fs.ReadFile(path)
+			content, readErr := fs.ReadFile(fsys, path)
 			if readErr == nil {
 				if rfm, parseErr := domain.ParseReadmeFrontmatter(content); parseErr == nil {
 					pd.hasTags = len(rfm.MctTags) > 0
@@ -70,7 +68,7 @@ func (a *App) LintMarket(dir string) (service.LintResult, error) {
 			return nil
 		}
 
-		content, readErr := a.fs.ReadFile(path)
+		content, readErr := fs.ReadFile(fsys, path)
 		if readErr != nil {
 			return nil
 		}
@@ -151,7 +149,7 @@ func (a *App) LintMarket(dir string) (service.LintResult, error) {
 		parts := strings.SplitN(ad.agentRel, "/", 3)
 		profile := parts[0] + "/" + parts[1]
 		for _, dep := range ad.deps {
-			depPath := filepath.ToSlash(dep.File)
+			depPath := dep.File
 			if _, ok := knownPaths[depPath]; !ok {
 				result.Issues = append(result.Issues, service.LintIssue{
 					Profile:  profile,

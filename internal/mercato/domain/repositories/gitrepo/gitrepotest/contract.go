@@ -1,6 +1,9 @@
 package gitrepotest
 
-import "github.com/JLugagne/claude-mercato/internal/mercato/domain"
+import (
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo"
+)
 
 type MockGitRepo struct {
 	CloneFn              func(url, clonePath string) error
@@ -13,6 +16,7 @@ type MockGitRepo struct {
 	IsValidRepoFn        func(clonePath string) bool
 	ValidateRemoteFn     func(url string) error
 	ReadGlobalDifftoolFn func() (string, error)
+	ReadMarketFilesFn    func(clonePath, branch string) ([]gitrepo.MarketFile, error)
 }
 
 func (m *MockGitRepo) Clone(url, clonePath string) error {
@@ -83,4 +87,11 @@ func (m *MockGitRepo) ReadGlobalDifftool() (string, error) {
 		return m.ReadGlobalDifftoolFn()
 	}
 	return "", nil
+}
+
+func (m *MockGitRepo) ReadMarketFiles(clonePath, branch string) ([]gitrepo.MarketFile, error) {
+	if m.ReadMarketFilesFn != nil {
+		return m.ReadMarketFilesFn(clonePath, branch)
+	}
+	return nil, nil
 }

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -17,7 +18,7 @@ func newLintCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				dir = args[0]
 			}
 
-			result, err := svc.Markets.LintMarket(dir)
+			result, err := svc.Markets.LintMarket(os.DirFS(dir), ".")
 			if err != nil {
 				return err
 			}

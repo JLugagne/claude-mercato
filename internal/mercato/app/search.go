@@ -9,6 +9,7 @@ import (
 
 	"github.com/JLugagne/bm25"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	fsrepo "github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
@@ -173,7 +174,7 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 			}
 			ref := domain.MctRef(mc.Name + "/" + mf.Path)
 			ce, inInstalled := installed.Entries[ref]
-			isInstalled := inInstalled && ce != nil && a.fs.FileExists(ce.LocalPath)
+			isInstalled := inInstalled && ce != nil && fsrepo.FileExists(a.fs, ce.LocalPath)
 
 			entry := domain.Entry{
 				Ref:            ref,

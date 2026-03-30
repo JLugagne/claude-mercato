@@ -1,11 +1,26 @@
 package filesystemtest
 
+import (
+	"io/fs"
+	"testing/fstest"
+)
+
+// MockFilesystem implements filesystem.Filesystem for tests.
+// Populate FS with a fstest.MapFS for read operations.
+// Override write operations with function fields as needed.
 type MockFilesystem struct {
-	ReadFileFn       func(path string) ([]byte, error)
+	// FS backs all read operations (Open, ReadFile, ReadDir, Stat).
+	// Defaults to an empty MapFS if nil.
+	FS fstest.MapFS
+
+	// StatFn overrides Stat when set (useful for testing FileExists edge cases).
+	StatFn func(name string) (fs.FileInfo, error)
+
+	// ReadFileFn overrides ReadFile when set (useful for call-counting in tests).
+	ReadFileFn func(name string) ([]byte, error)
+
 	WriteFileFn      func(path string, content []byte) error
 	DeleteFileFn     func(path string) error
-	FileExistsFn     func(path string) bool
-	DirExistsFn      func(path string) bool
 	MkdirAllFn       func(path string) error
 	RemoveAllFn      func(path string) error
 	MD5ChecksumFn    func(content []byte) string
@@ -13,53 +28,61 @@ type MockFilesystem struct {
 	RemoveTempFileFn func(path string) error
 }
 
-func (m *MockFilesystem) ReadFile(path string) ([]byte, error) {
-	if m.ReadFileFn != nil {
-		return m.ReadFileFn(path)
+func (m *MockFilesystem) mapFS() fstest.MapFS {
+	if m.FS != nil {
+		return m.FS
 	}
-	return nil, nil
+	return fstest.MapFS{}
+}
+
+func (m *MockFilesystem) Open(name string) (fs.File, error) {
+	return m.mapFS().Open(name)
+}
+
+func (m *MockFilesystem) ReadFile(name string) ([]byte, error) {
+	if m.ReadFileFn != nil {
+		return m.ReadFileFn(name)
+	}
+	return fs.ReadFile(m.mapFS(), name)
+}
+
+func (m *MockFilesystem) ReadDir(name string) ([]fs.DirEntry, error) {
+	return fs.ReadDir(m.mapFS(), name)
+}
+
+func (m *MockFilesystem) Stat(name string) (fs.FileInfo, error) {
+	if m.StatFn != nil {
+		return m.StatFn(name)
+	}
+	return fs.Stat(m.mapFS(), name)
 }
 
 func (m *MockFilesystem) WriteFile(path string, content []byte) error {
-	if m.WriteFileFn != nil {
-		return m.WriteFileFn(path, content)
+	if m.WriteFileFn == nil {
+		panic("called not defined WriteFileFn")
 	}
-	return nil
+	return m.WriteFileFn(path, content)
 }
 
 func (m *MockFilesystem) DeleteFile(path string) error {
-	if m.DeleteFileFn != nil {
-		return m.DeleteFileFn(path)
+	if m.DeleteFileFn == nil {
+		panic("called not defined DeleteFileFn")
 	}
-	return nil
-}
-
-func (m *MockFilesystem) FileExists(path string) bool {
-	if m.FileExistsFn != nil {
-		return m.FileExistsFn(path)
-	}
-	return false
-}
-
-func (m *MockFilesystem) DirExists(path string) bool {
-	if m.DirExistsFn != nil {
-		return m.DirExistsFn(path)
-	}
-	return false
+	return m.DeleteFileFn(path)
 }
 
 func (m *MockFilesystem) MkdirAll(path string) error {
-	if m.MkdirAllFn != nil {
-		return m.MkdirAllFn(path)
+	if m.MkdirAllFn == nil {
+		panic("called not defined MkdirAllFn")
 	}
-	return nil
+	return m.MkdirAllFn(path)
 }
 
 func (m *MockFilesystem) RemoveAll(path string) error {
-	if m.RemoveAllFn != nil {
-		return m.RemoveAllFn(path)
+	if m.RemoveAllFn == nil {
+		panic("called not defined RemoveAllFn")
 	}
-	return nil
+	return m.RemoveAllFn(path)
 }
 
 func (m *MockFilesystem) MD5Checksum(content []byte) string {

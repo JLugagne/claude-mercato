@@ -1,10 +1,12 @@
 package app
 
 import (
+	"io/fs"
 	"path/filepath"
 	"strings"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	fsrepo "github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
@@ -22,7 +24,7 @@ func (a *App) scanInstalledEntries(cfg domain.Config) (domain.ChecksumState, err
 
 	for _, subdir := range []string{"agents", "skills"} {
 		dir := filepath.Join(cfg.LocalPath, subdir)
-		if !a.fs.DirExists(dir) {
+		if !fsrepo.DirExists(a.fs, dir) {
 			continue
 		}
 		files, err := listMdFiles(a.fs, dir)
@@ -79,7 +81,7 @@ func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
 		if opts.Type != "" && entry.Type != opts.Type {
 			continue
 		}
-		if opts.Installed && (!entry.Installed || !a.fs.FileExists(ce.LocalPath)) {
+		if opts.Installed && (!entry.Installed || !fsrepo.FileExists(a.fs, ce.LocalPath)) {
 			continue
 		}
 
@@ -246,7 +248,7 @@ func (a *App) Remove(ref domain.MctRef) error {
 		return domain.ErrEntryNotInstalled
 	}
 
-	if err := a.fs.DeleteFile(ce.LocalPath); err != nil {
+	if err := a.deleteEntryFile(ce.LocalPath); err != nil {
 		return err
 	}
 
@@ -293,7 +295,7 @@ func (a *App) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
 		if opts.AllKeep {
 			results = append(results, service.PruneResult{Ref: ref, Action: "kept"})
 		} else if opts.AllRemove {
-			if err := a.fs.DeleteFile(ce.LocalPath); err != nil {
+			if err := a.deleteEntryFile(ce.LocalPath); err != nil {
 				results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
 				continue
 			}
@@ -415,7 +417,7 @@ func (a *App) Init(opts service.InitOpts) error {
 	skillsDir := filepath.Join(localPath, "skills")
 
 	for _, dir := range []string{agentsDir, skillsDir} {
-		if !a.fs.DirExists(dir) {
+		if !fsrepo.DirExists(a.fs, dir) {
 			continue
 		}
 		files, err := listMdFiles(a.fs, dir)
@@ -455,10 +457,15 @@ func (a *App) resolveLocalPath(cfg domain.Config, relPath string) (string, error
 	}
 
 	filename := filepath.Base(cleaned)
+	stem := strings.TrimSuffix(filename, ".md")
 	parts := strings.Split(cleaned, string(filepath.Separator))
 	for _, p := range parts {
-		if p == "agents" || p == "skills" {
+		if p == "agents" {
 			resolved := filepath.Join(cfg.LocalPath, p, filename)
+			return resolved, nil
+		}
+		if p == "skills" {
+			resolved := filepath.Join(cfg.LocalPath, p, stem, "SKILL.md")
 			return resolved, nil
 		}
 	}
@@ -523,8 +530,28 @@ func resolveDifftool(configuredTool string, git interface{ ReadGlobalDifftool() 
 	return "diff"
 }
 
-func listMdFiles(fs interface {
-	ListFiles(dir, suffix string) ([]string, error)
-}, dir string) ([]string, error) {
-	return fs.ListFiles(dir, ".md")
+// deleteEntryFile deletes the entry file. For skills installed as
+// skills/<name>/SKILL.md, it also removes the now-empty parent directory.
+func (a *App) deleteEntryFile(localPath string) error {
+	if err := a.fs.DeleteFile(localPath); err != nil {
+		return err
+	}
+	if filepath.Base(localPath) == "SKILL.md" {
+		_ = a.fs.RemoveAll(filepath.Dir(localPath))
+	}
+	return nil
+}
+
+func listMdFiles(fsys fs.ReadDirFS, dir string) ([]string, error) {
+	var files []string
+	err := fs.WalkDir(fsys, dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".md") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
 }
