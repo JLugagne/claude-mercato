@@ -25,5 +25,18 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Run tests
-        run: go test ./...
+      # 1. Update the test run to generate a coverage profile
+      - name: Run tests with coverage
+        run: go test -v -coverprofile=coverage.out ./...
+
+      # 2. (Optional) Print the coverage report to the GitHub Actions console
+      - name: Display coverage report
+        run: go tool cover -func=coverage.out
+
+      # 3. Upload the coverage file as a GitHub Artifact
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage-report
+          path: coverage.out
+          retention-days: 7
