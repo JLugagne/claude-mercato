@@ -77,5 +77,5 @@ var (
 var (
 	ErrDifftoolNotFound = &DomainError{Code: "DIFFTOOL_NOT_FOUND", Message: "no difftool available"}
 	ErrCloneExists      = &DomainError{Code: "CLONE_EXISTS", Message: "clone directory exists but market is not registered"}
-	ErrSSHDisabled = &DomainError{Code: "SSH_DISABLED", Message: "SSH is disabled. To enable:\n  mct config set ssh_enabled true\nor set MCT_SSH_ENABLED=true"}
+	ErrSSHDisabled      = &DomainError{Code: "SSH_DISABLED", Message: "SSH is disabled. To enable:\n  mct config set ssh_enabled true\nor set MCT_SSH_ENABLED=true"}
 )

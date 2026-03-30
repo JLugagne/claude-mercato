@@ -502,10 +502,10 @@ func newListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 
 			type profileKey struct{ market, profile string }
 			type profileInfo struct {
-				Market  string       `json:"market"`
-				Profile string       `json:"profile"`
-				Agents  int          `json:"agents"`
-				Skills  int          `json:"skills"`
+				Market  string          `json:"market"`
+				Profile string          `json:"profile"`
+				Agents  int             `json:"agents"`
+				Skills  int             `json:"skills"`
 				Refs    []domain.MctRef `json:"refs,omitempty"`
 			}
 			seen := make(map[profileKey]*profileInfo)

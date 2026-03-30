@@ -8,7 +8,7 @@ import (
 type Mode int
 
 const (
-	ModeNormal         Mode = iota
+	ModeNormal Mode = iota
 	ModeSearch
 	ModeConfirm
 	ModeHelp

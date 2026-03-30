@@ -13,9 +13,9 @@ type SearchQueries interface {
 }
 
 type BenchResult struct {
-	Scan  time.Duration // time to read markets and parse entries
-	Index time.Duration // time to build the BM25 search index
-	Total time.Duration
+	Scan    time.Duration // time to read markets and parse entries
+	Index   time.Duration // time to build the BM25 search index
+	Total   time.Duration
 	Entries int
 	Vocab   int
 }

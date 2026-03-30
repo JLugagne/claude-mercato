@@ -54,23 +54,23 @@ type Market struct {
 }
 
 type Entry struct {
-	Ref            MctRef     `json:"ref"`
-	Market         string     `json:"market"`
-	RelPath        string     `json:"rel_path"`
-	Filename       string     `json:"filename"`
-	Category       string     `json:"category"`
-	Type           EntryType  `json:"type"`
-	Description    string     `json:"description"`
-	Author         string     `json:"author,omitempty"`
-	MctTags        []string   `json:"mct_tags,omitempty"`
-	Version        MctVersion `json:"version"`
-	Deleted        bool       `json:"deleted"`
-	Installed      bool       `json:"installed"`
-	BreakingChange bool       `json:"breaking_change"`
-	Deprecated     bool       `json:"deprecated"`
-	RequiresSkills []SkillDep `json:"requires_skills,omitempty"`
-	ReadmeContext      string `json:"-"`
-	ProfileDescription string `json:"-"`
+	Ref                MctRef     `json:"ref"`
+	Market             string     `json:"market"`
+	RelPath            string     `json:"rel_path"`
+	Filename           string     `json:"filename"`
+	Category           string     `json:"category"`
+	Type               EntryType  `json:"type"`
+	Description        string     `json:"description"`
+	Author             string     `json:"author,omitempty"`
+	MctTags            []string   `json:"mct_tags,omitempty"`
+	Version            MctVersion `json:"version"`
+	Deleted            bool       `json:"deleted"`
+	Installed          bool       `json:"installed"`
+	BreakingChange     bool       `json:"breaking_change"`
+	Deprecated         bool       `json:"deprecated"`
+	RequiresSkills     []SkillDep `json:"requires_skills,omitempty"`
+	ReadmeContext      string     `json:"-"`
+	ProfileDescription string     `json:"-"`
 }
 
 type SkillDep struct {
@@ -100,7 +100,7 @@ type ChecksumEntry struct {
 type EntryState int
 
 const (
-	StateClean           EntryState = iota
+	StateClean EntryState = iota
 	StateUpdateAvailable
 	StateDrift
 	StateUpdateAndDrift

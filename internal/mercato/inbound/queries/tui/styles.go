@@ -13,7 +13,7 @@ var (
 	ColorBorder   = lipgloss.AdaptiveColor{Light: "#d0d7de", Dark: "#30363d"}
 	ColorActive   = lipgloss.AdaptiveColor{Light: "#0366d6", Dark: "#58a6ff"}
 
-	StyleTitle = lipgloss.NewStyle().Bold(true).Padding(0, 1)
+	StyleTitle  = lipgloss.NewStyle().Bold(true).Padding(0, 1)
 	StyleBorder = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(ColorBorder)

@@ -57,15 +57,14 @@ type RefreshResult struct {
 }
 
 type UpdateResult struct {
-	Ref        domain.MctRef    `json:"ref"`
-	Action     string           `json:"action"`
+	Ref        domain.MctRef     `json:"ref"`
+	Action     string            `json:"action"`
 	OldVersion domain.MctVersion `json:"old_version"`
 	NewVersion domain.MctVersion `json:"new_version"`
-	Err        error            `json:"error,omitempty"`
+	Err        error             `json:"error,omitempty"`
 }
 
 type SyncResult struct {
 	Refresh RefreshResult  `json:"refresh"`
 	Updates []UpdateResult `json:"updates"`
 }
-

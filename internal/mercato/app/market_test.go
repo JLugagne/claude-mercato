@@ -19,12 +19,12 @@ import (
 // fakeDir implements fs.FileInfo for a directory.
 type fakeDir struct{}
 
-func (fakeDir) Name() string      { return "dir" }
-func (fakeDir) Size() int64       { return 0 }
-func (fakeDir) Mode() fs.FileMode { return fs.ModeDir | 0755 }
+func (fakeDir) Name() string       { return "dir" }
+func (fakeDir) Size() int64        { return 0 }
+func (fakeDir) Mode() fs.FileMode  { return fs.ModeDir | 0755 }
 func (fakeDir) ModTime() time.Time { return time.Time{} }
-func (fakeDir) IsDir() bool       { return true }
-func (fakeDir) Sys() any          { return nil }
+func (fakeDir) IsDir() bool        { return true }
+func (fakeDir) Sys() any           { return nil }
 
 // ---------------------------------------------------------------------------
 // validateMarketName
@@ -684,4 +684,3 @@ func isDomainErrorWithCode(err error, code string) bool {
 	var de *domain.DomainError
 	return errors.As(err, &de) && de.Code == code
 }
-

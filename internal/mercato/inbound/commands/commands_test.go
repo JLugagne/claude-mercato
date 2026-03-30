@@ -217,8 +217,8 @@ func (s *stubEntries) Init(opts service.InitOpts) error {
 // ---------------------------------------------------------------------------
 
 type stubSearch struct {
-	searchFn    func(query string, opts service.SearchOpts) ([]service.SearchResult, error)
-	dumpIndexFn func() ([]domain.Entry, error)
+	searchFn     func(query string, opts service.SearchOpts) ([]service.SearchResult, error)
+	dumpIndexFn  func() ([]domain.Entry, error)
 	benchIndexFn func() (service.BenchResult, error)
 }
 

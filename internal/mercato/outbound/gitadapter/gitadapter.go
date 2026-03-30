@@ -437,4 +437,3 @@ func (a *Adapter) ReadGlobalDifftool() (string, error) {
 	tool := cfg.Raw.Section("diff").Option("tool")
 	return tool, nil
 }
-

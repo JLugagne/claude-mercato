@@ -742,13 +742,13 @@ func (m AppModel) View() string {
 		if m.focus == FocusEntries {
 			entriesStyle = StyleActiveBorder
 		}
-		entriesPanel := entriesStyle.Width(w3-2).MaxWidth(w3).Height(entriesH).Render(m.entriesList.View())
+		entriesPanel := entriesStyle.Width(w3 - 2).MaxWidth(w3).Height(entriesH).Render(m.entriesList.View())
 
 		contentStyle := StyleBorder
 		if m.focus == FocusContent {
 			contentStyle = StyleActiveBorder
 		}
-		contentPanel := contentStyle.Width(w3-2).MaxWidth(w3).Height(contentH).Render(m.contentView.View())
+		contentPanel := contentStyle.Width(w3 - 2).MaxWidth(w3).Height(contentH).Render(m.contentView.View())
 
 		rightCol := lipgloss.JoinVertical(lipgloss.Left, entriesPanel, contentPanel)
 		panels = append(panels, rightCol)
