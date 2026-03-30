@@ -3,22 +3,50 @@ package fsadapter
 import (
 	"crypto/md5"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
-type Adapter struct{}
-
-func New() *Adapter { return &Adapter{} }
-
-func (a *Adapter) ReadFile(path string) ([]byte, error) {
-	return os.ReadFile(path)
+// Adapter implements filesystem.Filesystem.
+// Read operations delegate to an fs.FS (os.DirFS by default).
+// Write operations use os directly.
+type Adapter struct {
+	fsys fs.FS
 }
 
+// New returns an Adapter rooted at the process working directory.
+func New() *Adapter {
+	return &Adapter{fsys: os.DirFS(".")}
+}
+
+// NewAt returns an Adapter rooted at the given directory.
+func NewAt(root string) *Adapter {
+	return &Adapter{fsys: os.DirFS(root)}
+}
+
+// --- ReadFS methods ---
+
+func (a *Adapter) Open(name string) (fs.File, error) {
+	return a.fsys.Open(name)
+}
+
+func (a *Adapter) ReadFile(name string) ([]byte, error) {
+	return fs.ReadFile(a.fsys, name)
+}
+
+func (a *Adapter) ReadDir(name string) ([]fs.DirEntry, error) {
+	return fs.ReadDir(a.fsys, name)
+}
+
+func (a *Adapter) Stat(name string) (fs.FileInfo, error) {
+	return fs.Stat(a.fsys, name)
+}
+
+// --- Write methods ---
+
 func (a *Adapter) WriteFile(path string, content []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
 	return os.WriteFile(path, content, 0644)
@@ -26,16 +54,6 @@ func (a *Adapter) WriteFile(path string, content []byte) error {
 
 func (a *Adapter) DeleteFile(path string) error {
 	return os.Remove(path)
-}
-
-func (a *Adapter) FileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
-}
-
-func (a *Adapter) DirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
 }
 
 func (a *Adapter) MkdirAll(path string) error {
@@ -67,18 +85,4 @@ func (a *Adapter) TempFile(name string, content []byte) (string, error) {
 
 func (a *Adapter) RemoveTempFile(path string) error {
 	return os.Remove(path)
-}
-
-func (a *Adapter) ListFiles(dir, suffix string) ([]string, error) {
-	var files []string
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && strings.HasSuffix(path, suffix) {
-			files = append(files, path)
-		}
-		return nil
-	})
-	return files, err
 }

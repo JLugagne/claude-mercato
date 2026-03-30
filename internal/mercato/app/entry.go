@@ -1,10 +1,12 @@
 package app
 
 import (
+	"io/fs"
 	"path/filepath"
 	"strings"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	fsrepo "github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
@@ -22,7 +24,7 @@ func (a *App) scanInstalledEntries(cfg domain.Config) (domain.ChecksumState, err
 
 	for _, subdir := range []string{"agents", "skills"} {
 		dir := filepath.Join(cfg.LocalPath, subdir)
-		if !a.fs.DirExists(dir) {
+		if !fsrepo.DirExists(a.fs, dir) {
 			continue
 		}
 		files, err := listMdFiles(a.fs, dir)
@@ -79,7 +81,7 @@ func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
 		if opts.Type != "" && entry.Type != opts.Type {
 			continue
 		}
-		if opts.Installed && (!entry.Installed || !a.fs.FileExists(ce.LocalPath)) {
+		if opts.Installed && (!entry.Installed || !fsrepo.FileExists(a.fs, ce.LocalPath)) {
 			continue
 		}
 
@@ -415,7 +417,7 @@ func (a *App) Init(opts service.InitOpts) error {
 	skillsDir := filepath.Join(localPath, "skills")
 
 	for _, dir := range []string{agentsDir, skillsDir} {
-		if !a.fs.DirExists(dir) {
+		if !fsrepo.DirExists(a.fs, dir) {
 			continue
 		}
 		files, err := listMdFiles(a.fs, dir)
@@ -463,6 +465,10 @@ func (a *App) resolveLocalPath(cfg domain.Config, relPath string) (string, error
 			return filepath.Join(cfg.LocalPath, "agents", filename), nil
 		case "skills":
 			return filepath.Join(cfg.LocalPath, "skills", nameWithoutExt, "SKILL.md"), nil
+		}
+		if p == "skills" {
+			resolved := filepath.Join(cfg.LocalPath, p, stem, "SKILL.md")
+			return resolved, nil
 		}
 	}
 	return filepath.Join(cfg.LocalPath, filename), nil
