@@ -22,6 +22,7 @@ type Frontmatter struct {
 	MctVersion     MctVersion `yaml:"mct_version"`
 	MctMarket      string     `yaml:"mct_market"`
 	MctInstalledAt time.Time  `yaml:"mct_installed_at"`
+	MctChecksum    string     `yaml:"mct_checksum"`
 }
 
 type ReadmeFrontmatter struct {
@@ -93,14 +94,14 @@ func ExtractFrontmatterBytes(content []byte) ([]byte, error) {
 	return []byte(raw), nil
 }
 
-func InjectMctFields(content []byte, ref MctRef, version MctVersion, market string) ([]byte, error) {
+func InjectMctFields(content []byte, ref MctRef, version MctVersion, market string, checksum string) ([]byte, error) {
 	fmBytes, err := ExtractFrontmatterBytes(content)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	mctBlock := fmt.Sprintf("mct_ref: %s\nmct_version: %s\nmct_market: %s\nmct_installed_at: %s",
-		string(ref), string(version), market, now)
+	mctBlock := fmt.Sprintf("mct_ref: %s\nmct_version: %s\nmct_market: %s\nmct_installed_at: %s\nmct_checksum: %s",
+		string(ref), string(version), market, now, checksum)
 	oldFM := string(fmBytes)
 	newFM := mctBlock + "\n\n" + oldFM
 	result := bytes.Replace(content, fmBytes, []byte(newFM), 1)
@@ -114,4 +115,13 @@ func PatchMctVersion(content []byte, newVersion MctVersion) ([]byte, error) {
 		return nil, fmt.Errorf("mct_version field not found in content")
 	}
 	return reMctVersion.ReplaceAll(content, []byte("mct_version: "+string(newVersion))), nil
+}
+
+var reMctChecksum = regexp.MustCompile(`(?m)^mct_checksum:.*$`)
+
+func PatchMctChecksum(content []byte, newChecksum string) ([]byte, error) {
+	if !reMctChecksum.Match(content) {
+		return nil, fmt.Errorf("mct_checksum field not found in content")
+	}
+	return reMctChecksum.ReplaceAll(content, []byte("mct_checksum: "+newChecksum)), nil
 }

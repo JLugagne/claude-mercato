@@ -22,6 +22,7 @@ const (
 
 type MarketPopup struct {
 	markets  []domain.Market
+	selected map[string]bool
 	cursor   int
 	action   MarketAction
 	input    textinput.Model // for add (URL) or rename (new name)
@@ -31,7 +32,7 @@ type MarketPopup struct {
 func newMarketPopup() MarketPopup {
 	ti := textinput.New()
 	ti.CharLimit = 256
-	return MarketPopup{input: ti}
+	return MarketPopup{input: ti, selected: make(map[string]bool)}
 }
 
 func (p *MarketPopup) load(markets []domain.Market) {
@@ -41,6 +42,31 @@ func (p *MarketPopup) load(markets []domain.Market) {
 	if p.cursor >= len(markets) {
 		p.cursor = max(0, len(markets)-1)
 	}
+	// Preserve existing selections; newly added markets start selected.
+	if p.selected == nil {
+		p.selected = make(map[string]bool)
+	}
+	existing := p.selected
+	p.selected = make(map[string]bool, len(markets))
+	for _, mk := range markets {
+		if was, seen := existing[mk.Name]; seen {
+			p.selected[mk.Name] = was
+		} else {
+			p.selected[mk.Name] = true
+		}
+	}
+}
+
+// selectedMarkets returns the set of market names the user has checked.
+// If none are explicitly deselected (all selected), returns nil meaning "all".
+func (p *MarketPopup) selectedMarkets() []string {
+	var names []string
+	for _, mk := range p.markets {
+		if p.selected[mk.Name] {
+			names = append(names, mk.Name)
+		}
+	}
+	return names
 }
 
 func (p *MarketPopup) selectedMarket() (domain.Market, bool) {
@@ -103,6 +129,23 @@ func (m *AppModel) handleMarketPopupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			p.cursor--
 		}
 		return m, nil
+	case " ":
+		mk, ok := p.selectedMarket()
+		if !ok {
+			return m, nil
+		}
+		p.selected[mk.Name] = !p.selected[mk.Name]
+		return m, m.applyMarketFilterCmd()
+	case "A":
+		for _, mk := range p.markets {
+			p.selected[mk.Name] = true
+		}
+		return m, m.applyMarketFilterCmd()
+	case "N":
+		for _, mk := range p.markets {
+			p.selected[mk.Name] = false
+		}
+		return m, m.applyMarketFilterCmd()
 	case "a":
 		p.action = MarketActionAdd
 		p.input.Placeholder = "git URL (e.g. git@github.com:user/repo.git)"
@@ -226,15 +269,19 @@ func (m AppModel) viewMarketPopup() string {
 	} else {
 		for i, mk := range p.markets {
 			cursor := "  "
-			style := lipgloss.NewStyle()
+			nameStyle := lipgloss.NewStyle()
 			if i == p.cursor {
 				cursor = "> "
-				style = selected
+				nameStyle = selected
 			}
-			s += cursor + style.Render(mk.Name) + "\n"
-			s += "    " + muted.Render(mk.URL) + "\n"
+			check := "[ ]"
+			if p.selected[mk.Name] {
+				check = "[x]"
+			}
+			s += cursor + check + " " + nameStyle.Render(mk.Name) + "\n"
+			s += "      " + muted.Render(mk.URL) + "\n"
 			if ms, ok := stats[mk.Name]; ok {
-				s += "    " + muted.Render(fmt.Sprintf("%d profiles  %d agents  %d skills", ms.profiles, ms.agents, ms.skills)) + "\n"
+				s += "      " + muted.Render(fmt.Sprintf("%d profiles  %d agents  %d skills", ms.profiles, ms.agents, ms.skills)) + "\n"
 			}
 		}
 	}
@@ -247,7 +294,7 @@ func (m AppModel) viewMarketPopup() string {
 		mk, _ := p.selectedMarket()
 		s += "Rename " + bold.Render(mk.Name) + " to: " + p.input.View() + "\n"
 	} else {
-		s += muted.Render("a add  d delete  n rename  R refresh all  esc close") + "\n"
+		s += muted.Render("space toggle  A select all  N select none  a add  d delete  n rename  R refresh  esc close") + "\n"
 	}
 
 	if p.errMsg != "" {

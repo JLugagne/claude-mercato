@@ -51,7 +51,6 @@ func validateMarketName(name string) error {
 // "https://github.com/org/repo.git" all compare as equal.
 func normalizeURL(u string) string {
 	u = strings.TrimSpace(u)
-	// SSH shorthand: git@host:path -> host/path
 	if strings.Contains(u, "://") {
 		u = u[strings.Index(u, "://")+3:]
 	} else if at := strings.Index(u, "@"); at >= 0 {
@@ -130,7 +129,7 @@ func (a *App) MarketInfo(name string) (service.MarketInfoResult, error) {
 		return service.MarketInfoResult{}, err
 	}
 
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	installed, err := a.scanInstalledEntries(cfg)
 	if err != nil {
 		return service.MarketInfoResult{}, err
 	}
@@ -141,7 +140,7 @@ func (a *App) MarketInfo(name string) (service.MarketInfoResult, error) {
 	}
 
 	installedCount := 0
-	for ref, entry := range checksums.Entries {
+	for ref, entry := range installed.Entries {
 		if entry == nil {
 			continue
 		}
@@ -269,13 +268,13 @@ func (a *App) RemoveMarket(name string, opts service.RemoveMarketOpts) error {
 	}
 
 	if !opts.Force {
-		checksums, err := a.state.LoadChecksums(a.cacheDir)
+		installed, err := a.scanInstalledEntries(cfg)
 		if err != nil {
 			return err
 		}
 
 		var installedRefs []string
-		for ref, entry := range checksums.Entries {
+		for ref, entry := range installed.Entries {
 			if entry == nil {
 				continue
 			}
@@ -312,23 +311,6 @@ func (a *App) RemoveMarket(name string, opts service.RemoveMarketOpts) error {
 		}
 	}
 
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
-	if err != nil {
-		return err
-	}
-
-	for ref, entry := range checksums.Entries {
-		if entry == nil {
-			continue
-		}
-		if ref.Market() == name {
-			entry.Status = "orphaned"
-			if err := a.state.UpdateChecksum(a.cacheDir, ref, *entry); err != nil {
-				return err
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -359,25 +341,6 @@ func (a *App) RenameMarket(oldName, newName string) error {
 		delete(syncState.Markets, oldName)
 		if err := a.state.SaveSyncState(a.cacheDir, syncState); err != nil {
 			return err
-		}
-	}
-
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
-	if err != nil {
-		return err
-	}
-	for ref, entry := range checksums.Entries {
-		if entry == nil {
-			continue
-		}
-		if ref.Market() == oldName {
-			newRef := domain.MctRef(newName + "/" + ref.RelPath())
-			if err := a.state.UpdateChecksum(a.cacheDir, newRef, *entry); err != nil {
-				return err
-			}
-			if err := a.state.RemoveChecksum(a.cacheDir, ref); err != nil {
-				return err
-			}
 		}
 	}
 

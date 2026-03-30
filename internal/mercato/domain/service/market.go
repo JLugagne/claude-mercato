@@ -18,6 +18,20 @@ type MarketCommands interface {
 	RemoveMarket(name string, opts RemoveMarketOpts) error
 	RenameMarket(oldName, newName string) error
 	SetMarketProperty(name, key, value string) error
+	LintMarket(dir string) (LintResult, error)
+}
+
+type LintResult struct {
+	Profiles int
+	Agents   int
+	Skills   int
+	Issues   []LintIssue
+}
+
+type LintIssue struct {
+	Profile  string
+	Severity string // "error" or "warn"
+	Message  string
 }
 
 type AddMarketResult struct {

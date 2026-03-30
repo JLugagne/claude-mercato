@@ -76,12 +76,15 @@ func NewRootCmd(svc Services) *cobra.Command {
 		newConfigCmd(svc, opts),
 		newExportCmd(svc, opts),
 		newImportCmd(svc, opts),
+		newLintCmd(svc, opts),
 	)
 
 	// Aliases
 	root.AddCommand(newStatusCmd(svc, opts))  // alias for check
 	root.AddCommand(newInstallCmd(svc, opts)) // alias for add
 	root.AddCommand(newMarketsCmd(svc, opts)) // alias for market list
+	root.AddCommand(newSaveCmd(svc, opts))    // alias for export .mct.json
+	root.AddCommand(newRestoreCmd(svc, opts)) // alias for import .mct.json
 
 	return root
 }
