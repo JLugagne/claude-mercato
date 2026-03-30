@@ -95,7 +95,6 @@ type ChecksumEntry struct {
 	MctVersion        MctVersion `json:"mct_version"`
 	InstalledAt       time.Time  `json:"installed_at"`
 	ChecksumAtInstall string     `json:"checksum_at_install"`
-	Status            string     `json:"status"`
 }
 
 type EntryState int

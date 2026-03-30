@@ -11,7 +11,7 @@ func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 		return nil, err
 	}
 
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	checksums, err := a.scanInstalledEntries(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 		return nil, err
 	}
 
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	checksums, err := a.scanInstalledEntries(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +273,9 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 				continue
 			}
 
-			injected, err := domain.InjectMctFields(newContent, ref, newVersion, ref.Market())
+			newChecksum := a.fs.MD5Checksum(newContent)
+
+			injected, err := domain.InjectMctFields(newContent, ref, newVersion, ref.Market(), newChecksum)
 			if err != nil {
 				injected, err = domain.PatchMctVersion(newContent, newVersion)
 				if err != nil {
@@ -282,21 +284,6 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 			}
 
 			if err := a.fs.WriteFile(entry.LocalPath, injected); err != nil {
-				results = append(results, service.UpdateResult{
-					Ref:        ref,
-					Action:     "error",
-					OldVersion: oldVersion,
-					Err:        err,
-				})
-				continue
-			}
-
-			newChecksum := a.fs.MD5Checksum(injected)
-			entry.MctVersion = newVersion
-			entry.ChecksumAtInstall = newChecksum
-			entry.Status = "clean"
-
-			if err := a.state.UpdateChecksum(a.cacheDir, ref, *entry); err != nil {
 				results = append(results, service.UpdateResult{
 					Ref:        ref,
 					Action:     "error",

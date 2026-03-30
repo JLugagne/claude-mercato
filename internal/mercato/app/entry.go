@@ -3,7 +3,6 @@ package app
 import (
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
@@ -15,8 +14,54 @@ type DiffInfo struct {
 	Tool      string
 }
 
+func (a *App) scanInstalledEntries(cfg domain.Config) (domain.ChecksumState, error) {
+	state := domain.ChecksumState{
+		Version: 1,
+		Entries: make(map[domain.MctRef]*domain.ChecksumEntry),
+	}
+
+	for _, subdir := range []string{"agents", "skills"} {
+		dir := filepath.Join(cfg.LocalPath, subdir)
+		if !a.fs.DirExists(dir) {
+			continue
+		}
+		files, err := listMdFiles(a.fs, dir)
+		if err != nil {
+			continue
+		}
+		for _, filePath := range files {
+			content, err := a.fs.ReadFile(filePath)
+			if err != nil {
+				continue
+			}
+			fm, err := domain.ParseFrontmatter(content)
+			if err != nil {
+				continue
+			}
+			if fm.MctRef == "" {
+				continue
+			}
+			ce := &domain.ChecksumEntry{
+				LocalPath:         filePath,
+				MctRef:            fm.MctRef,
+				MctVersion:        fm.MctVersion,
+				InstalledAt:       fm.MctInstalledAt,
+				ChecksumAtInstall: fm.MctChecksum,
+			}
+			state.Entries[fm.MctRef] = ce
+		}
+	}
+
+	return state, nil
+}
+
 func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	cfg, err := a.cfg.Load(a.configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	checksums, err := a.scanInstalledEntries(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +79,7 @@ func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
 		if opts.Type != "" && entry.Type != opts.Type {
 			continue
 		}
-		if opts.Installed && !entry.Installed {
+		if opts.Installed && (!entry.Installed || !a.fs.FileExists(ce.LocalPath)) {
 			continue
 		}
 
@@ -59,7 +104,12 @@ func (a *App) ReadEntryContent(market, relPath string) ([]byte, error) {
 }
 
 func (a *App) GetEntry(ref domain.MctRef) (domain.Entry, error) {
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	cfg, err := a.cfg.Load(a.configPath)
+	if err != nil {
+		return domain.Entry{}, err
+	}
+
+	checksums, err := a.scanInstalledEntries(cfg)
 	if err != nil {
 		return domain.Entry{}, err
 	}
@@ -88,11 +138,11 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 		return domain.ErrMarketNotFound
 	}
 
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	installed, err := a.scanInstalledEntries(cfg)
 	if err != nil {
 		return err
 	}
-	if existing, ok := checksums.Entries[ref]; ok && existing != nil {
+	if existing, ok := installed.Entries[ref]; ok && existing != nil {
 		return domain.ErrEntryAlreadyInstalled
 	}
 
@@ -125,7 +175,9 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 		return nil
 	}
 
-	injected, err := domain.InjectMctFields(content, ref, version, marketName)
+	checksum := a.fs.MD5Checksum(content)
+
+	injected, err := domain.InjectMctFields(content, ref, version, marketName, checksum)
 	if err != nil {
 		return err
 	}
@@ -136,20 +188,6 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 	}
 
 	if err := a.fs.WriteFile(localPath, injected); err != nil {
-		return err
-	}
-
-	checksum := a.fs.MD5Checksum(injected)
-
-	ce := domain.ChecksumEntry{
-		LocalPath:         localPath,
-		MctRef:            ref,
-		MctVersion:        version,
-		InstalledAt:       time.Now().UTC(),
-		ChecksumAtInstall: checksum,
-		Status:            "clean",
-	}
-	if err := a.state.UpdateChecksum(a.cacheDir, ref, ce); err != nil {
 		return err
 	}
 
@@ -165,7 +203,7 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 		for _, dep := range fm.RequiresSkills {
 			skillRef := domain.MctRef(marketName + "/" + dep.File)
 
-			existing, ok := checksums.Entries[skillRef]
+			existing, ok := installed.Entries[skillRef]
 			if ok && existing != nil {
 				continue
 			}
@@ -193,21 +231,22 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 }
 
 func (a *App) Remove(ref domain.MctRef) error {
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	cfg, err := a.cfg.Load(a.configPath)
 	if err != nil {
 		return err
 	}
 
-	ce, ok := checksums.Entries[ref]
+	installed, err := a.scanInstalledEntries(cfg)
+	if err != nil {
+		return err
+	}
+
+	ce, ok := installed.Entries[ref]
 	if !ok || ce == nil {
 		return domain.ErrEntryNotInstalled
 	}
 
 	if err := a.fs.DeleteFile(ce.LocalPath); err != nil {
-		return err
-	}
-
-	if err := a.state.RemoveChecksum(a.cacheDir, ref); err != nil {
 		return err
 	}
 
@@ -223,39 +262,38 @@ func (a *App) Remove(ref domain.MctRef) error {
 }
 
 func (a *App) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	cfg, err := a.cfg.Load(a.configPath)
 	if err != nil {
 		return nil, err
 	}
 
-	var tombstoned []domain.MctRef
-	for ref, ce := range checksums.Entries {
-		if ce == nil {
-			continue
-		}
-		if ce.Status == "deleted" {
-			tombstoned = append(tombstoned, ref)
-		}
+	installed, err := a.scanInstalledEntries(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	var results []service.PruneResult
 
-	for _, ref := range tombstoned {
-		ce := checksums.Entries[ref]
+	for ref, ce := range installed.Entries {
+		if ce == nil {
+			continue
+		}
+
+		marketName, relPath, err := ref.Parse()
+		if err != nil {
+			continue
+		}
+
+		clonePath := a.clonePath(marketName)
+		_, err = a.git.FileVersion(clonePath, relPath)
+		if err == nil {
+			continue
+		}
 
 		if opts.AllKeep {
-			ce.Status = "kept"
-			if err := a.state.UpdateChecksum(a.cacheDir, ref, *ce); err != nil {
-				results = append(results, service.PruneResult{Ref: ref, Action: "keep", Err: err})
-				continue
-			}
 			results = append(results, service.PruneResult{Ref: ref, Action: "kept"})
 		} else if opts.AllRemove {
 			if err := a.fs.DeleteFile(ce.LocalPath); err != nil {
-				results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
-				continue
-			}
-			if err := a.state.RemoveChecksum(a.cacheDir, ref); err != nil {
 				results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
 				continue
 			}
@@ -271,13 +309,17 @@ func (a *App) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
 }
 
 func (a *App) Pin(ref domain.MctRef, sha string) error {
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	cfg, err := a.cfg.Load(a.configPath)
 	if err != nil {
 		return err
 	}
 
-	ce, ok := checksums.Entries[ref]
-	if !ok || ce == nil {
+	installed, err := a.scanInstalledEntries(cfg)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := installed.Entries[ref]; !ok {
 		return domain.ErrEntryNotInstalled
 	}
 
@@ -290,22 +332,22 @@ func (a *App) Diff(ref domain.MctRef) error {
 }
 
 func (a *App) PrepareDiff(ref domain.MctRef) (leftTmpPath, rightPath, tool string, err error) {
-	checksums, err := a.state.LoadChecksums(a.cacheDir)
+	cfg, err := a.cfg.Load(a.configPath)
 	if err != nil {
 		return "", "", "", err
 	}
 
-	ce, ok := checksums.Entries[ref]
+	installed, err := a.scanInstalledEntries(cfg)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	ce, ok := installed.Entries[ref]
 	if !ok || ce == nil {
 		return "", "", "", domain.ErrEntryNotFound
 	}
 
 	marketName, relPath, err := ref.Parse()
-	if err != nil {
-		return "", "", "", err
-	}
-
-	cfg, err := a.cfg.Load(a.configPath)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -369,11 +411,6 @@ func (a *App) Init(opts service.InitOpts) error {
 		}
 	}
 
-	checksums := domain.ChecksumState{
-		Version: 1,
-		Entries: make(map[domain.MctRef]*domain.ChecksumEntry),
-	}
-
 	agentsDir := filepath.Join(localPath, "agents")
 	skillsDir := filepath.Join(localPath, "skills")
 
@@ -397,22 +434,8 @@ func (a *App) Init(opts service.InitOpts) error {
 			if fm.MctRef == "" {
 				continue
 			}
-			checksum := a.fs.MD5Checksum(content)
-			ce := &domain.ChecksumEntry{
-				LocalPath:         filePath,
-				MctRef:            fm.MctRef,
-				MctVersion:        fm.MctVersion,
-				InstalledAt:       time.Now().UTC(),
-				ChecksumAtInstall: checksum,
-				Status:            "clean",
-			}
-			checksums.Entries[fm.MctRef] = ce
 			cfg.Entries = append(cfg.Entries, domain.EntryConfig{Ref: fm.MctRef})
 		}
-	}
-
-	if err := a.state.SaveChecksums(a.cacheDir, checksums); err != nil {
-		return err
 	}
 
 	if err := a.cfg.Save(a.configPath, cfg); err != nil {
@@ -423,7 +446,6 @@ func (a *App) Init(opts service.InitOpts) error {
 }
 
 func (a *App) resolveLocalPath(cfg domain.Config, relPath string) (string, error) {
-	// Reject paths with traversal or absolute components.
 	cleaned := filepath.Clean(relPath)
 	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
 		return "", &domain.DomainError{
@@ -455,8 +477,7 @@ func checksumEntryToDomainEntry(ref domain.MctRef, ce *domain.ChecksumEntry) dom
 		Filename:  filepath.Base(relPath),
 		Type:      entryType,
 		Version:   ce.MctVersion,
-		Installed: ce.Status != "orphaned" && ce.Status != "deleted",
-		Deleted:   ce.Status == "deleted",
+		Installed: true,
 	}
 }
 

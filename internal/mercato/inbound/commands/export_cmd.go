@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -46,17 +48,6 @@ func newExportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 
 			export := ExportData{Version: 1}
 
-			// Markets
-			for _, mc := range cfg.Markets {
-				export.Markets = append(export.Markets, ExportMarket{
-					Name:     mc.Name,
-					URL:      mc.URL,
-					Branch:   mc.Branch,
-					Trusted:  mc.Trusted,
-					ReadOnly: mc.ReadOnly,
-				})
-			}
-
 			// Entries: group by profile (market/seg1/seg2)
 			profiles := make(map[string]struct{})
 			for _, ec := range cfg.Entries {
@@ -64,6 +55,26 @@ func newExportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			}
 			for _, ms := range cfg.ManagedSkills {
 				profiles[entryProfile(string(ms.Ref))] = struct{}{}
+			}
+
+			// Markets: only those referenced by entries
+			usedMarkets := make(map[string]struct{})
+			for p := range profiles {
+				if market := domain.MctRef(p).Market(); market != "" {
+					usedMarkets[market] = struct{}{}
+				}
+			}
+			for _, mc := range cfg.Markets {
+				if _, ok := usedMarkets[mc.Name]; !ok {
+					continue
+				}
+				export.Markets = append(export.Markets, ExportMarket{
+					Name:     mc.Name,
+					URL:      mc.URL,
+					Branch:   mc.Branch,
+					Trusted:  mc.Trusted,
+					ReadOnly: mc.ReadOnly,
+				})
 			}
 			sorted := make([]string, 0, len(profiles))
 			for p := range profiles {
@@ -103,6 +114,7 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			jsonOut, _ := cmd.Flags().GetBool("json")
+			yes, _ := cmd.Flags().GetBool("yes")
 
 			raw, err := os.ReadFile(args[0])
 			if err != nil {
@@ -133,6 +145,7 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			var results []importResult
 
 			// Import markets
+			scanner := bufio.NewScanner(cmd.InOrStdin())
 			for _, m := range imp.Markets {
 				norm := normalizeMarketURL(m.URL)
 				if existing, ok := existingURLs[norm]; ok {
@@ -150,6 +163,20 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 					continue
 				}
 
+				if !yes {
+					if jsonOut {
+						results = append(results, importResult{Action: "skip", Type: "market", Ref: m.Name, Detail: "not registered locally (use --yes to add)"})
+						continue
+					}
+					cmd.Printf("  ?   market %q (%s) is not registered locally. Add it? [y/N] ", m.Name, m.URL)
+					scanner.Scan()
+					answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+					if answer != "y" && answer != "yes" {
+						results = append(results, importResult{Action: "skip", Type: "market", Ref: m.Name, Detail: "declined by user"})
+						continue
+					}
+				}
+
 				_, err := svc.Markets.AddMarket(m.Name, m.URL, service.AddMarketOpts{
 					Branch:   m.Branch,
 					Trusted:  m.Trusted,
@@ -159,6 +186,7 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 					results = append(results, importResult{Action: "error", Type: "market", Ref: m.Name, Detail: err.Error()})
 				} else {
 					results = append(results, importResult{Action: "add", Type: "market", Ref: m.Name})
+					existingURLs[norm] = m.Name
 				}
 			}
 
@@ -172,16 +200,16 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 					continue
 				}
 
-				// List all entries in the market and filter to this profile
-				entries, err := svc.Entries.List(service.ListOpts{Market: market})
-				if err != nil {
-					results = append(results, importResult{Action: "error", Type: "profile", Ref: profile, Detail: err.Error()})
+				// Re-index on each profile to reflect installs done in previous iterations
+				allIndexed, indexErr := svc.Search.DumpIndex()
+				if indexErr != nil {
+					results = append(results, importResult{Action: "error", Type: "profile", Ref: profile, Detail: indexErr.Error()})
 					continue
 				}
 
 				installed := 0
-				for _, entry := range entries {
-					if !strings.HasPrefix(entry.RelPath, relProfile+"/") {
+				for _, entry := range allIndexed {
+					if entry.Market != market || !strings.HasPrefix(entry.RelPath, relProfile+"/") {
 						continue
 					}
 					if entry.Installed {
@@ -195,11 +223,18 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 					}
 
 					err := svc.Entries.Add(entry.Ref, service.AddOpts{})
-					if err != nil {
+					if errors.Is(err, domain.ErrEntryAlreadyInstalled) {
+						// already on disk (e.g. auto-installed as a dep by a previous entry)
+					} else if err != nil {
 						results = append(results, importResult{Action: "error", Type: "entry", Ref: string(entry.Ref), Detail: err.Error()})
 					} else {
 						results = append(results, importResult{Action: "add", Type: "entry", Ref: string(entry.Ref)})
 						installed++
+						for _, dep := range entry.RequiresSkills {
+							depRef := domain.MctRef(entry.Market + "/" + dep.File)
+							results = append(results, importResult{Action: "add", Type: "entry", Ref: string(depRef), Detail: "(dep)"})
+							installed++
+						}
 					}
 				}
 
@@ -231,6 +266,7 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	}
 	cmd.Flags().Bool("dry-run", false, "preview import without changes")
 	cmd.Flags().Bool("json", false, "JSON output")
+	cmd.Flags().Bool("yes", false, "automatically confirm adding markets not registered locally")
 	return cmd
 }
 

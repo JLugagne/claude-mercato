@@ -46,6 +46,8 @@ mct market info mymarket
 # Install / remove
 mct add mymarket/profile/agents/foo
 mct remove --ref mymarket/profile/agents/foo
+mct remove --all          # Remove all installed entries (prompts for confirmation)
+mct remove --all --yes    # Remove all without prompt
 
 # Sync
 mct refresh          # Fetch updates from all markets
@@ -65,12 +67,14 @@ mct export settings.json     # Export all markets + entries to file
 mct import settings.json     # Import from file (skips existing URLs)
 mct export                   # Export to stdout
 mct import settings.json --dry-run  # Preview without changes
+mct save                     # Save current setup to .mct.json
+mct restore                  # Restore setup from .mct.json
 
 # Other
 mct pin --ref mymarket/profile/agents/foo --sha abc1234
 mct diff --ref mymarket/profile/agents/foo
 mct conflicts
-mct list
+mct list              # List installed profiles and their entry refs
 mct index --bench
 mct tui
 ```
@@ -134,6 +138,10 @@ mct import setup.json
 
 # Preview what would happen
 mct import setup.json --dry-run
+
+# Shorthand: save/restore to .mct.json in current directory
+mct save       # equivalent to: mct export .mct.json
+mct restore    # equivalent to: mct import .mct.json
 ```
 
 The export format is a portable JSON file containing:

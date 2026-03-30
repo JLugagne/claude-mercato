@@ -226,6 +226,30 @@ func newAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	return cmd
 }
 
+func newRestoreCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := newImportCmd(svc, opts)
+	cmd.Use = "restore"
+	cmd.Short = "Restore setup from .mct.json (alias for import .mct.json)"
+	cmd.Args = cobra.NoArgs
+	importRunE := cmd.RunE
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return importRunE(cmd, []string{".mct.json"})
+	}
+	return cmd
+}
+
+func newSaveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
+	cmd := newExportCmd(svc, opts)
+	cmd.Use = "save"
+	cmd.Short = "Save current setup to .mct.json (alias for export .mct.json)"
+	cmd.Args = cobra.NoArgs
+	exportRunE := cmd.RunE
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return exportRunE(cmd, []string{".mct.json"})
+	}
+	return cmd
+}
+
 func newInstallCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd := newAddCmd(svc, opts)
 	cmd.Use = "install <ref>"
@@ -239,7 +263,50 @@ func newRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 		Short: "Remove an installed entry",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref, _ := cmd.Flags().GetString("ref")
+			all, _ := cmd.Flags().GetBool("all")
 			jsonOut, _ := cmd.Flags().GetBool("json")
+
+			if all {
+				yes, _ := cmd.Flags().GetBool("yes")
+				entries, err := svc.Entries.List(service.ListOpts{Installed: true})
+				if err != nil {
+					return err
+				}
+				if !yes {
+					cmd.Printf("  Remove %d installed entries? [y/N] ", len(entries))
+					var answer string
+					fmt.Fscan(cmd.InOrStdin(), &answer)
+					if answer != "y" && answer != "Y" {
+						cmd.Println("  aborted")
+						return nil
+					}
+				}
+				type removeResult struct {
+					Ref    domain.MctRef `json:"ref"`
+					Status string        `json:"status"`
+					Error  string        `json:"error,omitempty"`
+				}
+				var results []removeResult
+				for _, e := range entries {
+					if err := svc.Entries.Remove(e.Ref); err != nil {
+						results = append(results, removeResult{Ref: e.Ref, Status: "error", Error: err.Error()})
+					} else {
+						results = append(results, removeResult{Ref: e.Ref, Status: "removed"})
+					}
+				}
+				if jsonOut {
+					return printJSON(cmd.OutOrStdout(), results)
+				}
+				for _, r := range results {
+					if r.Error != "" {
+						cmd.PrintErrf("  x  %s: %s\n", r.Ref, r.Error)
+					} else {
+						cmd.Printf("  ok  removed %s\n", r.Ref)
+					}
+				}
+				return nil
+			}
+
 			if err := svc.Entries.Remove(domain.MctRef(ref)); err != nil {
 				return err
 			}
@@ -251,8 +318,9 @@ func newRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 		},
 	}
 	cmd.Flags().String("ref", "", "entry ref to remove")
+	cmd.Flags().Bool("all", false, "remove all installed entries")
+	cmd.Flags().Bool("yes", false, "skip confirmation prompt")
 	cmd.Flags().Bool("json", false, "JSON output")
-	cmd.MarkFlagRequired("ref")
 	return cmd
 }
 
@@ -434,10 +502,11 @@ func newListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 
 			type profileKey struct{ market, profile string }
 			type profileInfo struct {
-				Market  string `json:"market"`
-				Profile string `json:"profile"`
-				Agents  int    `json:"agents"`
-				Skills  int    `json:"skills"`
+				Market  string       `json:"market"`
+				Profile string       `json:"profile"`
+				Agents  int          `json:"agents"`
+				Skills  int          `json:"skills"`
+				Refs    []domain.MctRef `json:"refs,omitempty"`
 			}
 			seen := make(map[profileKey]*profileInfo)
 			var order []profileKey
@@ -458,6 +527,7 @@ func newListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				} else {
 					seen[key].Skills++
 				}
+				seen[key].Refs = append(seen[key].Refs, e.Ref)
 			}
 
 			if jsonOut {
@@ -470,6 +540,9 @@ func newListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			for _, k := range order {
 				p := seen[k]
 				cmd.Printf("  %s/%s  (%d agents, %d skills)\n", p.Market, p.Profile, p.Agents, p.Skills)
+				for _, e := range p.Refs {
+					cmd.Printf("    %s\n", e)
+				}
 			}
 			return nil
 		},

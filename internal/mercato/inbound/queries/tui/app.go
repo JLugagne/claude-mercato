@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
@@ -142,7 +143,18 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for i, e := range msg.Entries {
 			m.allEntries[i] = EntryItem{Entry: e}
 		}
-		m.filteredEntries = m.allEntries
+		// Apply market selection filter if any markets are deselected.
+		if len(m.marketPopup.selected) > 0 {
+			filtered := make([]EntryItem, 0, len(m.allEntries))
+			for _, ei := range m.allEntries {
+				if m.marketPopup.selected[ei.Entry.Market] {
+					filtered = append(filtered, ei)
+				}
+			}
+			m.filteredEntries = filtered
+		} else {
+			m.filteredEntries = m.allEntries
+		}
 		m.updateProfilesList()
 		m.updateEntriesList()
 		m.updateDetailContent()
@@ -523,13 +535,57 @@ func (m *AppModel) profileRemoveCmd(p ProfileItem) tea.Cmd {
 }
 
 func (m *AppModel) searchCmd(query string) tea.Cmd {
+	markets := m.marketPopup.selectedMarkets()
 	return func() tea.Msg {
-		results, err := m.svc.Search.Search(query, service.SearchOpts{Limit: 50})
+		var results []service.SearchResult
+		var err error
+		if len(markets) == 0 {
+			// No markets selected: return empty result set immediately.
+			return SearchResultMsg{Query: query}
+		}
+		if len(markets) == 1 {
+			results, err = m.svc.Search.Search(query, service.SearchOpts{Limit: 50, Market: markets[0]})
+		} else {
+			results, err = m.svc.Search.Search(query, service.SearchOpts{Limit: 50})
+			if err == nil {
+				marketSet := make(map[string]bool, len(markets))
+				for _, mk := range markets {
+					marketSet[mk] = true
+				}
+				filtered := results[:0]
+				for _, r := range results {
+					if marketSet[r.Entry.Market] {
+						filtered = append(filtered, r)
+					}
+				}
+				results = filtered
+			}
+		}
 		if err != nil {
 			return SearchResultMsg{Query: query}
 		}
 		return SearchResultMsg{Query: query, Results: results}
 	}
+}
+
+// applyMarketFilterCmd re-applies the market selection filter to allEntries
+// and re-runs any active search query.
+func (m *AppModel) applyMarketFilterCmd() tea.Cmd {
+	selected := m.marketPopup.selected
+	filtered := make([]EntryItem, 0, len(m.allEntries))
+	for _, ei := range m.allEntries {
+		if selected[ei.Entry.Market] {
+			filtered = append(filtered, ei)
+		}
+	}
+	m.filteredEntries = filtered
+	m.updateProfilesList()
+	m.updateEntriesList()
+	m.updateDetailContent()
+	if m.searchQuery != "" {
+		return m.searchCmd(m.searchQuery)
+	}
+	return nil
 }
 
 func (m *AppModel) updateProfilesList() {
@@ -539,6 +595,11 @@ func (m *AppModel) updateProfilesList() {
 		items[i] = p
 	}
 	m.profilesList.SetItems(items)
+	// Force all items onto a single page so the list never paginates.
+	if len(items) > m.profilesList.Paginator.PerPage {
+		m.profilesList.Paginator.PerPage = len(items)
+		m.profilesList.Paginator.SetTotalPages(1)
+	}
 }
 
 func (m *AppModel) updateDetailContent() {
@@ -591,6 +652,9 @@ func (m *AppModel) buildProfiles(entries []EntryItem) []ProfileItem {
 	for _, key := range order {
 		profiles = append(profiles, *profileMap[key])
 	}
+	sort.Slice(profiles, func(i, j int) bool {
+		return profiles[i].Name < profiles[j].Name
+	})
 	return profiles
 }
 
