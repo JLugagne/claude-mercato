@@ -95,7 +95,7 @@ func TestCheck_Clean(t *testing.T) {
 	}
 	fsMock := &filesystemtest.MockFilesystem{}
 
-	db := installedDB("mkt", "mkt@agents/foo.md", "abc123", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	db := installedDB("mkt", "agents/foo.md", "abc123", domain.InstalledFiles{Agents: []string{"foo.md"}})
 	idb := idbWithData(db)
 
 	app := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
@@ -137,7 +137,7 @@ func TestCheck_Drift(t *testing.T) {
 		MD5ChecksumFn: func(content []byte) string { return "hash" },
 	}
 
-	db := installedDB("mkt", "mkt@agents/foo.md", "abc123", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	db := installedDB("mkt", "agents/foo.md", "abc123", domain.InstalledFiles{Agents: []string{"foo.md"}})
 	idb := idbWithData(db)
 
 	app := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
@@ -174,7 +174,7 @@ func TestCheck_UpdateAvailable(t *testing.T) {
 	}
 	fsMock := &filesystemtest.MockFilesystem{}
 
-	db := installedDB("mkt", "mkt@agents/foo.md", "oldsha123", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	db := installedDB("mkt", "agents/foo.md", "oldsha123", domain.InstalledFiles{Agents: []string{"foo.md"}})
 	idb := idbWithData(db)
 
 	app := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
@@ -213,7 +213,7 @@ func TestCheck_UpdateAndDrift(t *testing.T) {
 		MD5ChecksumFn: func(content []byte) string { return "hash" },
 	}
 
-	db := installedDB("mkt", "mkt@agents/foo.md", "oldsha123", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	db := installedDB("mkt", "agents/foo.md", "oldsha123", domain.InstalledFiles{Agents: []string{"foo.md"}})
 	idb := idbWithData(db)
 
 	app := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
@@ -254,10 +254,10 @@ func TestCheck_MarketFilter(t *testing.T) {
 	db := domain.InstallDatabase{
 		Markets: []domain.InstalledMarket{
 			{Market: "alpha", Packages: []domain.InstalledPackage{
-				{Profile: "alpha@agents/a.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []string{testProjectPath()}},
+				{Profile: "agents/a.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []string{testProjectPath()}},
 			}},
 			{Market: "beta", Packages: []domain.InstalledPackage{
-				{Profile: "beta@agents/b.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []string{testProjectPath()}},
+				{Profile: "agents/b.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []string{testProjectPath()}},
 			}},
 		},
 	}
@@ -481,8 +481,8 @@ func TestRefresh_UpdatesAvailable(t *testing.T) {
 	db := domain.InstallDatabase{
 		Markets: []domain.InstalledMarket{
 			{Market: "mkt", Packages: []domain.InstalledPackage{
-				{Profile: "mkt@agents/a.md", Version: "oldhash", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []string{testProjectPath()}},
-				{Profile: "mkt@agents/b.md", Version: "newhash", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []string{testProjectPath()}},
+				{Profile: "agents/a.md", Version: "oldhash", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []string{testProjectPath()}},
+				{Profile: "agents/b.md", Version: "newhash", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []string{testProjectPath()}},
 			}},
 		},
 	}
@@ -580,7 +580,7 @@ func TestUpdate_Success(t *testing.T) {
 		DeleteFileFn: func(path string) error { return nil },
 	}
 
-	db := installedDB("mkt", "mkt@agents/foo.md", "oldhash", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	db := installedDB("mkt", "agents/foo.md", "oldhash", domain.InstalledFiles{Agents: []string{"foo.md"}})
 	idb := idbWithData(db)
 
 	app := newTestApp(cfg, git, fsMock, state, idb)
@@ -665,7 +665,7 @@ func TestUpdate_DeletedEntrySkipped(t *testing.T) {
 		},
 	}
 
-	db := installedDB("mkt", "mkt@agents/foo.md", "oldhash", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	db := installedDB("mkt", "agents/foo.md", "oldhash", domain.InstalledFiles{Agents: []string{"foo.md"}})
 	idb := idbWithData(db)
 
 	app := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state, idb)
@@ -713,7 +713,7 @@ func TestUpdate_DriftAllKeep(t *testing.T) {
 		MD5ChecksumFn: func(content []byte) string { return "hash" },
 	}
 
-	db := installedDB("mkt", "mkt@agents/foo.md", "oldhash", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	db := installedDB("mkt", "agents/foo.md", "oldhash", domain.InstalledFiles{Agents: []string{"foo.md"}})
 	idb := idbWithData(db)
 
 	app := newTestApp(cfg, git, fsMock, state, idb)
@@ -774,7 +774,7 @@ func TestUpdate_DriftAllMerge(t *testing.T) {
 		DeleteFileFn:  func(path string) error { return nil },
 	}
 
-	db := installedDB("mkt", "mkt@agents/foo.md", "oldhash", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	db := installedDB("mkt", "agents/foo.md", "oldhash", domain.InstalledFiles{Agents: []string{"foo.md"}})
 	idb := idbWithData(db)
 
 	app := newTestApp(cfg, git, fsMock, state, idb)

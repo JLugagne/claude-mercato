@@ -89,7 +89,7 @@ func (a *App) detectDrift(pkg domain.InstalledPackage, location, clonePath, bran
 // Profile "mkt@dev/go" + skill "bar" + file "SKILL.md" -> "dev/go/skills/bar/SKILL.md"
 // Profile "mkt" + skill "bar" + file "SKILL.md" -> "skills/bar/SKILL.md"
 func (a *App) skillFileRepoPath(profile, skill, filename string) string {
-	_, profilePath := splitProfile(profile)
+	profilePath := profile
 	if profilePath != "" {
 		return profilePath + "/skills/" + skill + "/" + filename
 	}
@@ -101,22 +101,13 @@ func (a *App) skillFileRepoPath(profile, skill, filename string) string {
 // Profile "mkt@dev/go" + agent "foo.md" -> "dev/go/agents/foo.md"
 // Profile "mkt" + agent "foo.md" -> "agents/foo.md"
 func (a *App) agentFileRepoPath(profile, agent string) string {
-	_, profilePath := splitProfile(profile)
+	profilePath := profile
 	if profilePath != "" {
 		return profilePath + "/agents/" + agent
 	}
 	return "agents/" + agent
 }
 
-// splitProfile splits a profile string "market@path" into market and path.
-// Returns ("market", "") for profiles without a path component.
-func splitProfile(profile string) (market, path string) {
-	idx := strings.Index(profile, "@")
-	if idx < 0 {
-		return profile, ""
-	}
-	return profile[:idx], profile[idx+1:]
-}
 
 func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 	cfg, err := a.cfg.Load(a.configPath)
@@ -409,7 +400,7 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 				// Check if the file belongs to a skill or agent in this package.
 				// fileInPackage strips the path to just the leaf name, so we also
 				// need to verify the diff path could belong to this profile.
-				_, profilePath := splitProfile(pkg.Profile)
+				profilePath := pkg.Profile
 				if profilePath != "" {
 					// Profile path can be a directory (e.g. "dev/go") or a
 					// leaf path (e.g. "agents/foo.md"). Match if the diff path
@@ -502,7 +493,7 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 				// Copy new files from cached clone
 				var newFiles domain.InstalledFiles
 				for _, skill := range pkg.Files.Skills {
-					_, profilePath := splitProfile(pkg.Profile)
+					profilePath := pkg.Profile
 					var skillDirPath string
 					if profilePath != "" {
 						skillDirPath = profilePath + "/skills/" + skill

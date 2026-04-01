@@ -578,7 +578,7 @@ func TestRemoveMarket_HasInstalledEntries(t *testing.T) {
 					{
 						Market: "foo",
 						Packages: []domain.InstalledPackage{
-							{Profile: "foo@agents/bar.md", Version: "abc", Files: domain.InstalledFiles{Agents: []string{"bar.md"}}, Locations: []string{testProjectPath()}},
+							{Profile: "agents/bar.md", Version: "abc", Files: domain.InstalledFiles{Agents: []string{"bar.md"}}, Locations: []string{testProjectPath()}},
 						},
 					},
 				},
@@ -1141,13 +1141,13 @@ func TestMarketInfo_InstalledEntryCounting(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@agents/bar.md",
+								Profile:   "agents/bar.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"bar.md"}},
 								Locations: []string{testProjectPath()},
 							},
 							{
-								Profile:   "mkt@agents/baz.md",
+								Profile:   "agents/baz.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"baz.md"}},
 								Locations: []string{testProjectPath()},

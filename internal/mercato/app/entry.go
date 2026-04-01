@@ -256,7 +256,7 @@ func (a *App) addInternal(
 	visited[ref] = true
 
 	if isProfileRef(relPath) {
-		opts.Profile = string(ref)
+		opts.Profile = relPath
 		return a.addProfile(marketName, relPath, mc, cfg, db, visited, opts)
 	}
 
@@ -811,19 +811,20 @@ func (a *App) resolveLocalPath(cfg domain.Config, relPath string) (string, error
 	return filepath.Join(cfg.LocalPath, filename), nil
 }
 
-// refProfile extracts the profile portion from a full ref.
-// "market@seg1/seg2/agents/foo.md" -> "market@seg1/seg2"
-// Falls back to "market" if there are fewer than 2 path segments.
+// refProfile extracts the profile portion from a full ref (without the market prefix).
+// "market@seg1/seg2/agents/foo.md" -> "seg1/seg2"
+// "market@skills/foo/SKILL.md"     -> "skills/foo"
+// Falls back to "" if there are fewer than 2 path segments.
 func refProfile(ref domain.MctRef) string {
-	market, relPath, err := ref.Parse()
+	_, relPath, err := ref.Parse()
 	if err != nil {
 		return string(ref)
 	}
 	parts := strings.Split(relPath, "/")
 	if len(parts) >= 2 {
-		return market + "@" + parts[0] + "/" + parts[1]
+		return parts[0] + "/" + parts[1]
 	}
-	return market
+	return ""
 }
 
 func inferEntryType(relPath string) domain.EntryType {

@@ -73,13 +73,13 @@ func TestList_InstalledFilter(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@agents/foo.md",
+								Profile:   "agents/foo.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
 								Locations: []string{testProjectPath()},
 							},
 							{
-								Profile:   "mkt@agents/bar.md",
+								Profile:   "agents/bar.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"bar.md"}},
 								Locations: []string{testProjectPath()},
@@ -135,7 +135,7 @@ func TestGetEntry_Found(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@agents/foo.md",
+								Profile:   "agents/foo.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
 								Locations: []string{testProjectPath()},
@@ -242,7 +242,7 @@ func TestAdd_AlreadyInstalled(t *testing.T) {
 	fsMock := &filesystemtest.MockFilesystem{}
 
 	// installdb already has the package at this location
-	// refProfile("mkt@agents/foo.md") = "mkt@agents/foo.md" (first 2 path segments)
+	// refProfile("mkt@agents/foo.md") = "agents/foo.md" (first 2 path segments)
 	idb := &installdbtest.MockInstallDB{
 		LockFn:   func(cacheDir string) error { return nil },
 		UnlockFn: func(cacheDir string) error { return nil },
@@ -253,7 +253,7 @@ func TestAdd_AlreadyInstalled(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@agents/foo.md",
+								Profile:   "agents/foo.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
 								Locations: []string{testProjectPath()},
@@ -520,7 +520,7 @@ func TestAdd_ProfileExpand_AllAlreadyInstalled(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@dev/go",
+								Profile:   "dev/go",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
 								Locations: []string{testProjectPath()},
@@ -587,7 +587,7 @@ func TestAdd_ProfileExpand_PartialInstall(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@dev/go",
+								Profile:   "dev/go",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
 								Locations: []string{testProjectPath()},
@@ -661,7 +661,7 @@ func TestRemove_Success(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@agents/foo.md",
+								Profile:   "agents/foo.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
 								Locations: []string{testProjectPath()},
@@ -707,7 +707,7 @@ func TestRemove_LastLocation_PackageRemoved(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@agents/foo.md",
+								Profile:   "agents/foo.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
 								Locations: []string{testProjectPath()},
@@ -772,7 +772,7 @@ func TestRemove_NotInstalledAtCurrentLocation(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@agents/foo.md",
+								Profile:   "agents/foo.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
 								Locations: []string{"/other/project"},
@@ -869,7 +869,7 @@ func TestPrune_AllKeep(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@agents/foo.md",
+								Profile:   "agents/foo.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
 								Locations: []string{testProjectPath()},
@@ -926,7 +926,7 @@ func TestPrune_AllRemove(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@agents/foo.md",
+								Profile:   "agents/foo.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
 								Locations: []string{testProjectPath()},
@@ -1178,7 +1178,7 @@ func TestRemove_SkillDirRef(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@skills/go-arch",
+								Profile:   "skills/go-arch",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Skills: []string{"go-arch"}},
 								Locations: []string{testProjectPath()},
@@ -1591,7 +1591,7 @@ func TestPrune_FileStillExistsInMarket(t *testing.T) {
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
 							{
-								Profile:   "mkt@agents/foo.md",
+								Profile:   "agents/foo.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
 								Locations: []string{testProjectPath()},
@@ -1655,13 +1655,13 @@ func TestList_FilterByMarket(t *testing.T) {
 					{
 						Market: "mkt1",
 						Packages: []domain.InstalledPackage{
-							{Profile: "mkt1@agents/foo.md", Version: "abc", Files: domain.InstalledFiles{Agents: []string{"foo.md"}}, Locations: []string{testProjectPath()}},
+							{Profile: "agents/foo.md", Version: "abc", Files: domain.InstalledFiles{Agents: []string{"foo.md"}}, Locations: []string{testProjectPath()}},
 						},
 					},
 					{
 						Market: "mkt2",
 						Packages: []domain.InstalledPackage{
-							{Profile: "mkt2@agents/bar.md", Version: "abc", Files: domain.InstalledFiles{Agents: []string{"bar.md"}}, Locations: []string{testProjectPath()}},
+							{Profile: "agents/bar.md", Version: "abc", Files: domain.InstalledFiles{Agents: []string{"bar.md"}}, Locations: []string{testProjectPath()}},
 						},
 					},
 				},
@@ -1704,8 +1704,8 @@ func TestList_FilterByType(t *testing.T) {
 					{
 						Market: "mkt",
 						Packages: []domain.InstalledPackage{
-							{Profile: "mkt@agents/foo.md", Version: "abc", Files: domain.InstalledFiles{Agents: []string{"foo.md"}}, Locations: []string{testProjectPath()}},
-							{Profile: "mkt@skills/bar", Version: "abc", Files: domain.InstalledFiles{Skills: []string{"bar"}}, Locations: []string{testProjectPath()}},
+							{Profile: "agents/foo.md", Version: "abc", Files: domain.InstalledFiles{Agents: []string{"foo.md"}}, Locations: []string{testProjectPath()}},
+							{Profile: "skills/bar", Version: "abc", Files: domain.InstalledFiles{Skills: []string{"bar"}}, Locations: []string{testProjectPath()}},
 						},
 					},
 				},
@@ -1752,15 +1752,15 @@ func TestRefProfile_InvalidRef(t *testing.T) {
 func TestRefProfile_LessThanTwoSegments(t *testing.T) {
 	ref := domain.MctRef("mkt@foo.md")
 	result := refProfile(ref)
-	if result != "mkt" {
-		t.Errorf("expected 'mkt' for single segment, got %q", result)
+	if result != "" {
+		t.Errorf("expected empty string for single segment, got %q", result)
 	}
 }
 
 func TestRefProfile_TwoOrMoreSegments(t *testing.T) {
 	ref := domain.MctRef("mkt@dev/go/agents/foo.md")
 	result := refProfile(ref)
-	if result != "mkt@dev/go" {
-		t.Errorf("expected 'mkt@dev/go', got %q", result)
+	if result != "dev/go" {
+		t.Errorf("expected 'dev/go', got %q", result)
 	}
 }
