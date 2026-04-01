@@ -5,6 +5,8 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo"
 )
 
+var _ gitrepo.GitRepo = (*MockGitRepo)(nil)
+
 type MockGitRepo struct {
 	CloneFn              func(url, clonePath string) error
 	FetchFn              func(clonePath, branch string) (string, error)
@@ -21,85 +23,85 @@ type MockGitRepo struct {
 }
 
 func (m *MockGitRepo) Clone(url, clonePath string) error {
-	if m.CloneFn != nil {
-		return m.CloneFn(url, clonePath)
+	if m.CloneFn == nil {
+		panic("called not defined CloneFn")
 	}
-	return nil
+	return m.CloneFn(url, clonePath)
 }
 
 func (m *MockGitRepo) Fetch(clonePath, branch string) (string, error) {
-	if m.FetchFn != nil {
-		return m.FetchFn(clonePath, branch)
+	if m.FetchFn == nil {
+		panic("called not defined FetchFn")
 	}
-	return "", nil
+	return m.FetchFn(clonePath, branch)
 }
 
 func (m *MockGitRepo) DiffSinceCommit(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
-	if m.DiffSinceCommitFn != nil {
-		return m.DiffSinceCommitFn(clonePath, branch, oldSHA)
+	if m.DiffSinceCommitFn == nil {
+		panic("called not defined DiffSinceCommitFn")
 	}
-	return nil, nil
+	return m.DiffSinceCommitFn(clonePath, branch, oldSHA)
 }
 
 func (m *MockGitRepo) ReadFileAtRef(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
-	if m.ReadFileAtRefFn != nil {
-		return m.ReadFileAtRefFn(clonePath, branch, filePath, commitSHA)
+	if m.ReadFileAtRefFn == nil {
+		panic("called not defined ReadFileAtRefFn")
 	}
-	return nil, nil
+	return m.ReadFileAtRefFn(clonePath, branch, filePath, commitSHA)
 }
 
 func (m *MockGitRepo) FileVersion(clonePath, filePath string) (domain.MctVersion, error) {
-	if m.FileVersionFn != nil {
-		return m.FileVersionFn(clonePath, filePath)
+	if m.FileVersionFn == nil {
+		panic("called not defined FileVersionFn")
 	}
-	return "", nil
+	return m.FileVersionFn(clonePath, filePath)
 }
 
 func (m *MockGitRepo) RemoteHEAD(clonePath, branch string) (string, error) {
-	if m.RemoteHEADFn != nil {
-		return m.RemoteHEADFn(clonePath, branch)
+	if m.RemoteHEADFn == nil {
+		panic("called not defined RemoteHEADFn")
 	}
-	return "", nil
+	return m.RemoteHEADFn(clonePath, branch)
 }
 
 func (m *MockGitRepo) ListFiles(clonePath, branch string) ([]string, error) {
-	if m.ListFilesFn != nil {
-		return m.ListFilesFn(clonePath, branch)
+	if m.ListFilesFn == nil {
+		panic("called not defined ListFilesFn")
 	}
-	return nil, nil
+	return m.ListFilesFn(clonePath, branch)
 }
 
 func (m *MockGitRepo) IsValidRepo(clonePath string) bool {
-	if m.IsValidRepoFn != nil {
-		return m.IsValidRepoFn(clonePath)
+	if m.IsValidRepoFn == nil {
+		panic("called not defined IsValidRepoFn")
 	}
-	return false
+	return m.IsValidRepoFn(clonePath)
 }
 
 func (m *MockGitRepo) ValidateRemote(url string) error {
-	if m.ValidateRemoteFn != nil {
-		return m.ValidateRemoteFn(url)
+	if m.ValidateRemoteFn == nil {
+		panic("called not defined ValidateRemoteFn")
 	}
-	return nil
+	return m.ValidateRemoteFn(url)
 }
 
 func (m *MockGitRepo) ReadGlobalDifftool() (string, error) {
-	if m.ReadGlobalDifftoolFn != nil {
-		return m.ReadGlobalDifftoolFn()
+	if m.ReadGlobalDifftoolFn == nil {
+		panic("called not defined ReadGlobalDifftoolFn")
 	}
-	return "", nil
+	return m.ReadGlobalDifftoolFn()
 }
 
 func (m *MockGitRepo) ReadMarketFiles(clonePath, branch string) ([]gitrepo.MarketFile, error) {
-	if m.ReadMarketFilesFn != nil {
-		return m.ReadMarketFilesFn(clonePath, branch)
+	if m.ReadMarketFilesFn == nil {
+		panic("called not defined ReadMarketFilesFn")
 	}
-	return nil, nil
+	return m.ReadMarketFilesFn(clonePath, branch)
 }
 
 func (m *MockGitRepo) ListDirFiles(clonePath, branch, dirPrefix string) ([]string, error) {
-	if m.ListDirFilesFn != nil {
-		return m.ListDirFilesFn(clonePath, branch, dirPrefix)
+	if m.ListDirFilesFn == nil {
+		panic("called not defined ListDirFilesFn")
 	}
-	return nil, nil
+	return m.ListDirFilesFn(clonePath, branch, dirPrefix)
 }

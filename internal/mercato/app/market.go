@@ -261,7 +261,7 @@ func (a *App) AddMarket(url string, opts service.AddMarketOpts) (service.AddMark
 		}
 	}
 
-	clonePath := filepath.Join(a.cacheDir, marketDirName(name))
+	clonePath := a.clonePath(name)
 	if fsrepo.DirExists(a.fs, clonePath) {
 		return result, domain.ErrCloneExists
 	}
@@ -438,7 +438,7 @@ func (a *App) RemoveMarket(name string, opts service.RemoveMarketOpts) error {
 	}
 
 	if !opts.KeepCache {
-		clonePath := filepath.Join(a.cacheDir, name)
+		clonePath := a.clonePath(name)
 		if err := a.fs.RemoveAll(clonePath); err != nil {
 			return err
 		}

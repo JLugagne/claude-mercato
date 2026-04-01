@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore"
 )
+
+var _ statestore.StateStore = (*StateStoreAdapter)(nil)
 
 type StateStoreAdapter struct{}
 

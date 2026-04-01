@@ -6,7 +6,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
 )
+
+var _ filesystem.Filesystem = (*Adapter)(nil)
 
 // Adapter implements filesystem.Filesystem.
 // Read operations delegate to an fs.FS (os.DirFS by default).

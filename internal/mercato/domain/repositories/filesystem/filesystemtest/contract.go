@@ -3,7 +3,11 @@ package filesystemtest
 import (
 	"io/fs"
 	"testing/fstest"
+
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
 )
+
+var _ filesystem.Filesystem = (*MockFilesystem)(nil)
 
 // MockFilesystem implements filesystem.Filesystem for tests.
 // Populate FS with a fstest.MapFS for read operations.
@@ -89,44 +93,44 @@ func (m *MockFilesystem) RemoveAll(path string) error {
 }
 
 func (m *MockFilesystem) MD5Checksum(content []byte) string {
-	if m.MD5ChecksumFn != nil {
-		return m.MD5ChecksumFn(content)
+	if m.MD5ChecksumFn == nil {
+		panic("called not defined MD5ChecksumFn")
 	}
-	return ""
+	return m.MD5ChecksumFn(content)
 }
 
 func (m *MockFilesystem) TempFile(name string, content []byte) (string, error) {
-	if m.TempFileFn != nil {
-		return m.TempFileFn(name, content)
+	if m.TempFileFn == nil {
+		panic("called not defined TempFileFn")
 	}
-	return "", nil
+	return m.TempFileFn(name, content)
 }
 
 func (m *MockFilesystem) Symlink(target, link string) error {
-	if m.SymlinkFn != nil {
-		return m.SymlinkFn(target, link)
+	if m.SymlinkFn == nil {
+		panic("called not defined SymlinkFn")
 	}
-	return nil
+	return m.SymlinkFn(target, link)
 }
 
 func (m *MockFilesystem) Readlink(path string) (string, error) {
-	if m.ReadlinkFn != nil {
-		return m.ReadlinkFn(path)
+	if m.ReadlinkFn == nil {
+		panic("called not defined ReadlinkFn")
 	}
-	return "", nil
+	return m.ReadlinkFn(path)
 }
 
 func (m *MockFilesystem) IsSymlink(path string) bool {
-	if m.IsSymlinkFn != nil {
-		return m.IsSymlinkFn(path)
+	if m.IsSymlinkFn == nil {
+		panic("called not defined IsSymlinkFn")
 	}
-	return false
+	return m.IsSymlinkFn(path)
 }
 
 func (m *MockFilesystem) ListDir(path string) ([]string, error) {
-	if m.ListDirFn != nil {
-		return m.ListDirFn(path)
+	if m.ListDirFn == nil {
+		panic("called not defined ListDirFn")
 	}
-	return nil, nil
+	return m.ListDirFn(path)
 }
 

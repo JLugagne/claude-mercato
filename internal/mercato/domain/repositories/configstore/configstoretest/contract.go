@@ -1,6 +1,11 @@
 package configstoretest
 
-import "github.com/JLugagne/claude-mercato/internal/mercato/domain"
+import (
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore"
+)
+
+var _ configstore.ConfigStore = (*MockConfigStore)(nil)
 
 type MockConfigStore struct {
 	LoadFn              func(path string) (domain.Config, error)
@@ -12,43 +17,43 @@ type MockConfigStore struct {
 }
 
 func (m *MockConfigStore) Load(path string) (domain.Config, error) {
-	if m.LoadFn != nil {
-		return m.LoadFn(path)
+	if m.LoadFn == nil {
+		panic("called not defined LoadFn")
 	}
-	return domain.Config{}, nil
+	return m.LoadFn(path)
 }
 
 func (m *MockConfigStore) Save(path string, cfg domain.Config) error {
-	if m.SaveFn != nil {
-		return m.SaveFn(path, cfg)
+	if m.SaveFn == nil {
+		panic("called not defined SaveFn")
 	}
-	return nil
+	return m.SaveFn(path, cfg)
 }
 
 func (m *MockConfigStore) AddMarket(path string, market domain.MarketConfig) error {
-	if m.AddMarketFn != nil {
-		return m.AddMarketFn(path, market)
+	if m.AddMarketFn == nil {
+		panic("called not defined AddMarketFn")
 	}
-	return nil
+	return m.AddMarketFn(path, market)
 }
 
 func (m *MockConfigStore) RemoveMarket(path string, name string) error {
-	if m.RemoveMarketFn != nil {
-		return m.RemoveMarketFn(path, name)
+	if m.RemoveMarketFn == nil {
+		panic("called not defined RemoveMarketFn")
 	}
-	return nil
+	return m.RemoveMarketFn(path, name)
 }
 
 func (m *MockConfigStore) SetMarketProperty(path string, marketName string, key string, value string) error {
-	if m.SetMarketPropertyFn != nil {
-		return m.SetMarketPropertyFn(path, marketName, key, value)
+	if m.SetMarketPropertyFn == nil {
+		panic("called not defined SetMarketPropertyFn")
 	}
-	return nil
+	return m.SetMarketPropertyFn(path, marketName, key, value)
 }
 
 func (m *MockConfigStore) SetConfigField(path string, key string, value string) error {
-	if m.SetConfigFieldFn != nil {
-		return m.SetConfigFieldFn(path, key, value)
+	if m.SetConfigFieldFn == nil {
+		panic("called not defined SetConfigFieldFn")
 	}
-	return nil
+	return m.SetConfigFieldFn(path, key, value)
 }

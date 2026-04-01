@@ -16,6 +16,8 @@ import (
 	"github.com/go-git/go-git/v5/utils/merkletrie"
 )
 
+var _ gitrepo.GitRepo = (*Adapter)(nil)
+
 type Adapter struct {
 	sshEnabled bool
 }

@@ -8,7 +8,10 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore"
 )
+
+var _ configstore.ConfigStore = (*ConfigStoreAdapter)(nil)
 
 type ConfigStoreAdapter struct{}
 

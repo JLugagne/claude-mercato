@@ -1,6 +1,11 @@
 package statestoretest
 
-import "github.com/JLugagne/claude-mercato/internal/mercato/domain"
+import (
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore"
+)
+
+var _ statestore.StateStore = (*MockStateStore)(nil)
 
 type MockStateStore struct {
 	LoadSyncStateFn      func(cacheDir string) (domain.SyncState, error)
@@ -10,29 +15,29 @@ type MockStateStore struct {
 }
 
 func (m *MockStateStore) LoadSyncState(cacheDir string) (domain.SyncState, error) {
-	if m.LoadSyncStateFn != nil {
-		return m.LoadSyncStateFn(cacheDir)
+	if m.LoadSyncStateFn == nil {
+		panic("called not defined LoadSyncStateFn")
 	}
-	return domain.SyncState{Version: 1, Markets: make(map[string]domain.MarketSyncState)}, nil
+	return m.LoadSyncStateFn(cacheDir)
 }
 
 func (m *MockStateStore) SaveSyncState(cacheDir string, state domain.SyncState) error {
-	if m.SaveSyncStateFn != nil {
-		return m.SaveSyncStateFn(cacheDir, state)
+	if m.SaveSyncStateFn == nil {
+		panic("called not defined SaveSyncStateFn")
 	}
-	return nil
+	return m.SaveSyncStateFn(cacheDir, state)
 }
 
 func (m *MockStateStore) SetMarketSyncDirty(cacheDir string, market string) error {
-	if m.SetMarketSyncDirtyFn != nil {
-		return m.SetMarketSyncDirtyFn(cacheDir, market)
+	if m.SetMarketSyncDirtyFn == nil {
+		panic("called not defined SetMarketSyncDirtyFn")
 	}
-	return nil
+	return m.SetMarketSyncDirtyFn(cacheDir, market)
 }
 
 func (m *MockStateStore) SetMarketSyncClean(cacheDir string, market string, newSHA string) error {
-	if m.SetMarketSyncCleanFn != nil {
-		return m.SetMarketSyncCleanFn(cacheDir, market, newSHA)
+	if m.SetMarketSyncCleanFn == nil {
+		panic("called not defined SetMarketSyncCleanFn")
 	}
-	return nil
+	return m.SetMarketSyncCleanFn(cacheDir, market, newSHA)
 }

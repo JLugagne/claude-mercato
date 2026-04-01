@@ -186,6 +186,7 @@ func TestAddMarket_Success(t *testing.T) {
 		LoadFn: func(path string) (domain.Config, error) {
 			return domain.Config{}, nil
 		},
+		AddMarketFn: func(path string, market domain.MarketConfig) error { return nil },
 	}
 	// Empty MockFilesystem: DirExists returns false (no entry in MapFS).
 	fsMock := &filesystemtest.MockFilesystem{}
@@ -865,6 +866,640 @@ func TestGetConfig(t *testing.T) {
 	}
 	if len(got.Markets) != 1 || got.Markets[0].Name != "foo" {
 		t.Errorf("unexpected markets: %v", got.Markets)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RemoveMarket — path safety
+// ---------------------------------------------------------------------------
+
+func TestRemoveMarket_PathTraversal(t *testing.T) {
+	const name = "evil/../../../tmp"
+	var removedPath string
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets: []domain.MarketConfig{
+					{Name: name, URL: "https://example.com/evil", Branch: "main"},
+				},
+			}, nil
+		},
+		RemoveMarketFn: func(path string, n string) error { return nil },
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{
+				Version: 1,
+				Markets: map[string]domain.MarketSyncState{
+					name: {LastSyncedSHA: "abc", Status: "clean"},
+				},
+			}, nil
+		},
+		SaveSyncStateFn: func(cacheDir string, s domain.SyncState) error { return nil },
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		RemoveAllFn: func(path string) error {
+			removedPath = path
+			return nil
+		},
+	}
+
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, state)
+	err := a.RemoveMarket(name, service.RemoveMarketOpts{KeepCache: false})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := filepath.Join("/cache/dir", marketDirName(name))
+	if removedPath != want {
+		t.Errorf("RemoveAll called with %q, want sanitized path %q", removedPath, want)
+	}
+}
+
+func TestRemoveMarket_SlashInName(t *testing.T) {
+	const name = "org/repo"
+	var removedPath string
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets: []domain.MarketConfig{
+					{Name: name, URL: "https://github.com/org/repo", Branch: "main"},
+				},
+			}, nil
+		},
+		RemoveMarketFn: func(path string, n string) error { return nil },
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{
+				Version: 1,
+				Markets: map[string]domain.MarketSyncState{
+					name: {LastSyncedSHA: "abc", Status: "clean"},
+				},
+			}, nil
+		},
+		SaveSyncStateFn: func(cacheDir string, s domain.SyncState) error { return nil },
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		RemoveAllFn: func(path string) error {
+			removedPath = path
+			return nil
+		},
+	}
+
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, state)
+	err := a.RemoveMarket(name, service.RemoveMarketOpts{KeepCache: false})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := filepath.Join("/cache/dir", marketDirName(name))
+	if removedPath != want {
+		t.Errorf("RemoveAll called with %q, want sanitized path %q (marketDirName transforms slashes to '--')", removedPath, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MarketInfo (additional coverage)
+// ---------------------------------------------------------------------------
+
+func TestMarketInfo_ConfigLoadError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, errors.New("config load failed")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	_, err := a.MarketInfo("mkt")
+	if err == nil || err.Error() != "config load failed" {
+		t.Fatalf("expected config load error, got %v", err)
+	}
+}
+
+func TestMarketInfo_SyncStateLoadError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				Markets: []domain.MarketConfig{{Name: "mkt", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{}, errors.New("sync state load failed")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, state)
+
+	_, err := a.MarketInfo("mkt")
+	if err == nil || err.Error() != "sync state load failed" {
+		t.Fatalf("expected sync state load error, got %v", err)
+	}
+}
+
+func TestMarketInfo_GitListFilesError_SilentDegradation(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				Markets: []domain.MarketConfig{{Name: "mkt", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{}}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ListFilesFn: func(clonePath, branch string) ([]string, error) {
+			return nil, errors.New("git list files failed")
+		},
+	}
+	a := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state)
+
+	result, err := a.MarketInfo("mkt")
+	if err != nil {
+		t.Fatalf("expected no error (silent degradation), got %v", err)
+	}
+	if result.EntryCount != 0 {
+		t.Errorf("expected EntryCount=0 on git error, got %d", result.EntryCount)
+	}
+}
+
+func TestMarketInfo_SkillsOnlyFiltering(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				Markets: []domain.MarketConfig{{
+					Name:       "mkt",
+					URL:        "https://example.com",
+					Branch:     "main",
+					SkillsOnly: true,
+					SkillsPath: "skills",
+				}},
+			}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{}}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ListFilesFn: func(clonePath, branch string) ([]string, error) {
+			return []string{
+				"skills/lint/SKILL.md",
+				"skills/test/SKILL.md",
+				"agents/foo.md",
+				"README.md",
+			}, nil
+		},
+	}
+	a := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state)
+
+	result, err := a.MarketInfo("mkt")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Only skills/* files should pass the SkillsOnly filter
+	if result.EntryCount != 2 {
+		t.Errorf("expected EntryCount=2 (only skills/ files), got %d", result.EntryCount)
+	}
+}
+
+func TestMarketInfo_NoSyncStateEntry(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				Markets: []domain.MarketConfig{{Name: "mkt", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{
+				Version: 1,
+				Markets: map[string]domain.MarketSyncState{
+					"other-market": {LastSyncedSHA: "abc", Status: "clean"},
+				},
+			}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ListFilesFn: func(clonePath, branch string) ([]string, error) {
+			return []string{"dev/go/agents/foo.md"}, nil
+		},
+	}
+	a := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state)
+
+	result, err := a.MarketInfo("mkt")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "" {
+		t.Errorf("expected empty Status when market not in sync state, got %q", result.Status)
+	}
+	if !result.LastSynced.IsZero() {
+		t.Errorf("expected zero LastSynced, got %v", result.LastSynced)
+	}
+}
+
+func TestMarketInfo_InstalledEntryCounting(t *testing.T) {
+	localAgentPath1 := ".claude/agents/bar.md"
+	localAgentPath2 := ".claude/agents/baz.md"
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets: []domain.MarketConfig{
+					{Name: "mkt", URL: "https://example.com", Branch: "main"},
+					{Name: "other", URL: "https://example.com/other", Branch: "main"},
+				},
+			}, nil
+		},
+	}
+	symlinks := map[string]string{
+		localAgentPath1: "/cache/dir/mkt/agents/bar.md",
+		localAgentPath2: "/cache/dir/mkt/agents/baz.md",
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		FS: fstest.MapFS{
+			localAgentPath1: &fstest.MapFile{Data: []byte("---\ndescription: test\n---\n")},
+			localAgentPath2: &fstest.MapFile{Data: []byte("---\ndescription: test2\n---\n")},
+		},
+		IsSymlinkFn: func(path string) bool {
+			_, ok := symlinks[path]
+			return ok
+		},
+		ReadlinkFn: func(path string) (string, error) {
+			target, ok := symlinks[path]
+			if !ok {
+				return "", errors.New("not a symlink")
+			}
+			return target, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{}}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ListFilesFn: func(clonePath, branch string) ([]string, error) {
+			return []string{"agents/bar.md", "agents/baz.md"}, nil
+		},
+	}
+
+	a := newTestApp(cfg, git, fsMock, state)
+	result, err := a.MarketInfo("mkt")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.InstalledCount != 2 {
+		t.Errorf("expected InstalledCount=2, got %d", result.InstalledCount)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RemoveMarket (additional coverage)
+// ---------------------------------------------------------------------------
+
+func TestRemoveMarket_ConfigLoadError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, errors.New("config load failed")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	err := a.RemoveMarket("foo", service.RemoveMarketOpts{})
+	if err == nil || err.Error() != "config load failed" {
+		t.Fatalf("expected config load error, got %v", err)
+	}
+}
+
+func TestRemoveMarket_CfgRemoveMarketError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "foo", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+		RemoveMarketFn: func(path string, name string) error {
+			return errors.New("remove market config failed")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	err := a.RemoveMarket("foo", service.RemoveMarketOpts{Force: true})
+	if err == nil || err.Error() != "remove market config failed" {
+		t.Fatalf("expected remove market config error, got %v", err)
+	}
+}
+
+func TestRemoveMarket_LoadSyncStateError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "foo", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+		RemoveMarketFn: func(path string, name string) error { return nil },
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{}, errors.New("sync state load failed")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, state)
+
+	err := a.RemoveMarket("foo", service.RemoveMarketOpts{Force: true})
+	if err == nil || err.Error() != "sync state load failed" {
+		t.Fatalf("expected sync state load error, got %v", err)
+	}
+}
+
+func TestRemoveMarket_RemoveAllError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "foo", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+		RemoveMarketFn: func(path string, name string) error { return nil },
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{}}, nil
+		},
+		SaveSyncStateFn: func(cacheDir string, s domain.SyncState) error { return nil },
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		RemoveAllFn: func(path string) error {
+			return errors.New("remove all failed")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, state)
+
+	err := a.RemoveMarket("foo", service.RemoveMarketOpts{Force: true, KeepCache: false})
+	if err == nil || err.Error() != "remove all failed" {
+		t.Fatalf("expected remove all error, got %v", err)
+	}
+}
+
+func TestRemoveMarket_KeepCacheSkipsRemoveAll(t *testing.T) {
+	removeAllCalled := false
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "foo", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+		RemoveMarketFn: func(path string, name string) error { return nil },
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{}}, nil
+		},
+		SaveSyncStateFn: func(cacheDir string, s domain.SyncState) error { return nil },
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		RemoveAllFn: func(path string) error {
+			removeAllCalled = true
+			return nil
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, state)
+
+	err := a.RemoveMarket("foo", service.RemoveMarketOpts{Force: true, KeepCache: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if removeAllCalled {
+		t.Error("expected RemoveAll NOT to be called when KeepCache=true")
+	}
+}
+
+func TestRemoveMarket_ScanInstalledEntriesFailure_ForceBypass(t *testing.T) {
+	// When Force=true, scanInstalledEntries is skipped entirely.
+	// When Force=false, it is called; test that the path works even
+	// when there are no installed entries (no error from scanInstalledEntries).
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "foo", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+		RemoveMarketFn: func(path string, name string) error { return nil },
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{}}, nil
+		},
+		SaveSyncStateFn: func(cacheDir string, s domain.SyncState) error { return nil },
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		RemoveAllFn: func(path string) error { return nil },
+	}
+
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, state)
+	err := a.RemoveMarket("foo", service.RemoveMarketOpts{Force: false})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RenameMarket (additional coverage)
+// ---------------------------------------------------------------------------
+
+func TestRenameMarket_ConfigLoadError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, errors.New("config load failed")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	err := a.RenameMarket("foo", "bar")
+	if err == nil || err.Error() != "config load failed" {
+		t.Fatalf("expected config load error, got %v", err)
+	}
+}
+
+func TestRenameMarket_SetMarketPropertyError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				Markets: []domain.MarketConfig{{Name: "foo", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+		SetMarketPropertyFn: func(path, marketName, key, value string) error {
+			return errors.New("set property failed")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	err := a.RenameMarket("foo", "bar")
+	if err == nil || err.Error() != "set property failed" {
+		t.Fatalf("expected set property error, got %v", err)
+	}
+}
+
+func TestRenameMarket_LoadSyncStateError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				Markets: []domain.MarketConfig{{Name: "foo", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+		SetMarketPropertyFn: func(path, marketName, key, value string) error { return nil },
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{}, errors.New("sync state load failed")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, state)
+
+	err := a.RenameMarket("foo", "bar")
+	if err == nil || err.Error() != "sync state load failed" {
+		t.Fatalf("expected sync state load error, got %v", err)
+	}
+}
+
+func TestRenameMarket_SaveSyncStateError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				Markets: []domain.MarketConfig{{Name: "foo", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+		SetMarketPropertyFn: func(path, marketName, key, value string) error { return nil },
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{
+				Version: 1,
+				Markets: map[string]domain.MarketSyncState{
+					"foo": {LastSyncedSHA: "abc", Status: "clean"},
+				},
+			}, nil
+		},
+		SaveSyncStateFn: func(cacheDir string, s domain.SyncState) error {
+			return errors.New("save sync state failed")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, state)
+
+	err := a.RenameMarket("foo", "bar")
+	if err == nil || err.Error() != "save sync state failed" {
+		t.Fatalf("expected save sync state error, got %v", err)
+	}
+}
+
+func TestRenameMarket_NotInSyncState_NoOp(t *testing.T) {
+	saveSyncCalled := false
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				Markets: []domain.MarketConfig{{Name: "foo", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+		SetMarketPropertyFn: func(path, marketName, key, value string) error { return nil },
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{
+				Version: 1,
+				Markets: map[string]domain.MarketSyncState{
+					"other": {LastSyncedSHA: "xyz", Status: "clean"},
+				},
+			}, nil
+		},
+		SaveSyncStateFn: func(cacheDir string, s domain.SyncState) error {
+			saveSyncCalled = true
+			return nil
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, state)
+
+	err := a.RenameMarket("foo", "bar")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if saveSyncCalled {
+		t.Error("expected SaveSyncState NOT to be called when market not in sync state")
+	}
+}
+
+func TestRenameMarket_PreservesSyncStateData(t *testing.T) {
+	syncTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	var savedState domain.SyncState
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				Markets: []domain.MarketConfig{{Name: "foo", URL: "https://example.com", Branch: "main"}},
+			}, nil
+		},
+		SetMarketPropertyFn: func(path, marketName, key, value string) error { return nil },
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{
+				Version: 1,
+				Markets: map[string]domain.MarketSyncState{
+					"foo": {
+						LastSyncedSHA: "abc123",
+						LastSyncedAt:  syncTime,
+						Status:        "clean",
+						Branch:        "main",
+						ClonePath:     "/some/path",
+					},
+				},
+			}, nil
+		},
+		SaveSyncStateFn: func(cacheDir string, s domain.SyncState) error {
+			savedState = s
+			return nil
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, state)
+
+	err := a.RenameMarket("foo", "bar")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	barState, ok := savedState.Markets["bar"]
+	if !ok {
+		t.Fatal("expected 'bar' in saved sync state")
+	}
+	if barState.LastSyncedSHA != "abc123" {
+		t.Errorf("expected LastSyncedSHA=abc123, got %q", barState.LastSyncedSHA)
+	}
+	if !barState.LastSyncedAt.Equal(syncTime) {
+		t.Errorf("expected LastSyncedAt preserved, got %v", barState.LastSyncedAt)
+	}
+	if barState.Status != "clean" {
+		t.Errorf("expected Status=clean, got %q", barState.Status)
+	}
+	if _, ok := savedState.Markets["foo"]; ok {
+		t.Error("expected 'foo' to be removed from sync state after rename")
 	}
 }
 

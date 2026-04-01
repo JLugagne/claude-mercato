@@ -739,6 +739,9 @@ func TestPrepareDiff_Success(t *testing.T) {
 		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
 			return registryContent, nil
 		},
+		ReadGlobalDifftoolFn: func() (string, error) {
+			return "", nil
+		},
 	}
 
 	tmpPath := "/tmp/foo.md.12345"
@@ -998,5 +1001,659 @@ func TestRemove_SkillDirRef(t *testing.T) {
 	}
 	if !deleteFileCalled {
 		t.Error("expected DeleteFile to be called")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ListSkillDirFiles
+// ---------------------------------------------------------------------------
+
+func TestListSkillDirFiles_Success(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ListDirFilesFn: func(clonePath, branch, dirPrefix string) ([]string, error) {
+			return []string{"skills/go-arch/SKILL.md", "skills/go-arch/config.toml", "skills/go-arch/README.md"}, nil
+		},
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			if filePath == "skills/go-arch/SKILL.md" {
+				return []byte("# Skill content"), nil
+			}
+			if filePath == "skills/go-arch/README.md" {
+				return []byte("# README"), nil
+			}
+			return nil, errors.New("unexpected file")
+		},
+	}
+	a := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	result, err := a.ListSkillDirFiles("mkt", "skills/go-arch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 3 {
+		t.Fatalf("expected 3 files, got %d", len(result))
+	}
+	// .md files should have content populated
+	mdCount := 0
+	for _, f := range result {
+		if f.Content != "" {
+			mdCount++
+		}
+	}
+	if mdCount != 2 {
+		t.Errorf("expected 2 .md files with content, got %d", mdCount)
+	}
+	// Non-.md file should have no content
+	for _, f := range result {
+		if f.Name == "config.toml" && f.Content != "" {
+			t.Errorf("expected no content for config.toml, got %q", f.Content)
+		}
+	}
+}
+
+func TestListSkillDirFiles_ConfigLoadError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, errors.New("config broken")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	_, err := a.ListSkillDirFiles("mkt", "skills/go-arch")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestListSkillDirFiles_MarketNotFound(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, nil
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	_, err := a.ListSkillDirFiles("unknown", "skills/go-arch")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !isDomainErrorWithCode(err, "MARKET_NOT_FOUND") {
+		t.Errorf("expected MARKET_NOT_FOUND, got %v", err)
+	}
+}
+
+func TestListSkillDirFiles_ListDirFilesError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ListDirFilesFn: func(clonePath, branch, dirPrefix string) ([]string, error) {
+			return nil, errors.New("git list error")
+		},
+	}
+	a := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	_, err := a.ListSkillDirFiles("mkt", "skills/go-arch")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestListSkillDirFiles_ReadFileAtRefError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ListDirFilesFn: func(clonePath, branch, dirPrefix string) ([]string, error) {
+			return []string{"skills/go-arch/SKILL.md"}, nil
+		},
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			return nil, errors.New("read error")
+		},
+	}
+	a := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	result, err := a.ListSkillDirFiles("mkt", "skills/go-arch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Graceful degradation: file is still listed, but content is empty
+	if len(result) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(result))
+	}
+	if result[0].Content != "" {
+		t.Errorf("expected empty content on read error, got %q", result[0].Content)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Diff
+// ---------------------------------------------------------------------------
+
+func TestDiff_Success(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{}
+	fsMock := &filesystemtest.MockFilesystem{}
+	setupInstalledEntry(cfg, fsMock, ".claude/agents/foo.md")
+
+	git := &gitrepotest.MockGitRepo{
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			return []byte("# content"), nil
+		},
+		ReadGlobalDifftoolFn: func() (string, error) {
+			return "", nil
+		},
+	}
+	fsMock.TempFileFn = func(name string, content []byte) (string, error) {
+		return "/tmp/foo.md.12345", nil
+	}
+
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+	err := a.Diff("mkt@agents/foo.md")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDiff_ErrorPropagation(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{LocalPath: ".claude"}, nil
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	err := a.Diff("mkt@agents/foo.md")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !isDomainErrorWithCode(err, "ENTRY_NOT_FOUND") {
+		t.Errorf("expected ENTRY_NOT_FOUND, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Init — additional branches
+// ---------------------------------------------------------------------------
+
+func TestInit_MkdirAllFailure(t *testing.T) {
+	fsMock := &filesystemtest.MockFilesystem{
+		MkdirAllFn: func(path string) error {
+			return errors.New("mkdir failed")
+		},
+	}
+	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+
+	err := a.Init(service.InitOpts{LocalPath: ".claude"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestInit_CloneFailure(t *testing.T) {
+	fsMock := &filesystemtest.MockFilesystem{
+		MkdirAllFn: func(path string) error { return nil },
+	}
+	git := &gitrepotest.MockGitRepo{
+		CloneFn: func(url, clonePath string) error {
+			return errors.New("clone failed")
+		},
+	}
+	a := newTestApp(&configstoretest.MockConfigStore{}, git, fsMock, &statestoretest.MockStateStore{})
+
+	err := a.Init(service.InitOpts{
+		LocalPath: ".claude",
+		Markets:   []string{"https://github.com/org/repo"},
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestInit_RemoteHEADFailure(t *testing.T) {
+	fsMock := &filesystemtest.MockFilesystem{
+		MkdirAllFn: func(path string) error { return nil },
+	}
+	git := &gitrepotest.MockGitRepo{
+		CloneFn: func(url, clonePath string) error { return nil },
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "", errors.New("remote HEAD failed")
+		},
+	}
+	a := newTestApp(&configstoretest.MockConfigStore{}, git, fsMock, &statestoretest.MockStateStore{})
+
+	err := a.Init(service.InitOpts{
+		LocalPath: ".claude",
+		Markets:   []string{"https://github.com/org/repo"},
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestInit_SetMarketSyncCleanFailure(t *testing.T) {
+	fsMock := &filesystemtest.MockFilesystem{
+		MkdirAllFn: func(path string) error { return nil },
+	}
+	git := &gitrepotest.MockGitRepo{
+		CloneFn:      func(url, clonePath string) error { return nil },
+		RemoteHEADFn: func(clonePath, branch string) (string, error) { return "abc123", nil },
+	}
+	state := &statestoretest.MockStateStore{
+		SetMarketSyncCleanFn: func(cacheDir, market, newSHA string) error {
+			return errors.New("state save failed")
+		},
+	}
+	a := newTestApp(&configstoretest.MockConfigStore{}, git, fsMock, state)
+
+	err := a.Init(service.InitOpts{
+		LocalPath: ".claude",
+		Markets:   []string{"https://github.com/org/repo"},
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestInit_ConfigSaveFailure(t *testing.T) {
+	fsMock := &filesystemtest.MockFilesystem{
+		MkdirAllFn: func(path string) error { return nil },
+	}
+	cfg := &configstoretest.MockConfigStore{
+		SaveFn: func(path string, c domain.Config) error {
+			return errors.New("save failed")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+
+	err := a.Init(service.InitOpts{LocalPath: ".claude"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestInit_EmptyMarkets(t *testing.T) {
+	saveCalled := false
+	fsMock := &filesystemtest.MockFilesystem{
+		MkdirAllFn: func(path string) error { return nil },
+	}
+	cfg := &configstoretest.MockConfigStore{
+		SaveFn: func(path string, c domain.Config) error {
+			saveCalled = true
+			if len(c.Markets) != 0 {
+				t.Errorf("expected empty markets, got %d", len(c.Markets))
+			}
+			return nil
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+
+	err := a.Init(service.InitOpts{LocalPath: ".claude", Markets: []string{}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !saveCalled {
+		t.Error("expected Save to be called")
+	}
+}
+
+func TestInit_DefaultLocalPath(t *testing.T) {
+	var savedCfg domain.Config
+	fsMock := &filesystemtest.MockFilesystem{
+		MkdirAllFn: func(path string) error { return nil },
+	}
+	cfg := &configstoretest.MockConfigStore{
+		SaveFn: func(path string, c domain.Config) error {
+			savedCfg = c
+			return nil
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+
+	err := a.Init(service.InitOpts{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if savedCfg.LocalPath != "." {
+		t.Errorf("expected default LocalPath='.', got %q", savedCfg.LocalPath)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Add — additional branches
+// ---------------------------------------------------------------------------
+
+func TestAdd_InvalidRefFormat(t *testing.T) {
+	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	err := a.Add("invalid-no-at-sign", service.AddOpts{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestAdd_ConfigLoadFailure(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, errors.New("config broken")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	err := a.Add("mkt@agents/foo.md", service.AddOpts{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestAdd_ReadFileAtRefFailure(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			return nil, errors.New("file not found in repo")
+		},
+	}
+	a := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	err := a.Add("mkt@agents/foo.md", service.AddOpts{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestAdd_SymlinkFailure(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		SymlinkFn: func(target, link string) error {
+			return errors.New("symlink failed")
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			return agentFile(), nil
+		},
+	}
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+
+	err := a.Add("mkt@agents/foo.md", service.AddOpts{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Prune — additional branches
+// ---------------------------------------------------------------------------
+
+func TestPrune_ConfigLoadFailure(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, errors.New("config broken")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	_, err := a.Prune(service.PruneOpts{AllRemove: true})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestPrune_FileStillExistsInMarket(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{}
+	fsMock := &filesystemtest.MockFilesystem{}
+	setupInstalledEntry(cfg, fsMock, ".claude/agents/foo.md")
+
+	git := &gitrepotest.MockGitRepo{
+		FileVersionFn: func(clonePath, filePath string) (domain.MctVersion, error) {
+			return "v1", nil // file still exists
+		},
+	}
+
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+	results, err := a.Prune(service.PruneOpts{AllRemove: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results when file still exists, got %d", len(results))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// List — additional branches
+// ---------------------------------------------------------------------------
+
+func TestList_ConfigLoadFailure(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, errors.New("config broken")
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+
+	_, err := a.List(service.ListOpts{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestList_FilterByMarket(t *testing.T) {
+	const file1 = ".claude/agents/foo.md"
+	const file2 = ".claude/agents/bar.md"
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets: []domain.MarketConfig{
+					{Name: "mkt1", Branch: "main"},
+					{Name: "mkt2", Branch: "main"},
+				},
+			}, nil
+		},
+	}
+	mapFS := fstest.MapFS{
+		file1: {Data: []byte("---\ndescription: test\n---\n")},
+		file2: {Data: []byte("---\ndescription: test\n---\n")},
+	}
+	symlinks := map[string]string{
+		file1: "/cache/dir/mkt1/agents/foo.md",
+		file2: "/cache/dir/mkt2/agents/bar.md",
+	}
+	fsMock := &filesystemtest.MockFilesystem{FS: mapFS}
+	setupSymlinkMock(fsMock, symlinks)
+
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+
+	entries, err := a.List(service.ListOpts{Market: "mkt1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry for mkt1, got %d", len(entries))
+	}
+	if entries[0].Market != "mkt1" {
+		t.Errorf("expected market=mkt1, got %q", entries[0].Market)
+	}
+}
+
+func TestList_FilterByType(t *testing.T) {
+	const agentFile1 = ".claude/agents/foo.md"
+	const skillDir = ".claude/skills/bar"
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
+			}, nil
+		},
+	}
+	mapFS := fstest.MapFS{
+		agentFile1: {Data: []byte("---\ndescription: test\n---\n")},
+	}
+	symlinks := map[string]string{
+		agentFile1: "/cache/dir/mkt/agents/foo.md",
+		skillDir:   "/cache/dir/mkt/skills/bar",
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		FS: mapFS,
+		ListDirFn: func(dir string) ([]string, error) {
+			if dir == ".claude/skills" {
+				return []string{"bar"}, nil
+			}
+			return nil, nil
+		},
+	}
+	setupSymlinkMock(fsMock, symlinks)
+
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+
+	agents, err := a.List(service.ListOpts{Type: domain.EntryTypeAgent})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, e := range agents {
+		if e.Type != domain.EntryTypeAgent {
+			t.Errorf("expected all entries to be agents, got %q", e.Type)
+		}
+	}
+
+	skills, err := a.List(service.ListOpts{Type: domain.EntryTypeSkill})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, e := range skills {
+		if e.Type != domain.EntryTypeSkill {
+			t.Errorf("expected all entries to be skills, got %q", e.Type)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// resolveSymlinkEntry — additional branches
+// ---------------------------------------------------------------------------
+
+func TestResolveSymlinkEntry_ReadlinkError(t *testing.T) {
+	fsMock := &filesystemtest.MockFilesystem{
+		IsSymlinkFn: func(path string) bool { return true },
+		ReadlinkFn: func(path string) (string, error) {
+			return "", errors.New("readlink failed")
+		},
+	}
+	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+
+	dirToMarket := map[string]string{"mkt": "mkt"}
+	result := a.resolveSymlinkEntry("/some/path", dirToMarket)
+	if result != nil {
+		t.Errorf("expected nil, got %+v", result)
+	}
+}
+
+func TestResolveSymlinkEntry_MarketDirNotInMap(t *testing.T) {
+	fsMock := &filesystemtest.MockFilesystem{
+		IsSymlinkFn: func(path string) bool { return true },
+		ReadlinkFn: func(path string) (string, error) {
+			return "/cache/dir/unknown-market/agents/foo.md", nil
+		},
+	}
+	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+
+	dirToMarket := map[string]string{"mkt": "mkt"}
+	result := a.resolveSymlinkEntry("/some/path", dirToMarket)
+	if result != nil {
+		t.Errorf("expected nil for unknown market dir, got %+v", result)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// resolveDifftool
+// ---------------------------------------------------------------------------
+
+func TestResolveDifftool_ConfiguredTool(t *testing.T) {
+	git := &gitrepotest.MockGitRepo{}
+	result := resolveDifftool("vimdiff", git)
+	if result != "vimdiff" {
+		t.Errorf("expected 'vimdiff', got %q", result)
+	}
+}
+
+func TestResolveDifftool_GitGlobalTool(t *testing.T) {
+	git := &gitrepotest.MockGitRepo{
+		ReadGlobalDifftoolFn: func() (string, error) {
+			return "meld", nil
+		},
+	}
+	result := resolveDifftool("", git)
+	if result != "meld" {
+		t.Errorf("expected 'meld', got %q", result)
+	}
+}
+
+func TestResolveDifftool_GitGlobalToolError(t *testing.T) {
+	git := &gitrepotest.MockGitRepo{
+		ReadGlobalDifftoolFn: func() (string, error) {
+			return "", errors.New("git config error")
+		},
+	}
+	result := resolveDifftool("", git)
+	if result != "diff" {
+		t.Errorf("expected 'diff' fallback, got %q", result)
+	}
+}
+
+func TestResolveDifftool_GitGlobalToolEmpty(t *testing.T) {
+	git := &gitrepotest.MockGitRepo{
+		ReadGlobalDifftoolFn: func() (string, error) {
+			return "", nil
+		},
+	}
+	result := resolveDifftool("", git)
+	if result != "diff" {
+		t.Errorf("expected 'diff' fallback for empty string, got %q", result)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// refProfile
+// ---------------------------------------------------------------------------
+
+func TestRefProfile_InvalidRef(t *testing.T) {
+	ref := domain.MctRef("invalid-no-at-sign")
+	result := refProfile(ref)
+	if result != "invalid-no-at-sign" {
+		t.Errorf("expected raw ref string on parse error, got %q", result)
+	}
+}
+
+func TestRefProfile_LessThanTwoSegments(t *testing.T) {
+	ref := domain.MctRef("mkt@foo.md")
+	result := refProfile(ref)
+	if result != "mkt" {
+		t.Errorf("expected 'mkt' for single segment, got %q", result)
+	}
+}
+
+func TestRefProfile_TwoOrMoreSegments(t *testing.T) {
+	ref := domain.MctRef("mkt@dev/go/agents/foo.md")
+	result := refProfile(ref)
+	if result != "mkt@dev/go" {
+		t.Errorf("expected 'mkt@dev/go', got %q", result)
 	}
 }

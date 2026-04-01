@@ -211,6 +211,8 @@ func TestRefresh_UpToDate(t *testing.T) {
 	git.DiffSinceCommitFn = func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
 		return nil, nil
 	}
+	state.SetMarketSyncDirtyFn = func(cacheDir, market string) error { return nil }
+	state.SetMarketSyncCleanFn = func(cacheDir, market, newSHA string) error { return nil }
 
 	app := newTestApp(cfg, git, fsMock, state)
 	results, err := app.Refresh(service.RefreshOpts{})
@@ -470,6 +472,311 @@ func TestUpdate_DeletedEntrySkipped(t *testing.T) {
 	}
 }
 
+// TestRefresh_ConfigLoadError verifies that a config load error is returned.
+func TestRefresh_ConfigLoadError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, errors.New("config broken")
+		},
+	}
+	app := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+	_, err := app.Refresh(service.RefreshOpts{})
+	if err == nil {
+		t.Fatal("expected error from config load, got nil")
+	}
+	if err.Error() != "config broken" {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestRefresh_LoadSyncStateError verifies that a LoadSyncState error is returned.
+func TestRefresh_LoadSyncStateError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{Markets: []domain.MarketConfig{{Name: "mkt", Branch: "main"}}}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{}, errors.New("state corrupted")
+		},
+	}
+	app := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, state)
+	_, err := app.Refresh(service.RefreshOpts{})
+	if err == nil {
+		t.Fatal("expected error from LoadSyncState, got nil")
+	}
+	if err.Error() != "state corrupted" {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestRefresh_FetchError verifies that a Fetch error is recorded in the result.
+func TestRefresh_FetchError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{Markets: []domain.MarketConfig{{Name: "mkt", Branch: "main"}}}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{
+				"mkt": {LastSyncedSHA: "oldhash"},
+			}}, nil
+		},
+		SetMarketSyncDirtyFn: func(cacheDir string, market string) error {
+			return nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		FetchFn: func(clonePath, branch string) (string, error) {
+			return "", errors.New("network down")
+		},
+	}
+	app := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state)
+	results, err := app.Refresh(service.RefreshOpts{})
+	if err != nil {
+		t.Fatal("unexpected top-level error:", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Err == nil {
+		t.Fatal("expected error in result, got nil")
+	}
+	if results[0].Err.Error() != "network down" {
+		t.Errorf("unexpected error: %v", results[0].Err)
+	}
+	if results[0].OldSHA != "oldhash" {
+		t.Errorf("expected OldSHA=oldhash, got %q", results[0].OldSHA)
+	}
+}
+
+// TestRefresh_SetMarketSyncDirtyError verifies that a SetMarketSyncDirty error
+// is recorded in the result when DryRun=false.
+func TestRefresh_SetMarketSyncDirtyError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{Markets: []domain.MarketConfig{{Name: "mkt", Branch: "main"}}}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{}}, nil
+		},
+		SetMarketSyncDirtyFn: func(cacheDir, market string) error {
+			return errors.New("dirty failed")
+		},
+	}
+	app := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, state)
+	results, err := app.Refresh(service.RefreshOpts{DryRun: false})
+	if err != nil {
+		t.Fatal("unexpected top-level error:", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Err == nil || results[0].Err.Error() != "dirty failed" {
+		t.Errorf("expected 'dirty failed' error, got %v", results[0].Err)
+	}
+}
+
+// TestRefresh_SetMarketSyncCleanError verifies that a SetMarketSyncClean error
+// is recorded in the result when DryRun=false.
+func TestRefresh_SetMarketSyncCleanError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{Markets: []domain.MarketConfig{{Name: "mkt", Branch: "main"}}}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{
+				"mkt": {LastSyncedSHA: "oldhash"},
+			}}, nil
+		},
+		SetMarketSyncDirtyFn: func(cacheDir, market string) error { return nil },
+		SetMarketSyncCleanFn: func(cacheDir, market, newSHA string) error {
+			return errors.New("clean failed")
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		FetchFn: func(clonePath, branch string) (string, error) { return "newhash", nil },
+		DiffSinceCommitFn: func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
+			return nil, nil
+		},
+	}
+	app := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state)
+	results, err := app.Refresh(service.RefreshOpts{DryRun: false})
+	if err != nil {
+		t.Fatal("unexpected top-level error:", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Err == nil || results[0].Err.Error() != "clean failed" {
+		t.Errorf("expected 'clean failed' error, got %v", results[0].Err)
+	}
+	if results[0].NewSHA != "newhash" {
+		t.Errorf("expected NewSHA=newhash, got %q", results[0].NewSHA)
+	}
+}
+
+// TestRefresh_NewMarketSkipsDiff verifies that when oldSHA is empty (new market,
+// no previous sync), the diff step is skipped and ChangedFiles=0.
+func TestRefresh_NewMarketSkipsDiff(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{Markets: []domain.MarketConfig{{Name: "mkt", Branch: "main"}}}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{}}, nil
+		},
+	}
+	diffCalled := false
+	git := &gitrepotest.MockGitRepo{
+		FetchFn: func(clonePath, branch string) (string, error) { return "newhash", nil },
+		DiffSinceCommitFn: func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
+			diffCalled = true
+			return nil, nil
+		},
+	}
+	app := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state)
+	results, err := app.Refresh(service.RefreshOpts{DryRun: true})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if diffCalled {
+		t.Error("DiffSinceCommit should NOT be called when oldSHA is empty")
+	}
+	if results[0].ChangedFiles != 0 {
+		t.Errorf("expected ChangedFiles=0, got %d", results[0].ChangedFiles)
+	}
+	if results[0].OldSHA != "" {
+		t.Errorf("expected OldSHA=\"\", got %q", results[0].OldSHA)
+	}
+	if results[0].NewSHA != "newhash" {
+		t.Errorf("expected NewSHA=newhash, got %q", results[0].NewSHA)
+	}
+}
+
+// TestRefresh_DiffSinceCommitError verifies that a DiffSinceCommit error is
+// silently handled (continues with 0 changed files).
+func TestRefresh_DiffSinceCommitError(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{Markets: []domain.MarketConfig{{Name: "mkt", Branch: "main"}}}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{
+				"mkt": {LastSyncedSHA: "oldhash"},
+			}}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		FetchFn: func(clonePath, branch string) (string, error) { return "newhash", nil },
+		DiffSinceCommitFn: func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
+			return nil, errors.New("diff broken")
+		},
+	}
+	app := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state)
+	results, err := app.Refresh(service.RefreshOpts{DryRun: true})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Err != nil {
+		t.Errorf("expected no error in result (diff error is silent), got %v", results[0].Err)
+	}
+	if results[0].ChangedFiles != 0 {
+		t.Errorf("expected ChangedFiles=0 after diff error, got %d", results[0].ChangedFiles)
+	}
+}
+
+// TestRefresh_SkillsOnlyFiltering verifies that SkillsOnly markets filter
+// non-skill paths from the changed files count.
+func TestRefresh_SkillsOnlyFiltering(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{Markets: []domain.MarketConfig{
+				{Name: "mkt", Branch: "main", SkillsOnly: true, SkillsPath: "skills"},
+			}}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{
+				"mkt": {LastSyncedSHA: "oldhash"},
+			}}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		FetchFn: func(clonePath, branch string) (string, error) { return "newhash", nil },
+		DiffSinceCommitFn: func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
+			return []domain.FileDiff{
+				{Action: domain.DiffModify, From: "skills/foo.md", To: "skills/foo.md"},
+				{Action: domain.DiffModify, From: "agents/bar.md", To: "agents/bar.md"},
+				{Action: domain.DiffModify, From: "README.md", To: "README.md"},
+			}, nil
+		},
+	}
+	app := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state)
+	results, err := app.Refresh(service.RefreshOpts{DryRun: true})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].ChangedFiles != 1 {
+		t.Errorf("expected ChangedFiles=1 (only skill path), got %d", results[0].ChangedFiles)
+	}
+}
+
+// TestRefresh_MarketNameFiltering verifies that opts.Market filters markets by name.
+func TestRefresh_MarketNameFiltering(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{Markets: []domain.MarketConfig{
+				{Name: "alpha", Branch: "main"},
+				{Name: "beta", Branch: "main"},
+			}}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{}}, nil
+		},
+	}
+	fetchedMarkets := []string{}
+	git := &gitrepotest.MockGitRepo{
+		FetchFn: func(clonePath, branch string) (string, error) {
+			fetchedMarkets = append(fetchedMarkets, clonePath)
+			return "newhash", nil
+		},
+	}
+	app := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state)
+	results, err := app.Refresh(service.RefreshOpts{DryRun: true, Market: "beta"})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result (only beta), got %d", len(results))
+	}
+	if results[0].Market != "beta" {
+		t.Errorf("expected Market=beta, got %q", results[0].Market)
+	}
+}
+
 // TestSync_CallsRefreshAndUpdate verifies that Sync calls Refresh then Update.
 func TestSync_CallsRefreshAndUpdate(t *testing.T) {
 	cfg := &configstoretest.MockConfigStore{}
@@ -499,6 +806,8 @@ func TestSync_CallsRefreshAndUpdate(t *testing.T) {
 			{Action: domain.DiffModify, From: "agents/foo.md", To: "agents/foo.md"},
 		}, nil
 	}
+	state.SetMarketSyncDirtyFn = func(cacheDir, market string) error { return nil }
+	state.SetMarketSyncCleanFn = func(cacheDir, market, newSHA string) error { return nil }
 	// No installed entries — empty MapFS.
 
 	app := newTestApp(cfg, git, fsMock, state)
