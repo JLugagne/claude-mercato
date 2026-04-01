@@ -61,7 +61,11 @@ skills-repo/
 `mct` auto-detects skills-only repos when adding them. You can also point to a subdirectory using GitHub `/tree/` URLs:
 
 ```bash
+# GitHub /tree/ URL -- branch and subpath extracted automatically
 mct market add https://github.com/org/repo/tree/main/src/skills
+
+# Or specify the skills path as a second argument
+mct market add https://github.com/org/skills-repo.git src/skills
 ```
 
 ## How it works
@@ -92,6 +96,7 @@ mct init                     # Initialize mct in current project
 # Market management
 mct market add mymarket git@github.com:org/agents-repo.git
 mct market add https://github.com/org/skills-repo/tree/main/skills
+mct market add https://github.com/org/skills-repo.git src/skills
 mct market list
 mct market info mymarket
 mct market remove mymarket
