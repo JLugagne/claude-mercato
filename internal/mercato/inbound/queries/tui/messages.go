@@ -78,6 +78,10 @@ type EntryContentMsg struct {
 	Err     error
 }
 
+type DetailContentMsg struct {
+	Content string
+}
+
 type ProfileInstallMsg struct {
 	Profile string
 	Errors  []error

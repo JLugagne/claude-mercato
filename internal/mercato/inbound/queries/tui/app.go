@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -160,8 +161,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateLayout()
 		m.updateProfilesList()
 		m.updateEntriesList()
-		m.updateDetailContent()
-		return m, m.maybeLoadSkillDirFiles()
+		return m, tea.Batch(m.updateDetailContent(), m.maybeLoadSkillDirFiles())
 
 	case SearchResultMsg:
 		m.filteredEntries = make([]EntryItem, len(msg.Results))
@@ -171,8 +171,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateLayout()
 		m.updateProfilesList()
 		m.updateEntriesList()
-		m.updateDetailContent()
-		return m, m.maybeLoadSkillDirFiles()
+		return m, tea.Batch(m.updateDetailContent(), m.maybeLoadSkillDirFiles())
+
+	case DetailContentMsg:
+		m.detailView.SetContent(msg.Content)
+		m.detailView.GotoTop()
+		return m, nil
 
 	case EntryContentMsg:
 		if msg.Err != nil {
@@ -181,12 +185,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectedEntryContent = msg.Content
 		}
 		m.selectedEntryRef = msg.Ref
-		w := m.contentView.Width
-		if w < 1 {
-			w = 40
-		}
-		wrapped := lipgloss.NewStyle().Width(w).Render(m.selectedEntryContent)
-		m.contentView.SetContent(wrapped)
+		m.contentView.SetContent(m.selectedEntryContent)
 		m.contentView.GotoTop()
 		return m, nil
 
@@ -390,10 +389,9 @@ func (m *AppModel) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.profilesList.Index() != prevIdx {
 			m.updateLayout()
 			m.updateEntriesList()
-			m.updateDetailContent()
 			m.selectedEntryContent = ""
 			m.contentView.SetContent("")
-			return m, tea.Batch(cmd, m.maybeLoadSkillDirFiles())
+			return m, tea.Batch(cmd, m.updateDetailContent(), m.maybeLoadSkillDirFiles())
 		}
 		return m, cmd
 	case FocusDetail:
@@ -416,6 +414,7 @@ func (m *AppModel) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *AppModel) loadEntryContent() tea.Cmd {
+	w := m.contentView.Width
 	switch v := m.entriesList.SelectedItem().(type) {
 	case EntryItem:
 		entry := v.Entry
@@ -424,10 +423,10 @@ func (m *AppModel) loadEntryContent() tea.Cmd {
 			if err != nil {
 				return EntryContentMsg{Ref: entry.Ref, Err: err}
 			}
-			return EntryContentMsg{Ref: entry.Ref, Content: string(content)}
+			rendered := renderMarkdown(stripFrontmatter(string(content)), w)
+			return EntryContentMsg{Ref: entry.Ref, Content: rendered}
 		}
 	case SkillFileItem:
-		// For skill files, content is already loaded for .md files
 		content := v.File.Content
 		ref := domain.MctRef(v.File.Path)
 		if content == "" {
@@ -436,7 +435,8 @@ func (m *AppModel) loadEntryContent() tea.Cmd {
 			}
 		}
 		return func() tea.Msg {
-			return EntryContentMsg{Ref: ref, Content: content}
+			rendered := renderMarkdown(stripFrontmatter(content), w)
+			return EntryContentMsg{Ref: ref, Content: rendered}
 		}
 	}
 	return nil
@@ -588,11 +588,11 @@ func (m *AppModel) applyMarketFilterCmd() tea.Cmd {
 	m.filteredEntries = filtered
 	m.updateProfilesList()
 	m.updateEntriesList()
-	m.updateDetailContent()
+	detailCmd := m.updateDetailContent()
 	if m.searchQuery != "" {
-		return m.searchCmd(m.searchQuery)
+		return tea.Batch(detailCmd, m.searchCmd(m.searchQuery))
 	}
-	return nil
+	return detailCmd
 }
 
 func (m *AppModel) updateProfilesList() {
@@ -604,9 +604,17 @@ func (m *AppModel) updateProfilesList() {
 	m.profilesList.SetItems(items)
 }
 
-func (m *AppModel) updateDetailContent() {
-	m.detailView.SetContent(m.buildDetailContent())
-	m.detailView.GotoTop()
+func (m *AppModel) updateDetailContent() tea.Cmd {
+	item, ok := m.profilesList.SelectedItem().(ProfileItem)
+	if !ok {
+		m.detailView.SetContent("No profile selected")
+		m.detailView.GotoTop()
+		return nil
+	}
+	w := m.detailView.Width
+	return func() tea.Msg {
+		return DetailContentMsg{Content: m.buildDetailContent(item, w)}
+	}
 }
 
 func (m *AppModel) updateEntriesList() {
@@ -828,20 +836,13 @@ func (m AppModel) viewLoading() string {
 	)
 }
 
-func (m AppModel) buildDetailContent() string {
-	item, ok := m.profilesList.SelectedItem().(ProfileItem)
-	if !ok {
-		return "No profile selected"
-	}
-
-	w := m.detailView.Width
+func (m AppModel) buildDetailContent(item ProfileItem, w int) string {
 	if w < 1 {
 		w = 40
 	}
 
 	bold := lipgloss.NewStyle().Bold(true)
 	muted := lipgloss.NewStyle().Foreground(ColorMuted)
-	wrap := lipgloss.NewStyle().Width(w)
 
 	var s string
 	s += bold.Render(item.Name) + "\n"
@@ -855,7 +856,7 @@ func (m AppModel) buildDetailContent() string {
 	}
 
 	if item.Readme != "" {
-		s += wrap.Render(stripFrontmatter(item.Readme))
+		s += renderMarkdown(stripFrontmatter(item.Readme), w)
 	}
 
 	return s
@@ -973,6 +974,31 @@ func stripFrontmatter(s string) string {
 		return strings.TrimSpace(s[3+end+3:])
 	}
 	return strings.TrimSpace(s)
+}
+
+var mdRenderers = make(map[int]*glamour.TermRenderer)
+
+func renderMarkdown(md string, width int) string {
+	if width < 1 {
+		width = 40
+	}
+	r, ok := mdRenderers[width]
+	if !ok {
+		var err error
+		r, err = glamour.NewTermRenderer(
+			glamour.WithAutoStyle(),
+			glamour.WithWordWrap(width),
+		)
+		if err != nil {
+			return md
+		}
+		mdRenderers[width] = r
+	}
+	out, err := r.Render(md)
+	if err != nil {
+		return md
+	}
+	return strings.TrimSpace(out)
 }
 
 func RunTUI(svc TUIServices) error {
