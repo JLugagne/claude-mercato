@@ -19,10 +19,11 @@ var _ gitrepo.GitRepo = (*Adapter)(nil)
 
 type Adapter struct {
 	sshEnabled bool
+	depth      int
 }
 
 func New(opts ...Option) *Adapter {
-	a := &Adapter{}
+	a := &Adapter{depth: 1}
 	for _, opt := range opts {
 		opt(a)
 	}
@@ -37,6 +38,12 @@ func WithSSHEnabled(enabled bool) Option {
 	}
 }
 
+func WithDepth(depth int) Option {
+	return func(a *Adapter) {
+		a.depth = depth
+	}
+}
+
 func (a *Adapter) Clone(url, clonePath string) error {
 	if isSSHURL(url) && !a.sshEnabled {
 		return domain.ErrSSHDisabled
@@ -44,7 +51,7 @@ func (a *Adapter) Clone(url, clonePath string) error {
 	_, err := git.PlainClone(clonePath, false, &git.CloneOptions{
 		URL:      url,
 		Auth:     resolveAuth(url),
-		Depth:    1,
+		Depth:    a.depth,
 		Progress: os.Stdout,
 	})
 	return err
@@ -66,7 +73,7 @@ func (a *Adapter) Fetch(clonePath, branch string) (string, error) {
 
 	err = repo.Fetch(&git.FetchOptions{
 		Auth:  resolveAuthFromRepo(repo),
-		Depth: 1,
+		Depth: a.depth,
 		Prune: true,
 		Force: false,
 	})

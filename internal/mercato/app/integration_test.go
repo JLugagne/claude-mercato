@@ -11,10 +11,40 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/outbound/cfgadapter"
 	"github.com/JLugagne/claude-mercato/internal/mercato/outbound/fsadapter"
 	"github.com/JLugagne/claude-mercato/internal/mercato/outbound/gitadapter"
+	"github.com/go-git/go-billy/v5/osfs"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/storer"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/plumbing/transport/client"
+	"github.com/go-git/go-git/v5/plumbing/transport/server"
+	"github.com/go-git/go-git/v5/storage/filesystem"
 )
+
+// dotGitLoader resolves non-bare repos by looking inside .git, so the
+// in-process server transport works without shelling out to git.
+type dotGitLoader struct{}
+
+func (l *dotGitLoader) Load(ep *transport.Endpoint) (storer.Storer, error) {
+	path := ep.Path
+	dotGitPath := filepath.Join(path, ".git")
+	if info, err := os.Stat(dotGitPath); err == nil && info.IsDir() {
+		return filesystem.NewStorage(osfs.New(dotGitPath), cache.NewObjectLRUDefault()), nil
+	}
+	if _, err := os.Stat(filepath.Join(path, "config")); err == nil {
+		return filesystem.NewStorage(osfs.New(path), cache.NewObjectLRUDefault()), nil
+	}
+	return nil, transport.ErrRepositoryNotFound
+}
+
+func TestMain(m *testing.M) {
+	// Replace the file transport with an in-process server so tests don't
+	// need the git binary installed.
+	client.InstallProtocol("file", server.NewClient(&dotGitLoader{}))
+	os.Exit(m.Run())
+}
 
 // createTestRepo initialises a real git repo in a temp directory with the given
 // files and returns its path.
@@ -158,7 +188,7 @@ func setupIntegration(t *testing.T, repoFiles map[string]string) (*App, string, 
 
 	// Set sync state so Update can compute diffs.
 	stateStore := cfgadapter.NewStateStore()
-	gitRepo := gitadapter.New()
+	gitRepo := gitadapter.New(gitadapter.WithDepth(0))
 	headSHA, err := gitRepo.RemoteHEAD(cloneDir, "main")
 	if err != nil {
 		t.Fatal(err)
@@ -575,7 +605,7 @@ func TestIntegration_MultiLocation(t *testing.T) {
 	cfgStore := cfgadapter.NewConfigStore()
 	stateStore := cfgadapter.NewStateStore()
 	installDB := cfgadapter.NewInstallDB()
-	gitRepo := gitadapter.New()
+	gitRepo := gitadapter.New(gitadapter.WithDepth(0))
 
 	headSHA, err := gitRepo.RemoteHEAD(cloneDir, "main")
 	if err != nil {
