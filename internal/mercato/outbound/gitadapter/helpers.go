@@ -15,6 +15,7 @@ import (
 	sshconfig "github.com/kevinburke/ssh_config"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+	"golang.org/x/term"
 )
 
 func isAgentOrSkillPath(path string) bool {
@@ -76,7 +77,17 @@ func resolveAuth(url string) transport.AuthMethod {
 		}
 		auth, err := gitssh.NewPublicKeysFromFile("git", keyPath, "")
 		if err != nil {
-			continue
+			if !isPassphraseError(err) {
+				continue
+			}
+			passphrase, pErr := promptPassphrase(keyPath)
+			if pErr != nil {
+				continue
+			}
+			auth, err = gitssh.NewPublicKeysFromFile("git", keyPath, string(passphrase))
+			if err != nil {
+				continue
+			}
 		}
 		auth.HostKeyCallback = hostKeyCB
 		return auth
@@ -152,6 +163,32 @@ func resolveAuthFromRepo(repo *git.Repository) transport.AuthMethod {
 		return nil
 	}
 	return resolveAuth(urls[0])
+}
+
+// isPassphraseError returns true when the error indicates the key is
+// encrypted and requires a passphrase to decrypt.
+func isPassphraseError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "x509:") ||
+		strings.Contains(msg, "bcrypt_pbkdf") ||
+		strings.Contains(msg, "encrypted") ||
+		strings.Contains(msg, "passphrase") ||
+		strings.Contains(msg, "this private key is passphrase protected")
+}
+
+// promptPassphrase asks the user for an SSH key passphrase via the terminal.
+func promptPassphrase(keyPath string) ([]byte, error) {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return nil, fmt.Errorf("not a terminal, cannot prompt for passphrase")
+	}
+	fmt.Fprintf(os.Stderr, "Enter passphrase for %s: ", keyPath)
+	passphrase, err := term.ReadPassword(fd)
+	fmt.Fprintln(os.Stderr) // newline after hidden input
+	if err != nil {
+		return nil, err
+	}
+	return passphrase, nil
 }
 
 func isSSHURL(url string) bool {
