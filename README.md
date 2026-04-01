@@ -71,11 +71,14 @@ mct market add https://github.com/org/skills-repo.git src/skills
 ## How it works
 
 1. Register a market: `mct market add mymarket git@github.com:org/agents-repo.git`
-2. `mct` clones it (shallow) to `~/.cache/mct/mymarket/`
+2. `mct` shallow-clones it to `~/.cache/mct/mymarket/`
 3. Install a definition: `mct add mymarket@dev/go/agents/go-developer.md`
-4. `mct` reads the file from the git tree, injects tracking fields (`mct_ref`, `mct_version`, `mct_market`, `mct_installed_at`) into the frontmatter, and symlinks it into `.claude/`
-5. If the definition declares `requires_skills`, those are auto-installed as managed dependencies (including cross-market dependencies)
-6. Later, `mct sync` fetches the market, diffs against your last sync point, and updates installed files -- but only after checking whether you've modified them locally
+4. `mct` reads the file from the git tree, copies it into your project's `.claude/` directory, and records the installation in `~/.cache/mct/installed.json` (market, profile, version SHA, file list, and install locations)
+5. For directory-based skills (e.g. `skills/foo/`), all files in the skill directory are copied -- not just `SKILL.md`
+6. If the definition declares `requires_skills`, those are auto-installed as managed dependencies (including cross-market dependencies)
+7. Later, `mct sync` fetches the market, diffs against your last sync point, and updates installed files -- but only after checking whether you've modified them locally
+
+Files are copied, not symlinked, so your project stays self-contained and works without access to the cache directory. The install database tracks which files belong to which packages, enabling clean removal and multi-project support (the same package can be installed at multiple project locations).
 
 Config lives in `~/.config/mct/config.yml`. State (sync points, checksums) lives in `~/.cache/mct/`.
 
