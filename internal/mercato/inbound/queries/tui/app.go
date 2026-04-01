@@ -115,7 +115,7 @@ func (m AppModel) loadAllMarkets() tea.Cmd {
 		if err != nil {
 			return IndexReadyMsg{Elapsed: 0}
 		}
-		statuses, _ := m.svc.Check.Check(service.CheckOpts{})
+		statuses, _ := m.svc.Sync.Check(service.CheckOpts{})
 		return IndexReadyMsg{Results: results, Statuses: statuses, Elapsed: 0}
 	}
 }
@@ -415,7 +415,7 @@ func (m *AppModel) loadEntryContent() tea.Cmd {
 	case EntryItem:
 		entry := v.Entry
 		return func() tea.Msg {
-			content, err := m.svc.Content.ReadEntryContent(entry.Market, entry.RelPath)
+			content, err := m.svc.Entries.ReadEntryContent(entry.Market, entry.RelPath)
 			if err != nil {
 				return EntryContentMsg{Ref: entry.Ref, Err: err}
 			}
@@ -698,7 +698,7 @@ func (m *AppModel) maybeLoadSkillDirFiles() tea.Cmd {
 	market := item.Market
 	dirPrefix := item.Name
 	return func() tea.Msg {
-		files, err := m.svc.SkillDirs.ListSkillDirFiles(market, dirPrefix)
+		files, err := m.svc.Entries.ListSkillDirFiles(market, dirPrefix)
 		return SkillDirFilesMsg{Market: market, Dir: dirPrefix, Files: files, Err: err}
 	}
 }

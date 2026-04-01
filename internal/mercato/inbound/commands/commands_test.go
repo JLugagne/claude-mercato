@@ -164,6 +164,10 @@ func (s *stubEntries) ReadEntryContent(market, relPath string) ([]byte, error) {
 	return nil, nil
 }
 
+func (s *stubEntries) ListSkillDirFiles(market, dirPrefix string) ([]domain.SkillDirFile, error) {
+	return nil, nil
+}
+
 func (s *stubEntries) Conflicts() ([]domain.Conflict, error) {
 	if s.conflictsFn != nil {
 		return s.conflictsFn()

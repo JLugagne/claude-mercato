@@ -217,14 +217,7 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 			if !atLocation {
 				continue
 			}
-			for _, skill := range pkg.Files.Skills {
-				repoPath := a.skillFileRepoPath(pkg.Profile, skill, "SKILL.md")
-				ref := domain.MctRef(im.Market + "@" + repoPath)
-				installedRefs[ref] = true
-			}
-			for _, agent := range pkg.Files.Agents {
-				repoPath := a.agentFileRepoPath(pkg.Profile, agent)
-				ref := domain.MctRef(im.Market + "@" + repoPath)
+			for _, ref := range a.packageFileRefs(im.Market, pkg) {
 				installedRefs[ref] = true
 			}
 		}

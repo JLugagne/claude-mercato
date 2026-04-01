@@ -777,7 +777,7 @@ func TestSetConfigField_Success(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// normalizeURL
+// NormalizeURL
 // ---------------------------------------------------------------------------
 
 func TestNormalizeURL(t *testing.T) {
@@ -794,9 +794,9 @@ func TestNormalizeURL(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.input, func(t *testing.T) {
-			got := normalizeURL(tc.input)
+			got := domain.NormalizeURL(tc.input)
 			if got != tc.want {
-				t.Errorf("normalizeURL(%q) = %q, want %q", tc.input, got, tc.want)
+				t.Errorf("domain.NormalizeURL(%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
 	}

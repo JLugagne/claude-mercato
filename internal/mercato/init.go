@@ -62,13 +62,10 @@ func newTUICmd(application *app.App) *cobra.Command {
 		Short: "Launch interactive TUI",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return tui.RunTUI(tui.TUIServices{
-				Markets:   application,
-				Sync:      application,
-				Entries:   application,
-				Search:    application,
-				Content:   application,
-				Check:     application,
-				SkillDirs: application,
+				Markets: application,
+				Sync:    application,
+				Entries: application,
+				Search:  application,
 			})
 		},
 	}

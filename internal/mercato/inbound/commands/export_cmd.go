@@ -135,7 +135,7 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			}
 			existingURLs := make(map[string]string) // normalizedURL -> name
 			for _, mc := range cfg.Markets {
-				existingURLs[normalizeMarketURL(mc.URL)] = mc.Name
+				existingURLs[domain.NormalizeURL(mc.URL)] = mc.Name
 			}
 
 			type importResult struct {
@@ -149,7 +149,7 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			// Import markets
 			scanner := bufio.NewScanner(cmd.InOrStdin())
 			for _, m := range imp.Markets {
-				norm := normalizeMarketURL(m.URL)
+				norm := domain.NormalizeURL(m.URL)
 				if existing, ok := existingURLs[norm]; ok {
 					results = append(results, importResult{
 						Action: "skip",
@@ -270,18 +270,4 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Flags().Bool("json", false, "JSON output")
 	cmd.Flags().Bool("yes", false, "automatically confirm adding markets not registered locally")
 	return cmd
-}
-
-// normalizeMarketURL normalizes a git URL for comparison.
-func normalizeMarketURL(u string) string {
-	u = strings.TrimSpace(u)
-	if idx := strings.Index(u, "://"); idx >= 0 {
-		u = u[idx+3:]
-	} else if at := strings.Index(u, "@"); at >= 0 {
-		u = u[at+1:]
-		u = strings.Replace(u, ":", "/", 1)
-	}
-	u = strings.TrimSuffix(u, ".git")
-	u = strings.TrimSuffix(u, "/")
-	return strings.ToLower(u)
 }

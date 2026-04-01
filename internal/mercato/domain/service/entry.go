@@ -6,6 +6,7 @@ type EntryQueries interface {
 	List(opts ListOpts) ([]domain.Entry, error)
 	GetEntry(ref domain.MctRef) (domain.Entry, error)
 	ReadEntryContent(market, relPath string) ([]byte, error)
+	ListSkillDirFiles(market, dirPrefix string) ([]domain.SkillDirFile, error)
 	Conflicts() ([]domain.Conflict, error)
 }
 

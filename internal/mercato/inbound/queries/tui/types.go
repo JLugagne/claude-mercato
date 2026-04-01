@@ -68,20 +68,9 @@ func (m MarketItem) Title() string       { return m.Market.Name }
 func (m MarketItem) Description() string { return m.Market.URL }
 func (m MarketItem) FilterValue() string { return m.Market.Name }
 
-type EntryContentReader interface {
-	ReadEntryContent(market, relPath string) ([]byte, error)
-}
-
-type SkillDirLister interface {
-	ListSkillDirFiles(market, dirPrefix string) ([]domain.SkillDirFile, error)
-}
-
 type TUIServices struct {
-	Markets   service.MarketCommands
-	Sync      service.SyncCommands
-	Entries   service.EntryCommands
-	Search    service.SearchQueries
-	Content   EntryContentReader
-	Check     service.SyncQueries
-	SkillDirs SkillDirLister
+	Markets service.MarketCommands
+	Sync    service.SyncCommands
+	Entries service.EntryCommands
+	Search  service.SearchQueries
 }

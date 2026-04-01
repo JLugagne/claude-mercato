@@ -18,7 +18,7 @@ import (
 // e.g. "https://github.com/aa/bb.git" -> "aa/bb"
 //      "git@gitlab.com:aa/bb/cc.git"  -> "aa/bb/cc"
 func marketNameFromURL(url string) (string, error) {
-	normalized := normalizeURL(url)
+	normalized := domain.NormalizeURL(url)
 	// normalized is "github.com/aa/bb" — strip the host
 	idx := strings.Index(normalized, "/")
 	if idx < 0 || idx == len(normalized)-1 {
@@ -78,21 +78,6 @@ func projectPath(localPath string) string {
 	return filepath.Dir(abs)
 }
 
-// normalizeURL strips protocol prefixes, trailing .git, and trailing slashes
-// so that "git@github.com:org/repo.git", "https://github.com/org/repo", and
-// "https://github.com/org/repo.git" all compare as equal.
-func normalizeURL(u string) string {
-	u = strings.TrimSpace(u)
-	if strings.Contains(u, "://") {
-		u = u[strings.Index(u, "://")+3:]
-	} else if at := strings.Index(u, "@"); at >= 0 {
-		u = u[at+1:]
-		u = strings.Replace(u, ":", "/", 1)
-	}
-	u = strings.TrimSuffix(u, ".git")
-	u = strings.TrimSuffix(u, "/")
-	return strings.ToLower(u)
-}
 
 func (a *App) clonePath(marketName string) string {
 	return filepath.Join(a.cacheDir, marketDirName(marketName))
@@ -264,7 +249,7 @@ func (a *App) AddMarket(url string, opts service.AddMarketOpts) (service.AddMark
 		if mc.Name == name {
 			return result, domain.ErrMarketAlreadyExists
 		}
-		if normalizeURL(mc.URL) == normalizeURL(url) {
+		if domain.NormalizeURL(mc.URL) == domain.NormalizeURL(url) {
 			return result, &domain.DomainError{
 				Code:    domain.ErrMarketURLExists.Code,
 				Message: fmt.Sprintf("market %q already uses URL %s", mc.Name, mc.URL),
@@ -421,13 +406,8 @@ func (a *App) RemoveMarket(name string, opts service.RemoveMarketOpts) error {
 		if im != nil && len(im.Packages) > 0 {
 			var installedRefs []string
 			for _, pkg := range im.Packages {
-				for _, skill := range pkg.Files.Skills {
-					repoPath := a.skillFileRepoPath(pkg.Profile, skill, "SKILL.md")
-					installedRefs = append(installedRefs, name+"@"+repoPath)
-				}
-				for _, agent := range pkg.Files.Agents {
-					repoPath := a.agentFileRepoPath(pkg.Profile, agent)
-					installedRefs = append(installedRefs, name+"@"+repoPath)
+				for _, ref := range a.packageFileRefs(name, pkg) {
+					installedRefs = append(installedRefs, string(ref))
 				}
 			}
 

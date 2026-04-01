@@ -86,26 +86,59 @@ func (a *App) detectDrift(pkg domain.InstalledPackage, location, clonePath, bran
 
 // skillFileRepoPath derives the repo-relative path for a skill file given a
 // package profile and the skill leaf name.
-// Profile "mkt@dev/go" + skill "bar" + file "SKILL.md" -> "dev/go/skills/bar/SKILL.md"
-// Profile "mkt" + skill "bar" + file "SKILL.md" -> "skills/bar/SKILL.md"
+// Profile "dev/go" + skill "bar" + file "SKILL.md" -> "dev/go/skills/bar/SKILL.md"
+// Profile ""       + skill "bar" + file "SKILL.md" -> "skills/bar/SKILL.md"
+// Profile "skills/foo" + skill "foo" + file "SKILL.md" -> "skills/foo/SKILL.md"
 func (a *App) skillFileRepoPath(profile, skill, filename string) string {
-	profilePath := profile
-	if profilePath != "" {
-		return profilePath + "/skills/" + skill + "/" + filename
+	// When the profile itself is a skill directory (e.g. "skills/azure-aigateway"),
+	// the skill name is already embedded in the profile path. Appending
+	// "/skills/<name>" again would produce a broken double path.
+	if strings.HasSuffix(profile, "/"+skill) {
+		parts := strings.Split(profile, "/")
+		for _, p := range parts {
+			if p == "skills" {
+				return profile + "/" + filename
+			}
+		}
+	}
+	if profile != "" {
+		return profile + "/skills/" + skill + "/" + filename
 	}
 	return "skills/" + skill + "/" + filename
 }
 
 // agentFileRepoPath derives the repo-relative path for an agent file given a
 // package profile and the agent filename.
-// Profile "mkt@dev/go" + agent "foo.md" -> "dev/go/agents/foo.md"
-// Profile "mkt" + agent "foo.md" -> "agents/foo.md"
+// Profile "dev/go" + agent "foo.md" -> "dev/go/agents/foo.md"
+// Profile ""       + agent "foo.md" -> "agents/foo.md"
 func (a *App) agentFileRepoPath(profile, agent string) string {
-	profilePath := profile
-	if profilePath != "" {
-		return profilePath + "/agents/" + agent
+	if profile != "" {
+		return profile + "/agents/" + agent
 	}
 	return "agents/" + agent
+}
+
+// skillDirRepoPath returns the repo-relative directory path for a skill,
+// accounting for profiles that are themselves skill directories.
+// Profile "dev/go"        + skill "bar" -> "dev/go/skills/bar"
+// Profile ""              + skill "bar" -> "skills/bar"
+// Profile "skills/foo"    + skill "foo" -> "skills/foo"
+func (a *App) skillDirRepoPath(profile, skill string) string {
+	return strings.TrimSuffix(a.skillFileRepoPath(profile, skill, "SKILL.md"), "/SKILL.md")
+}
+
+// packageFileRefs returns all MctRefs for the files in an installed package.
+func (a *App) packageFileRefs(market string, pkg domain.InstalledPackage) []domain.MctRef {
+	refs := make([]domain.MctRef, 0, len(pkg.Files.Skills)+len(pkg.Files.Agents))
+	for _, skill := range pkg.Files.Skills {
+		repoPath := a.skillFileRepoPath(pkg.Profile, skill, "SKILL.md")
+		refs = append(refs, domain.MctRef(market+"@"+repoPath))
+	}
+	for _, agent := range pkg.Files.Agents {
+		repoPath := a.agentFileRepoPath(pkg.Profile, agent)
+		refs = append(refs, domain.MctRef(market+"@"+repoPath))
+	}
+	return refs
 }
 
 
@@ -170,43 +203,19 @@ func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 			hasUpdate := err == nil && headSHA != pkg.Version
 
 			// Build a ref for each file in the package
-			for _, skill := range pkg.Files.Skills {
-				repoPath := a.skillFileRepoPath(pkg.Profile, skill, "SKILL.md")
-				ref := domain.MctRef(im.Market + "@" + repoPath)
-
-				var state domain.EntryState
-				switch {
-				case hasDrift && hasUpdate:
-					state = domain.StateUpdateAndDrift
-				case hasDrift:
-					state = domain.StateDrift
-				case hasUpdate:
-					state = domain.StateUpdateAvailable
-				default:
-					state = domain.StateClean
-				}
-
-				statuses = append(statuses, domain.EntryStatus{
-					Ref:   ref,
-					State: state,
-				})
+			var state domain.EntryState
+			switch {
+			case hasDrift && hasUpdate:
+				state = domain.StateUpdateAndDrift
+			case hasDrift:
+				state = domain.StateDrift
+			case hasUpdate:
+				state = domain.StateUpdateAvailable
+			default:
+				state = domain.StateClean
 			}
-			for _, agent := range pkg.Files.Agents {
-				repoPath := a.agentFileRepoPath(pkg.Profile, agent)
-				ref := domain.MctRef(im.Market + "@" + repoPath)
 
-				var state domain.EntryState
-				switch {
-				case hasDrift && hasUpdate:
-					state = domain.StateUpdateAndDrift
-				case hasDrift:
-					state = domain.StateDrift
-				case hasUpdate:
-					state = domain.StateUpdateAvailable
-				default:
-					state = domain.StateClean
-				}
-
+			for _, ref := range a.packageFileRefs(im.Market, pkg) {
 				statuses = append(statuses, domain.EntryStatus{
 					Ref:   ref,
 					State: state,
@@ -493,13 +502,7 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 				// Copy new files from cached clone
 				var newFiles domain.InstalledFiles
 				for _, skill := range pkg.Files.Skills {
-					profilePath := pkg.Profile
-					var skillDirPath string
-					if profilePath != "" {
-						skillDirPath = profilePath + "/skills/" + skill
-					} else {
-						skillDirPath = "skills/" + skill
-					}
+					skillDirPath := a.skillDirRepoPath(pkg.Profile, skill)
 
 					dirFiles, err := a.git.ListDirFiles(clonePath, mc.Branch, skillDirPath)
 					if err != nil {
@@ -573,13 +576,9 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 // packagePrimaryRef returns a representative MctRef for a package, using the
 // first skill or agent file.
 func (a *App) packagePrimaryRef(market string, pkg *domain.InstalledPackage) domain.MctRef {
-	if len(pkg.Files.Skills) > 0 {
-		repoPath := a.skillFileRepoPath(pkg.Profile, pkg.Files.Skills[0], "SKILL.md")
-		return domain.MctRef(market + "@" + repoPath)
-	}
-	if len(pkg.Files.Agents) > 0 {
-		repoPath := a.agentFileRepoPath(pkg.Profile, pkg.Files.Agents[0])
-		return domain.MctRef(market + "@" + repoPath)
+	refs := a.packageFileRefs(market, *pkg)
+	if len(refs) > 0 {
+		return refs[0]
 	}
 	return domain.MctRef(market + "@" + pkg.Profile)
 }
