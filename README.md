@@ -11,20 +11,66 @@ No central registry. No server. Just Git.
 ## What it does
 
 - **Markets** -- Register Git repositories as sources of agent/skill definitions
-- **Install/Remove** -- Add definitions to your local `.claude/` directory with dependency resolution (skills can require other skills)
+- **Skills repos** -- First-class support for skills-only repositories (e.g. Anthropic's `skills/` directory format)
+- **Install/Remove** -- Add definitions to your local `.claude/` directory with dependency resolution (skills can require other skills, even from other markets)
 - **Sync** -- Fetch upstream changes and update installed definitions while detecting local drift
 - **Search** -- Full-text BM25 search with fuzzy matching across all registered markets
 - **Drift detection** -- Knows when you've modified an installed file locally, and handles conflicts on update
 - **Prune** -- Handle entries deleted upstream with keep/remove decisions
 - **TUI** -- Interactive terminal UI for browsing markets and managing installations
 
+## Supported formats
+
+`mct` supports two repository formats:
+
+### mct market format
+
+A hierarchical structure with profiles containing agents and skills:
+
+```
+market-repo/
+  dev/
+    go/
+      README.md
+      agents/
+        go-developer.md
+      skills/
+        go-test/
+          SKILL.md
+    python/
+      README.md
+      agents/
+        python-developer.md
+```
+
+See [MARKET.md](MARKET.md) for the full specification.
+
+### Skills-only repos
+
+A flat structure containing only skill directories. This is the format used by Anthropic's `skills/` repos and other community skill collections:
+
+```
+skills-repo/
+  skills/
+    my-skill/
+      SKILL.md
+    another-skill/
+      SKILL.md
+```
+
+`mct` auto-detects skills-only repos when adding them. You can also point to a subdirectory using GitHub `/tree/` URLs:
+
+```bash
+mct market add https://github.com/org/repo/tree/main/src/skills
+```
+
 ## How it works
 
 1. Register a market: `mct market add mymarket git@github.com:org/agents-repo.git`
-2. `mct` clones it to `~/.cache/mct/mymarket/`
-3. Install a definition: `mct add mymarket/profile/agents/foo`
-4. `mct` reads the file from the git tree, injects tracking fields (`mct_ref`, `mct_version`, `mct_market`, `mct_installed_at`) into the frontmatter, writes it to `.claude/`, and records an MD5 checksum
-5. If the definition declares `requires_skills`, those are auto-installed as managed dependencies
+2. `mct` clones it (shallow) to `~/.cache/mct/mymarket/`
+3. Install a definition: `mct add mymarket@dev/go/agents/go-developer.md`
+4. `mct` reads the file from the git tree, injects tracking fields (`mct_ref`, `mct_version`, `mct_market`, `mct_installed_at`) into the frontmatter, and symlinks it into `.claude/`
+5. If the definition declares `requires_skills`, those are auto-installed as managed dependencies (including cross-market dependencies)
 6. Later, `mct sync` fetches the market, diffs against your last sync point, and updates installed files -- but only after checking whether you've modified them locally
 
 Config lives in `~/.config/mct/config.yml`. State (sync points, checksums) lives in `~/.cache/mct/`.
@@ -37,12 +83,15 @@ go install github.com/JLugagne/claude-mercato/cmd/mct@latest
 
 ## Usage
 
+Refs use the format `market@path` (e.g. `mymarket@dev/go/agents/go-developer.md`).
+
 ```bash
 # Project setup
 mct init                     # Initialize mct in current project
 
 # Market management
 mct market add mymarket git@github.com:org/agents-repo.git
+mct market add https://github.com/org/skills-repo/tree/main/skills
 mct market list
 mct market info mymarket
 mct market remove mymarket
@@ -54,12 +103,12 @@ mct readme mymarket skills/README.md
 mct readme mymarket --list   # List all READMEs in market
 
 # Install / remove
-mct add mymarket/profile/agents/foo
-mct add mymarket/profile/agents/foo --dry-run
-mct add mymarket/profile/agents/foo --no-deps
-mct add mymarket/profile/agents/foo --accept-breaking
-mct install mymarket/profile/agents/foo  # alias for add
-mct remove --ref mymarket/profile/agents/foo
+mct add mymarket@dev/go/agents/foo.md
+mct add mymarket@dev/go/agents/foo.md --dry-run
+mct add mymarket@dev/go/agents/foo.md --no-deps
+mct add mymarket@dev/go/agents/foo.md --accept-breaking
+mct install mymarket@dev/go/agents/foo.md  # alias for add
+mct remove --ref mymarket@dev/go/agents/foo.md
 mct remove --all          # Remove all installed entries (prompts for confirmation)
 mct remove --all --yes    # Remove all without prompt
 
@@ -70,7 +119,7 @@ mct sync             # refresh + update in one step
 mct check            # Show status of all installed entries
 mct status           # alias for check
 mct prune            # Process deleted entries
-mct prune --ref mymarket/profile/agents/foo
+mct prune --ref mymarket@dev/go/agents/foo.md
 mct prune --all-keep
 mct prune --all-remove
 
@@ -95,7 +144,7 @@ mct save                     # Save current setup to .mct.json
 mct restore                  # Restore setup from .mct.json
 
 # Other
-mct diff --ref mymarket/profile/agents/foo
+mct diff --ref mymarket@dev/go/agents/foo.md
 mct conflicts
 mct list              # List installed profiles and their entry refs
 mct sync-state        # Print sync state
