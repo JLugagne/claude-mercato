@@ -52,6 +52,14 @@ func (p ProfileItem) Title() string       { return p.Name + "@" + p.Market }
 func (p ProfileItem) Description() string { return "" }
 func (p ProfileItem) FilterValue() string { return p.Name + " " + p.Market }
 
+type SkillFileItem struct {
+	File domain.SkillDirFile
+}
+
+func (s SkillFileItem) Title() string       { return s.File.Name }
+func (s SkillFileItem) Description() string { return "" }
+func (s SkillFileItem) FilterValue() string { return s.File.Name }
+
 type MarketItem struct {
 	Market domain.Market
 	Status string
@@ -65,11 +73,16 @@ type EntryContentReader interface {
 	ReadEntryContent(market, relPath string) ([]byte, error)
 }
 
+type SkillDirLister interface {
+	ListSkillDirFiles(market, dirPrefix string) ([]domain.SkillDirFile, error)
+}
+
 type TUIServices struct {
-	Markets service.MarketCommands
-	Sync    service.SyncCommands
-	Entries service.EntryCommands
-	Search  service.SearchQueries
-	Content EntryContentReader
-	Check   service.SyncQueries
+	Markets   service.MarketCommands
+	Sync      service.SyncCommands
+	Entries   service.EntryCommands
+	Search    service.SearchQueries
+	Content   EntryContentReader
+	Check     service.SyncQueries
+	SkillDirs SkillDirLister
 }

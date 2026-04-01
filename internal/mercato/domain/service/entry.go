@@ -24,11 +24,17 @@ type ListOpts struct {
 	Installed bool
 }
 
+// ConfirmMarketFunc is called when an agent requires a skill from an
+// unregistered market. It receives the market URL and returns true if the
+// user agrees to register it.
+type ConfirmMarketFunc func(marketURL string) bool
+
 type AddOpts struct {
 	Profile        string
 	AcceptBreaking bool
 	NoDeps         bool
 	DryRun         bool
+	ConfirmMarket  ConfirmMarketFunc
 }
 
 type PruneOpts struct {
@@ -44,7 +50,7 @@ type PruneResult struct {
 }
 
 type InitOpts struct {
-	Markets   map[string]string
+	Markets   []string
 	LocalPath string
 	CI        bool
 }

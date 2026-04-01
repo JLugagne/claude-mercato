@@ -16,25 +16,25 @@ func TestMctRefParse(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			ref:         "market/path/to/file.md",
+			ref:         "market@path/to/file.md",
 			wantMarket:  "market",
 			wantRelPath: "path/to/file.md",
 		},
 		{
-			ref:         "market/file.md",
+			ref:         "market@file.md",
 			wantMarket:  "market",
 			wantRelPath: "file.md",
 		},
 		{
-			ref:     "noslash",
+			ref:     "noatsign",
 			wantErr: true,
 		},
 		{
-			ref:     "market/",
+			ref:     "market@",
 			wantErr: true,
 		},
 		{
-			ref:     "/nomarket",
+			ref:     "@nomarket",
 			wantErr: true,
 		},
 		{
@@ -75,7 +75,7 @@ func TestMctRefParse(t *testing.T) {
 
 func TestMctRefMarket(t *testing.T) {
 	t.Run("valid ref returns market segment", func(t *testing.T) {
-		ref := MctRef("mkt/agents/foo.md")
+		ref := MctRef("mkt@agents/foo.md")
 		got := ref.Market()
 		if got != "mkt" {
 			t.Errorf("expected %q, got %q", "mkt", got)
@@ -83,7 +83,7 @@ func TestMctRefMarket(t *testing.T) {
 	})
 
 	t.Run("invalid ref returns empty string", func(t *testing.T) {
-		ref := MctRef("noslash")
+		ref := MctRef("noatsign")
 		got := ref.Market()
 		if got != "" {
 			t.Errorf("expected empty string, got %q", got)
@@ -95,7 +95,7 @@ func TestMctRefMarket(t *testing.T) {
 
 func TestMctRefRelPath(t *testing.T) {
 	t.Run("valid ref returns relative path", func(t *testing.T) {
-		ref := MctRef("mkt/agents/foo.md")
+		ref := MctRef("mkt@agents/foo.md")
 		got := ref.RelPath()
 		if got != "agents/foo.md" {
 			t.Errorf("expected %q, got %q", "agents/foo.md", got)
@@ -103,10 +103,10 @@ func TestMctRefRelPath(t *testing.T) {
 	})
 
 	t.Run("invalid ref returns full ref as fallback", func(t *testing.T) {
-		ref := MctRef("noslash")
+		ref := MctRef("noatsign")
 		got := ref.RelPath()
-		if got != "noslash" {
-			t.Errorf("expected %q (full ref fallback), got %q", "noslash", got)
+		if got != "noatsign" {
+			t.Errorf("expected %q (full ref fallback), got %q", "noatsign", got)
 		}
 	})
 }

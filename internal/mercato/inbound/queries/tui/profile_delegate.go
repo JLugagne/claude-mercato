@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const profileIndent = "    "
@@ -22,6 +23,11 @@ func (d profileDelegate) Render(w io.Writer, m list.Model, index int, item list.
 	p, ok := item.(ProfileItem)
 	if !ok {
 		return
+	}
+
+	width := m.Width()
+	if width < 1 {
+		width = 20
 	}
 
 	nameStyle := lipgloss.NewStyle().Bold(true)
@@ -40,9 +46,12 @@ func (d profileDelegate) Render(w io.Writer, m list.Model, index int, item list.
 		cursor = "> "
 	}
 
-	line := cursor + nameStyle.Render(p.Name) + marketStyle.Render("@"+p.Market)
+	// Line 1: cursor + name@market (truncated to width)
+	line1 := cursor + nameStyle.Render(p.Name) + marketStyle.Render("@"+p.Market)
+	line1 = ansi.Truncate(line1, width, "")
 
-	// Status tags on a new indented line
+	// Line 2: status tags or description
+	var line2 string
 	if p.HasInstalled || p.HasOutdated {
 		var tags []string
 		if p.HasInstalled {
@@ -51,56 +60,40 @@ func (d profileDelegate) Render(w io.Writer, m list.Model, index int, item list.
 		if p.HasOutdated {
 			tags = append(tags, outdatedStyle.Render("outdated"))
 		}
-		line += "\n" + profileIndent + strings.Join(tags, " ")
+		line2 = profileIndent + strings.Join(tags, " ")
+	}
+	if line2 != "" {
+		line2 = ansi.Truncate(line2, width, "")
 	}
 
+	// Line 3: description (only if line 2 was used for tags, otherwise desc goes on line 2)
+	var line3 string
 	if p.Desc != "" {
-		maxW := m.Width() - len(profileIndent)
+		maxW := width - len(profileIndent)
 		if maxW < 10 {
 			maxW = 10
 		}
-		// Limit description to 1 line to keep delegate compact
-		wrapped := wordWrap(p.Desc, maxW)
-		wlines := strings.SplitN(wrapped, "\n", 2)
-		if len(wlines) > 1 {
-			wlines[0] = truncate(wlines[0], maxW-3) + "..."
-			wlines = wlines[:1]
+		desc := truncateStr(p.Desc, maxW)
+		if line2 == "" {
+			line2 = profileIndent + descStyle.Render(desc)
+		} else {
+			line3 = profileIndent + descStyle.Render(desc)
 		}
-		for _, wl := range wlines {
-			line += "\n" + profileIndent + descStyle.Render(wl)
-		}
-	} else {
-		line += "\n"
 	}
 
-	fmt.Fprint(w, line)
+	fmt.Fprint(w, line1+"\n"+line2+"\n"+line3)
 }
 
-func truncate(s string, maxLen int) string {
+func truncateStr(s string, maxLen int) string {
 	if maxLen < 0 {
 		maxLen = 0
 	}
 	if len(s) <= maxLen {
 		return s
 	}
+	if maxLen > 3 {
+		return s[:maxLen-3] + "..."
+	}
 	return s[:maxLen]
 }
 
-func wordWrap(s string, width int) string {
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return ""
-	}
-	var lines []string
-	cur := words[0]
-	for _, word := range words[1:] {
-		if len(cur)+1+len(word) > width {
-			lines = append(lines, cur)
-			cur = word
-		} else {
-			cur += " " + word
-		}
-	}
-	lines = append(lines, cur)
-	return strings.Join(lines, "\n")
-}

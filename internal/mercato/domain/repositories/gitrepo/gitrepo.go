@@ -24,4 +24,9 @@ type GitRepo interface {
 	// ReadMarketFiles opens the repo once and returns all matching files with
 	// their content and last-modified version in a single pass.
 	ReadMarketFiles(clonePath, branch string) ([]MarketFile, error)
+
+	// ListDirFiles lists all files under a directory prefix in the git tree.
+	// Unlike ListFiles, this includes non-.md files and does not filter by
+	// agent/skill path patterns.
+	ListDirFiles(clonePath, branch, dirPrefix string) ([]string, error)
 }

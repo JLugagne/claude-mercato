@@ -27,24 +27,36 @@ func (fakeDir) IsDir() bool        { return true }
 func (fakeDir) Sys() any           { return nil }
 
 // ---------------------------------------------------------------------------
-// validateMarketName
+// marketNameFromURL
 // ---------------------------------------------------------------------------
 
-func TestValidateMarketName(t *testing.T) {
-	valid := []string{"ab", "my-market", "foo-bar-123", "aa"}
-	for _, name := range valid {
-		t.Run("valid/"+name, func(t *testing.T) {
-			if err := validateMarketName(name); err != nil {
-				t.Errorf("expected valid, got error: %v", err)
-			}
-		})
+func TestMarketNameFromURL(t *testing.T) {
+	cases := []struct {
+		url      string
+		wantName string
+		wantErr  bool
+	}{
+		{"https://github.com/org/repo", "org/repo", false},
+		{"https://github.com/org/repo.git", "org/repo", false},
+		{"git@github.com:org/repo.git", "org/repo", false},
+		{"git@gitlab.com:aa/bb/cc.git", "aa/bb/cc", false},
+		{"https://example.com", "", true},
 	}
-
-	invalid := []string{"a", "_bad", "ABC", "Bad", "a_b", ""}
-	for _, name := range invalid {
-		t.Run("invalid/"+name, func(t *testing.T) {
-			if err := validateMarketName(name); err == nil {
-				t.Errorf("expected error for %q, got nil", name)
+	for _, tc := range cases {
+		t.Run(tc.url, func(t *testing.T) {
+			name, err := marketNameFromURL(tc.url)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error for %q, got nil", tc.url)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error for %q: %v", tc.url, err)
+				return
+			}
+			if name != tc.wantName {
+				t.Errorf("marketNameFromURL(%q) = %q, want %q", tc.url, name, tc.wantName)
 			}
 		})
 	}
@@ -193,7 +205,7 @@ func TestAddMarket_Success(t *testing.T) {
 	}
 
 	a := newTestApp(cfg, git, fsMock, state)
-	result, err := a.AddMarket("mymarket", "https://github.com/org/repo", service.AddMarketOpts{})
+	result, err := a.AddMarket("https://github.com/org/repo", service.AddMarketOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -208,19 +220,180 @@ func TestAddMarket_Success(t *testing.T) {
 	}
 }
 
+func TestDetectSkillsOnly(t *testing.T) {
+	cases := []struct {
+		name       string
+		files      []string
+		skillsPath string
+		want       bool
+	}{
+		{
+			name:  "skills-only repo with root-level skills",
+			files: []string{"skills/lint/SKILL.md", "skills/test/SKILL.md"},
+			want:  true,
+		},
+		{
+			name:  "mct market with nested skills",
+			files: []string{"dev/go/agents/foo.md", "dev/go/skills/bar/SKILL.md"},
+			want:  false,
+		},
+		{
+			name:  "no SKILL.md files",
+			files: []string{"agents/foo.md", "skills/bar.md"},
+			want:  false,
+		},
+		{
+			name:  "empty repo",
+			files: []string{},
+			want:  false,
+		},
+		{
+			name:       "custom skills path",
+			files:      []string{"src/skills/lint/SKILL.md", "src/skills/test/SKILL.md"},
+			skillsPath: "src/skills",
+			want:       true,
+		},
+		{
+			name:       "custom skills path no match",
+			files:      []string{"skills/lint/SKILL.md"},
+			skillsPath: "src/skills",
+			want:       false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			git := &gitrepotest.MockGitRepo{
+				ListFilesFn: func(clonePath, branch string) ([]string, error) {
+					return tc.files, nil
+				},
+			}
+			got := detectSkillsOnly(git, "/some/path", "main", tc.skillsPath)
+			if got != tc.want {
+				t.Errorf("detectSkillsOnly() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAddMarket_AutoDetectsSkillsOnly(t *testing.T) {
+	var savedMC domain.MarketConfig
+	var removedPaths []string
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, nil
+		},
+		AddMarketFn: func(path string, mc domain.MarketConfig) error {
+			savedMC = mc
+			return nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		ListDirFn: func(path string) ([]string, error) {
+			return []string{".git", "skills", "src", "README.md"}, nil
+		},
+		RemoveAllFn: func(path string) error {
+			removedPaths = append(removedPaths, filepath.Base(path))
+			return nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ValidateRemoteFn: func(url string) error { return nil },
+		CloneFn:          func(url, clonePath string) error { return nil },
+		RemoteHEADFn:     func(clonePath, branch string) (string, error) { return "abc123", nil },
+		ListFilesFn: func(clonePath, branch string) ([]string, error) {
+			return []string{
+				"skills/lint/SKILL.md",
+				"skills/test/SKILL.md",
+			}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		SetMarketSyncCleanFn: func(cacheDir string, market string, newSHA string) error { return nil },
+	}
+
+	a := newTestApp(cfg, git, fsMock, state)
+	_, err := a.AddMarket("https://github.com/org/skills-repo", service.AddMarketOpts{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !savedMC.SkillsOnly {
+		t.Error("expected SkillsOnly=true for repo with skills/*/SKILL.md, got false")
+	}
+	// Should have pruned src and README.md but kept .git and skills
+	if len(removedPaths) != 2 {
+		t.Errorf("expected 2 removals, got %d: %v", len(removedPaths), removedPaths)
+	}
+	for _, p := range removedPaths {
+		if p == ".git" || p == "skills" {
+			t.Errorf("should not have removed %q", p)
+		}
+	}
+}
+
+func TestParseTreeURL(t *testing.T) {
+	cases := []struct {
+		input      string
+		wantURL    string
+		wantBranch string
+		wantPath   string
+	}{
+		{
+			input:   "https://github.com/org/repo",
+			wantURL: "https://github.com/org/repo",
+		},
+		{
+			input:      "https://github.com/microsoft/azure-skills/tree/main/skills",
+			wantURL:    "https://github.com/microsoft/azure-skills",
+			wantBranch: "main",
+			wantPath:   "skills",
+		},
+		{
+			input:      "https://github.com/org/repo/tree/develop/src/skills",
+			wantURL:    "https://github.com/org/repo",
+			wantBranch: "develop",
+			wantPath:   "src/skills",
+		},
+		{
+			input:      "https://github.com/org/repo/tree/main",
+			wantURL:    "https://github.com/org/repo",
+			wantBranch: "main",
+		},
+		{
+			input:   "git@github.com:org/repo.git",
+			wantURL: "git@github.com:org/repo.git",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			gotURL, gotBranch, gotPath := parseTreeURL(tc.input)
+			if gotURL != tc.wantURL {
+				t.Errorf("url: got %q, want %q", gotURL, tc.wantURL)
+			}
+			if gotBranch != tc.wantBranch {
+				t.Errorf("branch: got %q, want %q", gotBranch, tc.wantBranch)
+			}
+			if gotPath != tc.wantPath {
+				t.Errorf("path: got %q, want %q", gotPath, tc.wantPath)
+			}
+		})
+	}
+}
+
 func TestAddMarket_NameAlreadyExists(t *testing.T) {
+	// Two different hosts but same org/repo derive the same market name,
+	// so this should hit MARKET_ALREADY_EXISTS.
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return domain.Config{
 				Markets: []domain.MarketConfig{
-					{Name: "foo", URL: "https://example.com/foo", Branch: "main"},
+					{Name: "org/repo", URL: "https://gitlab.com/org/repo", Branch: "main"},
 				},
 			}, nil
 		},
 	}
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
 
-	_, err := a.AddMarket("foo", "https://other.com/repo", service.AddMarketOpts{})
+	_, err := a.AddMarket("https://github.com/org/repo", service.AddMarketOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -231,18 +404,20 @@ func TestAddMarket_NameAlreadyExists(t *testing.T) {
 }
 
 func TestAddMarket_URLExists(t *testing.T) {
+	// Same URL with .git suffix normalizes to the same URL, but the existing
+	// market was renamed so the derived name differs — should hit URL check.
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return domain.Config{
 				Markets: []domain.MarketConfig{
-					{Name: "foo", URL: "https://github.com/org/repo", Branch: "main"},
+					{Name: "my-custom-name", URL: "https://github.com/org/repo", Branch: "main"},
 				},
 			}, nil
 		},
 	}
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
 
-	_, err := a.AddMarket("bar", "https://github.com/org/repo", service.AddMarketOpts{})
+	_, err := a.AddMarket("https://github.com/org/repo.git", service.AddMarketOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -252,16 +427,21 @@ func TestAddMarket_URLExists(t *testing.T) {
 	}
 }
 
-func TestAddMarket_InvalidName(t *testing.T) {
-	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+func TestAddMarket_InvalidURL(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, nil
+		},
+	}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
 
-	_, err := a.AddMarket("A", "https://github.com/org/repo", service.AddMarketOpts{})
+	_, err := a.AddMarket("https://example.com", service.AddMarketOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	var de *domain.DomainError
-	if !errors.As(err, &de) || de.Code != "INVALID_MARKET_NAME" {
-		t.Errorf("expected INVALID_MARKET_NAME, got %v", err)
+	if !errors.As(err, &de) || de.Code != "INVALID_MARKET_URL" {
+		t.Errorf("expected INVALID_MARKET_URL, got %v", err)
 	}
 }
 
@@ -280,7 +460,7 @@ func TestAddMarket_ClonePathExists(t *testing.T) {
 	}
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
 
-	_, err := a.AddMarket("mymarket", "https://github.com/org/repo", service.AddMarketOpts{})
+	_, err := a.AddMarket("https://github.com/org/repo", service.AddMarketOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -376,7 +556,7 @@ func TestRemoveMarket_NotFound(t *testing.T) {
 }
 
 func TestRemoveMarket_HasInstalledEntries(t *testing.T) {
-	agentContent := []byte("---\nmct_ref: foo/agents/bar.md\nmct_version: abc\ntype: agent\ndescription: test\n---\n# content\n")
+	filePath := ".claude/agents/bar.md"
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
@@ -388,9 +568,23 @@ func TestRemoveMarket_HasInstalledEntries(t *testing.T) {
 			}, nil
 		},
 	}
+	symlinks := map[string]string{
+		filePath: "/cache/dir/foo/agents/bar.md",
+	}
 	fsMock := &filesystemtest.MockFilesystem{
 		FS: fstest.MapFS{
-			".claude/agents/bar.md": &fstest.MapFile{Data: agentContent},
+			filePath: &fstest.MapFile{Data: []byte("---\ndescription: test\n---\n")},
+		},
+		IsSymlinkFn: func(path string) bool {
+			_, ok := symlinks[path]
+			return ok
+		},
+		ReadlinkFn: func(path string) (string, error) {
+			target, ok := symlinks[path]
+			if !ok {
+				return "", errors.New("not a symlink")
+			}
+			return target, nil
 		},
 	}
 
@@ -543,14 +737,12 @@ func TestRenameMarket_NotFound(t *testing.T) {
 	}
 }
 
-func TestRenameMarket_InvalidName(t *testing.T) {
+func TestRenameMarket_EmptyName(t *testing.T) {
 	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
 
-	for _, badName := range []string{"", "A"} {
-		err := a.RenameMarket("foo", badName)
-		if err == nil {
-			t.Errorf("expected error for new name %q, got nil", badName)
-		}
+	err := a.RenameMarket("foo", "")
+	if err == nil {
+		t.Fatal("expected error for empty new name, got nil")
 	}
 }
 

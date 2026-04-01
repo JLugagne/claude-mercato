@@ -133,6 +133,10 @@ func (c *ConfigStoreAdapter) SetMarketProperty(path string, marketName string, k
 				cfg.Markets[i].Trusted = value == "true"
 			case "read_only":
 				cfg.Markets[i].ReadOnly = value == "true"
+			case "skills_only":
+				cfg.Markets[i].SkillsOnly = value == "true"
+			case "skills_path":
+				cfg.Markets[i].SkillsPath = value
 			default:
 				return fmt.Errorf("unknown market property: %s", key)
 			}

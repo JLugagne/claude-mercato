@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
@@ -14,7 +13,36 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
-var marketNameRegexp = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
+// marketNameFromURL derives a market name from a git URL.
+// e.g. "https://github.com/aa/bb.git" -> "aa/bb"
+//      "git@gitlab.com:aa/bb/cc.git"  -> "aa/bb/cc"
+func marketNameFromURL(url string) (string, error) {
+	normalized := normalizeURL(url)
+	// normalized is "github.com/aa/bb" — strip the host
+	idx := strings.Index(normalized, "/")
+	if idx < 0 || idx == len(normalized)-1 {
+		return "", &domain.DomainError{
+			Code:    "INVALID_MARKET_URL",
+			Message: "cannot derive market name from URL: " + url,
+		}
+	}
+	return normalized[idx+1:], nil
+}
+
+// isSkillPath returns true if the path is under the given skills folder.
+// If skillsPath is empty, it defaults to "skills".
+func isSkillPath(path, skillsPath string) bool {
+	if skillsPath == "" {
+		skillsPath = "skills"
+	}
+	return strings.HasPrefix(filepath.ToSlash(path), skillsPath+"/") || filepath.ToSlash(path) == skillsPath
+}
+
+// marketDirName converts a market name (which may contain /) to a safe
+// directory name by replacing / with --.
+func marketDirName(name string) string {
+	return strings.ReplaceAll(name, "/", "--")
+}
 
 type App struct {
 	git        gitrepo.GitRepo
@@ -36,15 +64,6 @@ func New(git gitrepo.GitRepo, fs fsrepo.Filesystem, cfg configstore.ConfigStore,
 	}
 }
 
-func validateMarketName(name string) error {
-	if len(name) < 2 || len(name) > 64 {
-		return domain.ErrInvalidMarketName
-	}
-	if !marketNameRegexp.MatchString(name) {
-		return domain.ErrInvalidMarketName
-	}
-	return nil
-}
 
 // normalizeURL strips protocol prefixes, trailing .git, and trailing slashes
 // so that "git@github.com:org/repo.git", "https://github.com/org/repo", and
@@ -63,7 +82,7 @@ func normalizeURL(u string) string {
 }
 
 func (a *App) clonePath(marketName string) string {
-	return filepath.Join(a.cacheDir, marketName)
+	return filepath.Join(a.cacheDir, marketDirName(marketName))
 }
 
 func findMarketConfig(cfg domain.Config, name string) *domain.MarketConfig {
@@ -77,12 +96,14 @@ func findMarketConfig(cfg domain.Config, name string) *domain.MarketConfig {
 
 func marketConfigToMarket(mc domain.MarketConfig, cloneDir string) domain.Market {
 	return domain.Market{
-		Name:      mc.Name,
-		URL:       mc.URL,
-		Branch:    mc.Branch,
-		ClonePath: filepath.Join(cloneDir, mc.Name),
-		Trusted:   mc.Trusted,
-		ReadOnly:  mc.ReadOnly,
+		Name:       mc.Name,
+		URL:        mc.URL,
+		Branch:     mc.Branch,
+		ClonePath:  filepath.Join(cloneDir, marketDirName(mc.Name)),
+		Trusted:    mc.Trusted,
+		ReadOnly:   mc.ReadOnly,
+		SkillsOnly: mc.SkillsOnly,
+		SkillsPath: mc.SkillsPath,
 	}
 }
 
@@ -134,9 +155,16 @@ func (a *App) MarketInfo(name string) (service.MarketInfoResult, error) {
 		return service.MarketInfoResult{}, err
 	}
 
-	files, err := a.git.ListFiles(market.ClonePath, found.Branch)
+	allFiles, err := a.git.ListFiles(market.ClonePath, found.Branch)
 	if err != nil {
-		files = nil
+		allFiles = nil
+	}
+	var files []string
+	for _, f := range allFiles {
+		if found.SkillsOnly && !isSkillPath(f, found.SkillsPath) {
+			continue
+		}
+		files = append(files, f)
 	}
 
 	installedCount := 0
@@ -163,10 +191,56 @@ func (a *App) MarketInfo(name string) (service.MarketInfoResult, error) {
 	return result, nil
 }
 
-func (a *App) AddMarket(name, url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
+// parseTreeURL detects GitHub/GitLab "/tree/<branch>/<path>" URLs and extracts
+// the clean repo URL, branch, and subpath. If the URL doesn't contain /tree/,
+// it returns the original values unchanged.
+func parseTreeURL(rawURL string) (repoURL, branch, subPath string) {
+	repoURL = rawURL
+	// Match https://host/org/repo/tree/<branch>[/<path>]
+	normalized := rawURL
+	if idx := strings.Index(normalized, "://"); idx >= 0 {
+		normalized = normalized[idx+3:]
+	}
+	parts := strings.Split(strings.TrimSuffix(normalized, "/"), "/")
+	// Minimum: host/org/repo/tree/branch → 5 parts
+	treeIdx := -1
+	for i, p := range parts {
+		if p == "tree" && i >= 3 {
+			treeIdx = i
+			break
+		}
+	}
+	if treeIdx < 0 || treeIdx+1 >= len(parts) {
+		return rawURL, "", ""
+	}
+	// Reconstruct the clean repo URL (scheme + host/org/repo)
+	scheme := "https://"
+	if schIdx := strings.Index(rawURL, "://"); schIdx >= 0 {
+		scheme = rawURL[:schIdx+3]
+	}
+	repoURL = scheme + strings.Join(parts[:treeIdx], "/")
+	branch = parts[treeIdx+1]
+	if treeIdx+2 < len(parts) {
+		subPath = strings.Join(parts[treeIdx+2:], "/")
+	}
+	return repoURL, branch, subPath
+}
+
+func (a *App) AddMarket(url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
 	var result service.AddMarketResult
 
-	if err := validateMarketName(name); err != nil {
+	// Parse /tree/<branch>/<path> from GitHub/GitLab URLs.
+	repoURL, treeBranch, treeSubPath := parseTreeURL(url)
+	url = repoURL
+	if treeBranch != "" && opts.Branch == "" {
+		opts.Branch = treeBranch
+	}
+	if treeSubPath != "" && opts.SkillsPath == "" {
+		opts.SkillsPath = treeSubPath
+	}
+
+	name, err := marketNameFromURL(url)
+	if err != nil {
 		return result, err
 	}
 
@@ -187,7 +261,7 @@ func (a *App) AddMarket(name, url string, opts service.AddMarketOpts) (service.A
 		}
 	}
 
-	clonePath := filepath.Join(a.cacheDir, name)
+	clonePath := filepath.Join(a.cacheDir, marketDirName(name))
 	if fsrepo.DirExists(a.fs, clonePath) {
 		return result, domain.ErrCloneExists
 	}
@@ -207,6 +281,8 @@ func (a *App) AddMarket(name, url string, opts service.AddMarketOpts) (service.A
 		branch = "main"
 	}
 
+	var skillsOnly bool
+
 	if !opts.NoClone {
 		sha, err := a.git.RemoteHEAD(clonePath, branch)
 		if err != nil {
@@ -217,20 +293,74 @@ func (a *App) AddMarket(name, url string, opts service.AddMarketOpts) (service.A
 			return result, err
 		}
 
-		result = countMarketEntries(a.git, clonePath, branch)
+		skillsOnly = detectSkillsOnly(a.git, clonePath, branch, opts.SkillsPath)
+		if skillsOnly {
+			if err := pruneCloneForSkills(a.fs, clonePath, opts.SkillsPath); err != nil {
+				return result, err
+			}
+		}
+		result = countMarketEntries(a.git, clonePath, branch, opts.SkillsPath, skillsOnly)
 	}
 
 	mc := domain.MarketConfig{
-		Name:     name,
-		URL:      url,
-		Branch:   branch,
-		Trusted:  opts.Trusted,
-		ReadOnly: opts.ReadOnly,
+		Name:       name,
+		URL:        url,
+		Branch:     branch,
+		Trusted:    opts.Trusted,
+		ReadOnly:   opts.ReadOnly,
+		SkillsOnly: skillsOnly,
+		SkillsPath: opts.SkillsPath,
 	}
 	return result, a.cfg.AddMarket(a.configPath, mc)
 }
 
-func countMarketEntries(git gitrepo.GitRepo, clonePath, branch string) service.AddMarketResult {
+// pruneCloneForSkills removes everything from the clone directory except
+// .git and the skills folder. This keeps symlinks working while removing unneeded files.
+func pruneCloneForSkills(fs fsrepo.Filesystem, clonePath, skillsPath string) error {
+	if skillsPath == "" {
+		skillsPath = "skills"
+	}
+	// Keep the top-level directory of the skills path (e.g. "src" for "src/skills").
+	keepDir := strings.SplitN(skillsPath, "/", 2)[0]
+	entries, err := fs.ListDir(clonePath)
+	if err != nil {
+		return err
+	}
+	for _, name := range entries {
+		if name == ".git" || name == keepDir {
+			continue
+		}
+		if err := fs.RemoveAll(filepath.Join(clonePath, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// detectSkillsOnly checks if a repo is a skills-only market by looking for
+// <skillsPath>/*/SKILL.md files. If skillsPath is empty, it defaults to "skills".
+// A skills repo has the skills folder at the root (e.g. skills/find-skills/SKILL.md).
+// An mct market has skills/ nested inside profiles (e.g. dev/go/skills/bar/SKILL.md).
+func detectSkillsOnly(git gitrepo.GitRepo, clonePath, branch, skillsPath string) bool {
+	if skillsPath == "" {
+		skillsPath = "skills"
+	}
+	files, err := git.ListFiles(clonePath, branch)
+	if err != nil {
+		return false
+	}
+	depth := len(strings.Split(skillsPath, "/"))
+	for _, f := range files {
+		parts := strings.Split(filepath.ToSlash(f), "/")
+		// Expect: <skillsPath segments...> / <skill-name> / SKILL.md
+		if len(parts) == depth+2 && strings.Join(parts[:depth], "/") == skillsPath && parts[len(parts)-1] == "SKILL.md" {
+			return true
+		}
+	}
+	return false
+}
+
+func countMarketEntries(git gitrepo.GitRepo, clonePath, branch, skillsPath string, skillsOnly bool) service.AddMarketResult {
 	files, err := git.ListFiles(clonePath, branch)
 	if err != nil {
 		return service.AddMarketResult{}
@@ -240,6 +370,9 @@ func countMarketEntries(git gitrepo.GitRepo, clonePath, branch string) service.A
 	var result service.AddMarketResult
 
 	for _, f := range files {
+		if skillsOnly && !isSkillPath(f, skillsPath) {
+			continue
+		}
 		parts := strings.Split(filepath.ToSlash(f), "/")
 		if len(parts) >= 2 {
 			profiles[parts[0]+"/"+parts[1]] = struct{}{}
@@ -315,8 +448,8 @@ func (a *App) RemoveMarket(name string, opts service.RemoveMarketOpts) error {
 }
 
 func (a *App) RenameMarket(oldName, newName string) error {
-	if err := validateMarketName(newName); err != nil {
-		return err
+	if newName == "" {
+		return domain.ErrInvalidMarketName
 	}
 
 	cfg, err := a.cfg.Load(a.configPath)

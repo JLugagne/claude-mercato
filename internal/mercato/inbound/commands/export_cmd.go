@@ -179,7 +179,7 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 					}
 				}
 
-				_, err := svc.Markets.AddMarket(m.Name, m.URL, service.AddMarketOpts{
+				_, err := svc.Markets.AddMarket(m.URL, service.AddMarketOpts{
 					Branch:   m.Branch,
 					Trusted:  m.Trusted,
 					ReadOnly: m.ReadOnly,
@@ -195,7 +195,7 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			// Import entries: each entry is a profile, list all entries in it and install
 			for _, e := range imp.Entries {
 				profile := e.Profile
-				// profile is "market/seg1/seg2", extract market name
+				// profile is "market@seg1/seg2", extract market name
 				market, relProfile, _ := domain.MctRef(profile).Parse()
 				if market == "" {
 					results = append(results, importResult{Action: "error", Type: "profile", Ref: profile, Detail: "invalid profile ref"})
@@ -233,7 +233,7 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 						results = append(results, importResult{Action: "add", Type: "entry", Ref: string(entry.Ref)})
 						installed++
 						for _, dep := range entry.RequiresSkills {
-							depRef := domain.MctRef(entry.Market + "/" + dep.File)
+							depRef := domain.MctRef(entry.Market + "@" + dep.File)
 							results = append(results, importResult{Action: "add", Type: "entry", Ref: string(depRef), Detail: "(dep)"})
 							installed++
 						}

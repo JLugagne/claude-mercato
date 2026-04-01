@@ -17,6 +17,7 @@ type MockGitRepo struct {
 	ValidateRemoteFn     func(url string) error
 	ReadGlobalDifftoolFn func() (string, error)
 	ReadMarketFilesFn    func(clonePath, branch string) ([]gitrepo.MarketFile, error)
+	ListDirFilesFn       func(clonePath, branch, dirPrefix string) ([]string, error)
 }
 
 func (m *MockGitRepo) Clone(url, clonePath string) error {
@@ -92,6 +93,13 @@ func (m *MockGitRepo) ReadGlobalDifftool() (string, error) {
 func (m *MockGitRepo) ReadMarketFiles(clonePath, branch string) ([]gitrepo.MarketFile, error) {
 	if m.ReadMarketFilesFn != nil {
 		return m.ReadMarketFilesFn(clonePath, branch)
+	}
+	return nil, nil
+}
+
+func (m *MockGitRepo) ListDirFiles(clonePath, branch, dirPrefix string) ([]string, error) {
+	if m.ListDirFilesFn != nil {
+		return m.ListDirFilesFn(clonePath, branch, dirPrefix)
 	}
 	return nil, nil
 }

@@ -24,7 +24,11 @@ type MockFilesystem struct {
 	MkdirAllFn       func(path string) error
 	RemoveAllFn      func(path string) error
 	MD5ChecksumFn    func(content []byte) string
-	TempFileFn func(name string, content []byte) (string, error)
+	TempFileFn       func(name string, content []byte) (string, error)
+	SymlinkFn        func(target, link string) error
+	ReadlinkFn       func(path string) (string, error)
+	IsSymlinkFn      func(path string) bool
+	ListDirFn        func(path string) ([]string, error)
 }
 
 func (m *MockFilesystem) mapFS() fstest.MapFS {
@@ -96,5 +100,33 @@ func (m *MockFilesystem) TempFile(name string, content []byte) (string, error) {
 		return m.TempFileFn(name, content)
 	}
 	return "", nil
+}
+
+func (m *MockFilesystem) Symlink(target, link string) error {
+	if m.SymlinkFn != nil {
+		return m.SymlinkFn(target, link)
+	}
+	return nil
+}
+
+func (m *MockFilesystem) Readlink(path string) (string, error) {
+	if m.ReadlinkFn != nil {
+		return m.ReadlinkFn(path)
+	}
+	return "", nil
+}
+
+func (m *MockFilesystem) IsSymlink(path string) bool {
+	if m.IsSymlinkFn != nil {
+		return m.IsSymlinkFn(path)
+	}
+	return false
+}
+
+func (m *MockFilesystem) ListDir(path string) ([]string, error) {
+	if m.ListDirFn != nil {
+		return m.ListDirFn(path)
+	}
+	return nil, nil
 }
 

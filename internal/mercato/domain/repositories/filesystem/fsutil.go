@@ -13,3 +13,9 @@ func DirExists(fsys fs.StatFS, path string) bool {
 	info, err := fsys.Stat(path)
 	return err == nil && info.IsDir()
 }
+
+// Exists returns true if path exists in fsys (file or directory).
+func Exists(fsys fs.StatFS, path string) bool {
+	_, err := fsys.Stat(path)
+	return err == nil
+}

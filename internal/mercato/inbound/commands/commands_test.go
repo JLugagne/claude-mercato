@@ -21,7 +21,7 @@ type stubMarkets struct {
 	listFn              func() ([]domain.Market, error)
 	getMarketFn         func(name string) (domain.Market, error)
 	marketInfoFn        func(name string) (service.MarketInfoResult, error)
-	addMarketFn         func(name, url string, opts service.AddMarketOpts) (service.AddMarketResult, error)
+	addMarketFn         func(url string, opts service.AddMarketOpts) (service.AddMarketResult, error)
 	removeMarketFn      func(name string, opts service.RemoveMarketOpts) error
 	renameMarketFn      func(oldName, newName string) error
 	setMarketPropertyFn func(name, key, value string) error
@@ -49,9 +49,9 @@ func (s *stubMarkets) MarketInfo(name string) (service.MarketInfoResult, error) 
 	return service.MarketInfoResult{}, nil
 }
 
-func (s *stubMarkets) AddMarket(name, url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
+func (s *stubMarkets) AddMarket(url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
 	if s.addMarketFn != nil {
-		return s.addMarketFn(name, url, opts)
+		return s.addMarketFn(url, opts)
 	}
 	return service.AddMarketResult{}, nil
 }
@@ -375,21 +375,17 @@ func TestMarketList_JSON(t *testing.T) {
 }
 
 func TestMarketAdd(t *testing.T) {
-	var calledName, calledURL string
+	var calledURL string
 	svc := mockServices()
 	svc.Markets = &stubMarkets{
-		addMarketFn: func(name, url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
-			calledName = name
+		addMarketFn: func(url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
 			calledURL = url
 			return service.AddMarketResult{Profiles: 2, Agents: 5, Skills: 3}, nil
 		},
 	}
-	out, err := runCmd(t, svc, "market", "add", "mymarket", "https://github.com/org/repo")
+	out, err := runCmd(t, svc, "market", "add", "https://github.com/org/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if calledName != "mymarket" {
-		t.Errorf("expected addMarket called with name 'mymarket', got: %s", calledName)
 	}
 	if calledURL != "https://github.com/org/repo" {
 		t.Errorf("expected addMarket called with url 'https://github.com/org/repo', got: %s", calledURL)
@@ -408,11 +404,11 @@ func TestMarketAdd(t *testing.T) {
 func TestMarketAdd_JSON(t *testing.T) {
 	svc := mockServices()
 	svc.Markets = &stubMarkets{
-		addMarketFn: func(name, url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
+		addMarketFn: func(url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
 			return service.AddMarketResult{Profiles: 2, Agents: 5, Skills: 3}, nil
 		},
 	}
-	out, err := runCmd(t, svc, "market", "add", "mymarket", "https://github.com/org/repo", "--json")
+	out, err := runCmd(t, svc, "market", "add", "https://github.com/org/repo", "--json")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -435,11 +431,11 @@ func TestMarketAdd_JSON(t *testing.T) {
 func TestMarketAdd_Error(t *testing.T) {
 	svc := mockServices()
 	svc.Markets = &stubMarkets{
-		addMarketFn: func(name, url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
+		addMarketFn: func(url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
 			return service.AddMarketResult{}, &domain.DomainError{Code: "ERR", Message: "some error"}
 		},
 	}
-	_, err := runCmd(t, svc, "market", "add", "mymarket", "https://github.com/org/repo")
+	_, err := runCmd(t, svc, "market", "add", "https://github.com/org/repo")
 	if err == nil {
 		t.Fatal("expected non-nil error, got nil")
 	}
@@ -557,7 +553,7 @@ func TestCheck_Text(t *testing.T) {
 	svc.Sync = &stubSync{
 		checkFn: func(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 			return []domain.EntryStatus{
-				{Ref: "mkt/agents/foo.md", State: domain.StateClean},
+				{Ref: "mkt@agents/foo.md", State: domain.StateClean},
 			}, nil
 		},
 	}
@@ -568,7 +564,7 @@ func TestCheck_Text(t *testing.T) {
 	if !strings.Contains(out, "ok") {
 		t.Errorf("expected output to contain 'ok', got: %s", out)
 	}
-	if !strings.Contains(out, "mkt/agents/foo.md") {
+	if !strings.Contains(out, "mkt@agents/foo.md") {
 		t.Errorf("expected output to contain 'mkt/agents/foo.md', got: %s", out)
 	}
 }
@@ -580,14 +576,14 @@ func TestAdd_Text(t *testing.T) {
 			return nil
 		},
 	}
-	out, err := runCmd(t, svc, "add", "mkt/agents/foo.md")
+	out, err := runCmd(t, svc, "add", "mkt@agents/foo.md")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(out, "installed") {
 		t.Errorf("expected output to contain 'installed', got: %s", out)
 	}
-	if !strings.Contains(out, "mkt/agents/foo.md") {
+	if !strings.Contains(out, "mkt@agents/foo.md") {
 		t.Errorf("expected output to contain 'mkt/agents/foo.md', got: %s", out)
 	}
 }
@@ -599,7 +595,7 @@ func TestAdd_JSON(t *testing.T) {
 			return nil
 		},
 	}
-	out, err := runCmd(t, svc, "add", "mkt/agents/foo.md", "--json")
+	out, err := runCmd(t, svc, "add", "mkt@agents/foo.md", "--json")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -620,7 +616,7 @@ func TestRemove_Text(t *testing.T) {
 			return nil
 		},
 	}
-	out, err := runCmd(t, svc, "remove", "--ref", "mkt/agents/foo.md")
+	out, err := runCmd(t, svc, "remove", "--ref", "mkt@agents/foo.md")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -634,8 +630,8 @@ func TestList_Text(t *testing.T) {
 	svc.Entries = &stubEntries{
 		listFn: func(opts service.ListOpts) ([]domain.Entry, error) {
 			return []domain.Entry{
-				{Ref: "mkt/profile/sub/agents/foo.md", Market: "mkt", Type: domain.EntryTypeAgent, Installed: true},
-				{Ref: "mkt/profile/sub/skills/bar.md", Market: "mkt", Type: domain.EntryTypeSkill, Installed: true},
+				{Ref: "mkt@profile/sub/agents/foo.md", Market: "mkt", Type: domain.EntryTypeAgent, Installed: true},
+				{Ref: "mkt@profile/sub/skills/bar.md", Market: "mkt", Type: domain.EntryTypeSkill, Installed: true},
 			}, nil
 		},
 	}
@@ -646,10 +642,10 @@ func TestList_Text(t *testing.T) {
 	if !strings.Contains(out, "mkt") {
 		t.Errorf("expected output to contain 'mkt', got: %s", out)
 	}
-	if !strings.Contains(out, "mkt/profile/sub/agents/foo.md") {
+	if !strings.Contains(out, "mkt@profile/sub/agents/foo.md") {
 		t.Errorf("expected output to contain ref 'mkt/profile/sub/agents/foo.md', got: %s", out)
 	}
-	if !strings.Contains(out, "mkt/profile/sub/skills/bar.md") {
+	if !strings.Contains(out, "mkt@profile/sub/skills/bar.md") {
 		t.Errorf("expected output to contain ref 'mkt/profile/sub/skills/bar.md', got: %s", out)
 	}
 }
@@ -659,7 +655,7 @@ func TestList_JSON(t *testing.T) {
 	svc.Entries = &stubEntries{
 		listFn: func(opts service.ListOpts) ([]domain.Entry, error) {
 			return []domain.Entry{
-				{Ref: "mkt/profile/sub/agents/foo.md", Market: "mkt", Type: domain.EntryTypeAgent, Installed: true},
+				{Ref: "mkt@profile/sub/agents/foo.md", Market: "mkt", Type: domain.EntryTypeAgent, Installed: true},
 			}, nil
 		},
 	}
@@ -695,7 +691,7 @@ func TestSearch_Text(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "mkt/dev/go") {
+	if !strings.Contains(out, "mkt@dev/go") {
 		t.Errorf("expected output to contain 'mkt/dev/go', got: %s", out)
 	}
 }
@@ -1008,7 +1004,7 @@ func TestStatusAlias(t *testing.T) {
 	svc.Sync = &stubSync{
 		checkFn: func(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 			return []domain.EntryStatus{
-				{Ref: "mkt/agents/foo.md", State: domain.StateClean},
+				{Ref: "mkt@agents/foo.md", State: domain.StateClean},
 			}, nil
 		},
 	}
@@ -1019,7 +1015,7 @@ func TestStatusAlias(t *testing.T) {
 	if !strings.Contains(out, "ok") {
 		t.Errorf("expected output to contain 'ok', got: %s", out)
 	}
-	if !strings.Contains(out, "mkt/agents/foo.md") {
+	if !strings.Contains(out, "mkt@agents/foo.md") {
 		t.Errorf("expected output to contain 'mkt/agents/foo.md', got: %s", out)
 	}
 }
@@ -1034,7 +1030,7 @@ func TestUpdateCmd_Default(t *testing.T) {
 		updateFn: func(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 			return []service.UpdateResult{
 				{
-					Ref:        "mkt/agents/foo.md",
+					Ref:        "mkt@agents/foo.md",
 					Action:     "update",
 					OldVersion: "v1",
 					NewVersion: "v2",
@@ -1049,7 +1045,7 @@ func TestUpdateCmd_Default(t *testing.T) {
 	if !strings.Contains(out, "update") {
 		t.Errorf("expected output to contain 'update', got: %s", out)
 	}
-	if !strings.Contains(out, "mkt/agents/foo.md") {
+	if !strings.Contains(out, "mkt@agents/foo.md") {
 		t.Errorf("expected output to contain ref, got: %s", out)
 	}
 }
@@ -1059,7 +1055,7 @@ func TestUpdateCmd_JSON(t *testing.T) {
 	svc.Sync = &stubSync{
 		updateFn: func(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 			return []service.UpdateResult{
-				{Ref: "mkt/agents/foo.md", Action: "update", OldVersion: "v1", NewVersion: "v2"},
+				{Ref: "mkt@agents/foo.md", Action: "update", OldVersion: "v1", NewVersion: "v2"},
 			}, nil
 		},
 	}
@@ -1103,7 +1099,7 @@ func TestSyncCmd_Default(t *testing.T) {
 						NewSHA: "bbbbbbb1111",
 					},
 					Updates: []service.UpdateResult{
-						{Ref: "mkt/agents/bar.md", Action: "update"},
+						{Ref: "mkt@agents/bar.md", Action: "update"},
 					},
 				},
 			}, nil
@@ -1171,14 +1167,14 @@ func TestRemoveCmd_Success(t *testing.T) {
 			return nil
 		},
 	}
-	out, err := runCmd(t, svc, "remove", "--ref", "mkt/agents/foo.md")
+	out, err := runCmd(t, svc, "remove", "--ref", "mkt@agents/foo.md")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if calledRef != "mkt/agents/foo.md" {
+	if calledRef != "mkt@agents/foo.md" {
 		t.Errorf("expected removeFn called with 'mkt/agents/foo.md', got: %s", calledRef)
 	}
-	if !strings.Contains(out, "mkt/agents/foo.md") {
+	if !strings.Contains(out, "mkt@agents/foo.md") {
 		t.Errorf("expected output to contain ref, got: %s", out)
 	}
 }
@@ -1190,7 +1186,7 @@ func TestRemoveCmd_Error(t *testing.T) {
 			return &domain.DomainError{Code: "ERR", Message: "remove failed"}
 		},
 	}
-	_, err := runCmd(t, svc, "remove", "--ref", "mkt/agents/foo.md")
+	_, err := runCmd(t, svc, "remove", "--ref", "mkt@agents/foo.md")
 	if err == nil {
 		t.Fatal("expected non-nil error, got nil")
 	}
@@ -1205,7 +1201,7 @@ func TestPruneCmd_AllKeep(t *testing.T) {
 	svc.Entries = &stubEntries{
 		pruneFn: func(opts service.PruneOpts) ([]service.PruneResult, error) {
 			return []service.PruneResult{
-				{Ref: "mkt/agents/gone.md", Action: "keep"},
+				{Ref: "mkt@agents/gone.md", Action: "keep"},
 			}, nil
 		},
 	}
@@ -1267,7 +1263,7 @@ func TestIndexCmd_Default(t *testing.T) {
 	svc.Search = &stubSearch{
 		dumpIndexFn: func() ([]domain.Entry, error) {
 			return []domain.Entry{
-				{Ref: "mkt/agents/foo.md", Market: "mkt", Type: domain.EntryTypeAgent},
+				{Ref: "mkt@agents/foo.md", Market: "mkt", Type: domain.EntryTypeAgent},
 			}, nil
 		},
 	}
@@ -1285,7 +1281,7 @@ func TestIndexCmd_JSON(t *testing.T) {
 	svc.Search = &stubSearch{
 		dumpIndexFn: func() ([]domain.Entry, error) {
 			return []domain.Entry{
-				{Ref: "mkt/agents/foo.md", Market: "mkt", Type: domain.EntryTypeAgent},
+				{Ref: "mkt@agents/foo.md", Market: "mkt", Type: domain.EntryTypeAgent},
 			}, nil
 		},
 	}
@@ -1422,8 +1418,8 @@ func TestRemoveCmd_AllWithYes(t *testing.T) {
 	svc.Entries = &stubEntries{
 		listFn: func(opts service.ListOpts) ([]domain.Entry, error) {
 			return []domain.Entry{
-				{Ref: "mkt/agents/a.md"},
-				{Ref: "mkt/agents/b.md"},
+				{Ref: "mkt@agents/a.md"},
+				{Ref: "mkt@agents/b.md"},
 			}, nil
 		},
 		removeFn: func(ref domain.MctRef) error {
@@ -1438,7 +1434,7 @@ func TestRemoveCmd_AllWithYes(t *testing.T) {
 	if len(removed) != 2 {
 		t.Errorf("expected 2 removes, got %d", len(removed))
 	}
-	if !strings.Contains(out, "mkt/agents/a.md") {
+	if !strings.Contains(out, "mkt@agents/a.md") {
 		t.Errorf("expected output to contain 'mkt/agents/a.md', got: %s", out)
 	}
 }
@@ -1448,7 +1444,7 @@ func TestRemoveCmd_AllWithConfirmYes(t *testing.T) {
 	svc := mockServices()
 	svc.Entries = &stubEntries{
 		listFn: func(opts service.ListOpts) ([]domain.Entry, error) {
-			return []domain.Entry{{Ref: "mkt/agents/c.md"}}, nil
+			return []domain.Entry{{Ref: "mkt@agents/c.md"}}, nil
 		},
 		removeFn: func(ref domain.MctRef) error {
 			removed = append(removed, ref)
@@ -1469,7 +1465,7 @@ func TestRemoveCmd_AllWithConfirmNo(t *testing.T) {
 	var removed []domain.MctRef
 	svc.Entries = &stubEntries{
 		listFn: func(opts service.ListOpts) ([]domain.Entry, error) {
-			return []domain.Entry{{Ref: "mkt/agents/d.md"}}, nil
+			return []domain.Entry{{Ref: "mkt@agents/d.md"}}, nil
 		},
 		removeFn: func(ref domain.MctRef) error {
 			removed = append(removed, ref)
@@ -1492,7 +1488,7 @@ func TestRemoveCmd_AllJSON(t *testing.T) {
 	svc := mockServices()
 	svc.Entries = &stubEntries{
 		listFn: func(opts service.ListOpts) ([]domain.Entry, error) {
-			return []domain.Entry{{Ref: "mkt/agents/e.md"}}, nil
+			return []domain.Entry{{Ref: "mkt@agents/e.md"}}, nil
 		},
 		removeFn: func(ref domain.MctRef) error { return nil },
 	}
@@ -1507,7 +1503,7 @@ func TestRemoveCmd_AllError(t *testing.T) {
 	svc := mockServices()
 	svc.Entries = &stubEntries{
 		listFn: func(opts service.ListOpts) ([]domain.Entry, error) {
-			return []domain.Entry{{Ref: "mkt/agents/f.md"}}, nil
+			return []domain.Entry{{Ref: "mkt@agents/f.md"}}, nil
 		},
 		removeFn: func(ref domain.MctRef) error {
 			return &domain.DomainError{Code: "ERR", Message: "disk error"}
@@ -1628,7 +1624,7 @@ func TestImportCmd_JSONOutput(t *testing.T) {
 		getConfigFn: func() (domain.Config, error) { return domain.Config{}, nil },
 	}
 	svc.Markets = &stubMarkets{
-		addMarketFn: func(name, url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
+		addMarketFn: func(url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
 			addCalled = true
 			return service.AddMarketResult{}, nil
 		},

@@ -15,7 +15,7 @@ type MarketQueries interface {
 
 type MarketCommands interface {
 	MarketQueries
-	AddMarket(name, url string, opts AddMarketOpts) (AddMarketResult, error)
+	AddMarket(url string, opts AddMarketOpts) (AddMarketResult, error)
 	RemoveMarket(name string, opts RemoveMarketOpts) error
 	RenameMarket(oldName, newName string) error
 	SetMarketProperty(name, key, value string) error
@@ -42,10 +42,11 @@ type AddMarketResult struct {
 }
 
 type AddMarketOpts struct {
-	Branch   string
-	Trusted  bool
-	ReadOnly bool
-	NoClone  bool
+	Branch     string
+	Trusted    bool
+	ReadOnly   bool
+	NoClone    bool
+	SkillsPath string
 }
 
 type RemoveMarketOpts struct {

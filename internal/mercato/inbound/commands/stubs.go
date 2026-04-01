@@ -201,10 +201,20 @@ func newAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			acceptBreaking, _ := cmd.Flags().GetBool("accept-breaking")
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			ref := domain.MctRef(args[0])
+			confirmMarket := func(marketURL string) bool {
+				if opts.CI {
+					return false
+				}
+				cmd.Printf("  ?  Skill dependency requires market %s. Add it? [y/N] ", marketURL)
+				var answer string
+				fmt.Fscan(cmd.InOrStdin(), &answer)
+				return answer == "y" || answer == "Y"
+			}
 			err := svc.Entries.Add(ref, service.AddOpts{
 				NoDeps:         noDeps,
 				DryRun:         dryRun,
 				AcceptBreaking: acceptBreaking,
+				ConfirmMarket:  confirmMarket,
 			})
 			if err != nil {
 				return err
@@ -256,10 +266,13 @@ func newInstallCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 
 func newRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "remove",
+		Use:   "remove [ref]",
 		Short: "Remove an installed entry",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref, _ := cmd.Flags().GetString("ref")
+			if ref == "" && len(args) > 0 {
+				ref = args[0]
+			}
 			all, _ := cmd.Flags().GetBool("all")
 			jsonOut, _ := cmd.Flags().GetBool("json")
 
@@ -444,7 +457,7 @@ func newSearchCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				if p.installed {
 					indicator = "ok"
 				}
-				cmd.Printf("  %d  %s/%s  %s  score: %.1f\n",
+				cmd.Printf("  %d  %s@%s  %s  score: %.2f\n",
 					i+1, p.market, p.category, indicator, p.score)
 				if p.desc != "" {
 					cmd.Printf("     %s\n", p.desc)
@@ -452,7 +465,7 @@ func newSearchCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				if len(p.tags) > 0 {
 					cmd.Printf("     Tags: %s\n", strings.Join(p.tags, ", "))
 				}
-				cmd.Printf("     mct add %s/%s\n", p.market, p.category)
+				cmd.Printf("     mct add %s@%s\n", p.market, p.category)
 				cmd.Println()
 			}
 			return nil
@@ -519,7 +532,7 @@ func newListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			}
 			for _, k := range order {
 				p := seen[k]
-				cmd.Printf("  %s/%s  (%d agents, %d skills)\n", p.Market, p.Profile, p.Agents, p.Skills)
+				cmd.Printf("  %s@%s  (%d agents, %d skills)\n", p.Market, p.Profile, p.Agents, p.Skills)
 				for _, e := range p.Refs {
 					cmd.Printf("    %s\n", e)
 				}

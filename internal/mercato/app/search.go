@@ -11,6 +11,7 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	fsrepo "github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/snowball"
 )
 
 func (a *App) Search(query string, opts service.SearchOpts) ([]service.SearchResult, error) {
@@ -22,9 +23,45 @@ func (a *App) Search(query string, opts service.SearchOpts) ([]service.SearchRes
 		return nil, nil
 	}
 
-	docs := make([]string, len(entries))
-	for i, e := range entries {
-		docs[i] = buildDoc(e)
+	// Apply filters to all entries.
+	filtered := filterEntries(entries, opts)
+	if len(filtered) == 0 {
+		return nil, nil
+	}
+
+	// Empty query: return all filtered entries with score 0.
+	if strings.TrimSpace(query) == "" {
+		results := make([]service.SearchResult, len(filtered))
+		for i, e := range filtered {
+			results[i] = service.SearchResult{Entry: e}
+		}
+		return results, nil
+	}
+
+	// Group entries by profile for BM25 indexing. One document per profile
+	// ensures IDF works properly — identical terms shared within a profile
+	// don't dilute relevance.
+	type profileData struct {
+		key     string // "market@category"
+		entries []domain.Entry
+	}
+	profileOrder := make([]string, 0)
+	profileMap := make(map[string]*profileData)
+	for _, e := range filtered {
+		key := e.Market + "@" + e.Category
+		pd, ok := profileMap[key]
+		if !ok {
+			pd = &profileData{key: key}
+			profileMap[key] = pd
+			profileOrder = append(profileOrder, key)
+		}
+		pd.entries = append(pd.entries, e)
+	}
+
+	// Build one BM25 document per profile.
+	docs := make([]string, len(profileOrder))
+	for i, key := range profileOrder {
+		docs[i] = buildProfileDoc(profileMap[key].entries)
 	}
 
 	vocab := buildVocab(docs)
@@ -59,10 +96,25 @@ func (a *App) Search(query string, opts service.SearchOpts) ([]service.SearchRes
 		hits = hits[:limit]
 	}
 
+	// Expand profile hits back to entry-level results.
 	var results []service.SearchResult
 	for _, h := range hits {
-		e := entries[h.index]
+		pd := profileMap[profileOrder[h.index]]
+		for _, e := range pd.entries {
+			results = append(results, service.SearchResult{
+				Entry: e,
+				Score: h.score,
+			})
+		}
+	}
 
+	return results, nil
+}
+
+// filterEntries applies SearchOpts filters to a list of entries.
+func filterEntries(entries []domain.Entry, opts service.SearchOpts) []domain.Entry {
+	result := make([]domain.Entry, 0, len(entries))
+	for _, e := range entries {
 		if !opts.IncludeDeleted && e.Deleted {
 			continue
 		}
@@ -81,14 +133,9 @@ func (a *App) Search(query string, opts service.SearchOpts) ([]service.SearchRes
 		if opts.NotInstalled && e.Installed {
 			continue
 		}
-
-		results = append(results, service.SearchResult{
-			Entry: e,
-			Score: h.score,
-		})
+		result = append(result, e)
 	}
-
-	return results, nil
+	return result
 }
 
 func (a *App) DumpIndex() ([]domain.Entry, error) {
@@ -104,9 +151,20 @@ func (a *App) BenchIndex() (service.BenchResult, error) {
 	}
 	scanDone := time.Now()
 
-	docs := make([]string, len(entries))
-	for i, e := range entries {
-		docs[i] = buildDoc(e)
+	// Group by profile.
+	profileMap := make(map[string][]domain.Entry)
+	var profileOrder []string
+	for _, e := range entries {
+		key := e.Market + "@" + e.Category
+		if _, ok := profileMap[key]; !ok {
+			profileOrder = append(profileOrder, key)
+		}
+		profileMap[key] = append(profileMap[key], e)
+	}
+
+	docs := make([]string, len(profileOrder))
+	for i, key := range profileOrder {
+		docs[i] = buildProfileDoc(profileMap[key])
 	}
 
 	vocab := buildVocab(docs)
@@ -168,13 +226,16 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 			if isReadme(mf.Path) {
 				continue
 			}
+			if mc.SkillsOnly && !isSkillPath(mf.Path, mc.SkillsPath) {
+				continue
+			}
 			fm, err := domain.ParseFrontmatter(mf.Content)
 			if err != nil {
 				continue
 			}
-			ref := domain.MctRef(mc.Name + "/" + mf.Path)
+			ref := domain.MctRef(mc.Name + "@" + mf.Path)
 			ce, inInstalled := installed.Entries[ref]
-			isInstalled := inInstalled && ce != nil && fsrepo.FileExists(a.fs, ce.LocalPath)
+			isInstalled := inInstalled && ce != nil && fsrepo.Exists(a.fs, ce.LocalPath)
 
 			entry := domain.Entry{
 				Ref:            ref,
@@ -196,6 +257,14 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 				entry.ReadmeContext = ri.content
 				entry.MctTags = ri.tags
 				entry.ProfileDescription = ri.description
+			} else {
+				// Skills repos often lack a profile README. Fall back to
+				// the entry's own content and description so the TUI can
+				// display something meaningful.
+				entry.ReadmeContext = string(mf.Content)
+				if entry.ProfileDescription == "" {
+					entry.ProfileDescription = fm.Description
+				}
 			}
 
 			entries = append(entries, entry)
@@ -220,19 +289,76 @@ func profilePrefix(path string) string {
 	return parts[0] + "/" + parts[1]
 }
 
-func buildDoc(entry domain.Entry) string {
-	path := strings.ReplaceAll(entry.RelPath, "/", " ")
-	path = strings.ReplaceAll(path, "-", " ")
-	path = strings.ReplaceAll(path, "_", " ")
-	if entry.ReadmeContext != "" {
-		return path + " " + entry.ReadmeContext
+// buildProfileDoc builds a single searchable document for a profile by
+// combining the profile path, README content, profile description, tags,
+// and all entry descriptions. This gives BM25 one doc per profile so
+// IDF works across profiles rather than across individual entries.
+//
+// Descriptions and tags are repeated to boost their TF weight in BM25,
+// since they are the most relevant signals for search ranking.
+func buildProfileDoc(entries []domain.Entry) string {
+	const descBoost = 3 // repeat descriptions/tags N times for TF boost
+
+	var b strings.Builder
+
+	// Profile path tokens (from the first entry's category).
+	if len(entries) > 0 {
+		cat := strings.ReplaceAll(entries[0].Category, "/", " ")
+		cat = strings.ReplaceAll(cat, "-", " ")
+		cat = strings.ReplaceAll(cat, "_", " ")
+		b.WriteString(cat)
 	}
-	return path
+
+	// Profile-level README content and description (same for all entries in profile).
+	if len(entries) > 0 {
+		e := entries[0]
+		if e.ProfileDescription != "" {
+			for range descBoost {
+				b.WriteByte(' ')
+				b.WriteString(e.ProfileDescription)
+			}
+		}
+		if e.ReadmeContext != "" {
+			b.WriteByte(' ')
+			b.WriteString(e.ReadmeContext)
+		}
+		if len(e.MctTags) > 0 {
+			tags := strings.Join(e.MctTags, " ")
+			for range descBoost {
+				b.WriteByte(' ')
+				b.WriteString(tags)
+			}
+		}
+	}
+
+	// Each entry's own description and filename.
+	for _, e := range entries {
+		name := strings.TrimSuffix(e.Filename, ".md")
+		name = strings.ReplaceAll(name, "-", " ")
+		name = strings.ReplaceAll(name, "_", " ")
+		b.WriteByte(' ')
+		b.WriteString(name)
+		if e.Description != "" {
+			for range descBoost {
+				b.WriteByte(' ')
+				b.WriteString(e.Description)
+			}
+		}
+	}
+
+	return b.String()
 }
 
 func inferCategory(relPath string) string {
 	return profilePrefix(relPath)
 }
+
+// stemmer is a package-level reusable Snowball stemmer for English.
+// Not safe for concurrent use, but search is single-goroutine.
+var stemmer, _ = snowball.NewStemmer("english",
+	snowball.WithoutToLower(),
+	snowball.WithoutTrimSpace(),
+)
 
 func tokenize(text string) []string {
 	lower := strings.ToLower(text)
@@ -241,12 +367,15 @@ func tokenize(text string) []string {
 	})
 	tokens := make([]string, 0, len(words))
 	for _, w := range words {
-		if w != "" {
+		if w == "" {
+			continue
+		}
+		runes, stemmed := stemmer.StemRunes(w, false)
+		if stemmed {
+			tokens = append(tokens, string(runes))
+		} else {
 			tokens = append(tokens, w)
 		}
-	}
-	if len(tokens) == 0 {
-		tokens = append(tokens, lower)
 	}
 	return tokens
 }

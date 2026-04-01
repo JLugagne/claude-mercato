@@ -43,6 +43,7 @@ func (a *Adapter) Clone(url, clonePath string) error {
 	_, err := git.PlainClone(clonePath, false, &git.CloneOptions{
 		URL:      url,
 		Auth:     resolveAuth(url),
+		Depth:    1,
 		Progress: os.Stdout,
 	})
 	return err
@@ -64,6 +65,7 @@ func (a *Adapter) Fetch(clonePath, branch string) (string, error) {
 
 	err = repo.Fetch(&git.FetchOptions{
 		Auth:  resolveAuthFromRepo(repo),
+		Depth: 1,
 		Prune: true,
 		Force: false,
 	})
@@ -322,6 +324,45 @@ func (a *Adapter) ReadMarketFiles(clonePath, branch string) ([]gitrepo.MarketFil
 		})
 	}
 	return result, nil
+}
+
+func (a *Adapter) ListDirFiles(clonePath, branch, dirPrefix string) ([]string, error) {
+	repo, err := git.PlainOpen(clonePath)
+	if err != nil {
+		return nil, fmt.Errorf("open repo: %w", err)
+	}
+
+	ref, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branch), true)
+	if err != nil {
+		return nil, fmt.Errorf("resolve remote ref: %w", err)
+	}
+
+	commit, err := repo.CommitObject(ref.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("resolve commit: %w", err)
+	}
+
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("get tree: %w", err)
+	}
+
+	prefix := dirPrefix
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
+	var paths []string
+	err = tree.Files().ForEach(func(f *object.File) error {
+		if strings.HasPrefix(f.Name, prefix) {
+			paths = append(paths, f.Name)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk files: %w", err)
+	}
+	return paths, nil
 }
 
 var errStopIter = fmt.Errorf("stop")

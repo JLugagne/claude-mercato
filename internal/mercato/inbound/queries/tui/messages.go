@@ -14,7 +14,7 @@ type MarketLoadedMsg struct {
 }
 
 type IndexReadyMsg struct {
-	Entries  []domain.Entry
+	Results  []service.SearchResult
 	Statuses []domain.EntryStatus
 	Elapsed  time.Duration
 }
@@ -86,4 +86,11 @@ type ProfileInstallMsg struct {
 type ProfileRemoveMsg struct {
 	Profile string
 	Errors  []error
+}
+
+type SkillDirFilesMsg struct {
+	Market string
+	Dir    string
+	Files  []domain.SkillDirFile
+	Err    error
 }

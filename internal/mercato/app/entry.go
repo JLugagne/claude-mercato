@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -17,40 +18,74 @@ func (a *App) scanInstalledEntries(cfg domain.Config) (domain.ChecksumState, err
 		Entries: make(map[domain.MctRef]*domain.ChecksumEntry),
 	}
 
-	for _, subdir := range []string{"agents", "skills"} {
-		dir := filepath.Join(cfg.LocalPath, subdir)
-		if !fsrepo.DirExists(a.fs, dir) {
-			continue
+	// Build a reverse lookup: cache dir name -> market name
+	dirToMarket := make(map[string]string, len(cfg.Markets))
+	for _, mc := range cfg.Markets {
+		dirToMarket[marketDirName(mc.Name)] = mc.Name
+	}
+
+	// Scan agents: symlinked .md files
+	agentsDir := filepath.Join(cfg.LocalPath, "agents")
+	if fsrepo.DirExists(a.fs, agentsDir) {
+		files, err := listMdFiles(a.fs, agentsDir)
+		if err == nil {
+			for _, filePath := range files {
+				if ce := a.resolveSymlinkEntry(filePath, dirToMarket); ce != nil {
+					state.Entries[ce.MctRef] = ce
+				}
+			}
 		}
-		files, err := listMdFiles(a.fs, dir)
-		if err != nil {
-			continue
-		}
-		for _, filePath := range files {
-			content, err := a.fs.ReadFile(filePath)
-			if err != nil {
-				continue
+	}
+
+	// Scan skills: symlinked directories (e.g. .claude/skills/go-architect → cache dir)
+	skillsDir := filepath.Join(cfg.LocalPath, "skills")
+	if fsrepo.DirExists(a.fs, skillsDir) {
+		entries, err := a.fs.ListDir(skillsDir)
+		if err == nil {
+			for _, name := range entries {
+				dirPath := filepath.Join(skillsDir, name)
+				if ce := a.resolveSymlinkEntry(dirPath, dirToMarket); ce != nil {
+					state.Entries[ce.MctRef] = ce
+				}
 			}
-			fm, err := domain.ParseFrontmatter(content)
-			if err != nil {
-				continue
-			}
-			if fm.MctRef == "" {
-				continue
-			}
-			ce := &domain.ChecksumEntry{
-				LocalPath:         filePath,
-				MctRef:            fm.MctRef,
-				MctVersion:        fm.MctVersion,
-				MctProfile:        fm.MctProfile,
-				InstalledAt:       fm.MctInstalledAt,
-				ChecksumAtInstall: fm.MctChecksum,
-			}
-			state.Entries[fm.MctRef] = ce
 		}
 	}
 
 	return state, nil
+}
+
+// resolveSymlinkEntry checks if path is a symlink pointing into the cache dir
+// and returns a ChecksumEntry if so.
+func (a *App) resolveSymlinkEntry(path string, dirToMarket map[string]string) *domain.ChecksumEntry {
+	if !a.fs.IsSymlink(path) {
+		return nil
+	}
+	target, err := a.fs.Readlink(path)
+	if err != nil {
+		return nil
+	}
+	rel, err := filepath.Rel(a.cacheDir, target)
+	if err != nil {
+		return nil
+	}
+	parts := strings.SplitN(filepath.ToSlash(rel), "/", 2)
+	if len(parts) < 2 {
+		return nil
+	}
+	marketName, ok := dirToMarket[parts[0]]
+	if !ok {
+		return nil
+	}
+	// For skill directories, the target is the dir; add /SKILL.md for the ref.
+	relPath := parts[1]
+	if inferEntryType(relPath) == domain.EntryTypeSkill && !strings.HasSuffix(relPath, ".md") {
+		relPath += "/SKILL.md"
+	}
+	ref := domain.MctRef(marketName + "@" + relPath)
+	return &domain.ChecksumEntry{
+		LocalPath: path,
+		MctRef:    ref,
+	}
 }
 
 func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
@@ -77,7 +112,7 @@ func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
 		if opts.Type != "" && entry.Type != opts.Type {
 			continue
 		}
-		if opts.Installed && (!entry.Installed || !fsrepo.FileExists(a.fs, ce.LocalPath)) {
+		if opts.Installed && (!entry.Installed || !fsrepo.Exists(a.fs, ce.LocalPath)) {
 			continue
 		}
 
@@ -97,8 +132,44 @@ func (a *App) ReadEntryContent(market, relPath string) ([]byte, error) {
 		return nil, domain.ErrMarketNotFound
 	}
 
-	clonePath := filepath.Join(a.cacheDir, market)
+	clonePath := a.clonePath(market)
 	return a.git.ReadFileAtRef(clonePath, mc.Branch, relPath, "HEAD")
+}
+
+// ListSkillDirFiles lists all files under a skill directory in the market repo
+// and reads the content of .md files.
+func (a *App) ListSkillDirFiles(market, dirPrefix string) ([]domain.SkillDirFile, error) {
+	cfg, err := a.cfg.Load(a.configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	mc := findMarketConfig(cfg, market)
+	if mc == nil {
+		return nil, domain.ErrMarketNotFound
+	}
+
+	clonePath := a.clonePath(market)
+	files, err := a.git.ListDirFiles(clonePath, mc.Branch, dirPrefix)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]domain.SkillDirFile, 0, len(files))
+	for _, f := range files {
+		sf := domain.SkillDirFile{
+			Path: f,
+			Name: filepath.Base(f),
+		}
+		if strings.HasSuffix(f, ".md") {
+			content, err := a.git.ReadFileAtRef(clonePath, mc.Branch, f, "HEAD")
+			if err == nil {
+				sf.Content = string(content)
+			}
+		}
+		result = append(result, sf)
+	}
+	return result, nil
 }
 
 func (a *App) GetEntry(ref domain.MctRef) (domain.Entry, error) {
@@ -141,6 +212,12 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 		return err
 	}
 
+	// Normalize skill directory refs: skills/foo → skills/foo/SKILL.md
+	if isSkillDirRef(relPath) {
+		relPath = relPath + "/SKILL.md"
+		ref = domain.MctRef(marketName + "@" + relPath)
+	}
+
 	if isProfileRef(relPath) {
 		opts.Profile = string(ref)
 		return a.addProfile(marketName, relPath, mc, installed, opts)
@@ -154,8 +231,9 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 		return domain.ErrEntryAlreadyInstalled
 	}
 
-	clonePath := filepath.Join(a.cacheDir, marketName)
+	clonePath := a.clonePath(marketName)
 
+	// Verify the file exists in the market
 	content, err := a.git.ReadFileAtRef(clonePath, mc.Branch, relPath, "HEAD")
 	if err != nil {
 		return err
@@ -166,38 +244,58 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 		return domain.ErrInvalidFrontmatter.Wrap(err)
 	}
 
-	if fm.MctRef != "" || fm.MctVersion != "" || fm.MctMarket != "" {
-		return domain.ErrMctFieldsInRepo
-	}
-
-	version, err := a.git.FileVersion(clonePath, relPath)
-	if err != nil {
-		return err
-	}
-
 	if opts.DryRun {
 		return nil
 	}
 
-	checksum := a.fs.MD5Checksum(content)
-
-	injected, err := domain.InjectMctFields(content, ref, version, marketName, checksum, opts.Profile)
-	if err != nil {
-		return err
-	}
-
+	// Create symlink from local install path to the cached market file/dir
 	localPath, err := a.resolveLocalPath(cfg, relPath)
 	if err != nil {
 		return err
 	}
 
-	if err := a.fs.WriteFile(localPath, injected); err != nil {
+	target := filepath.Join(clonePath, relPath)
+	// For skills, symlink the directory (not the file inside it).
+	if inferEntryType(relPath) == domain.EntryTypeSkill {
+		target = filepath.Dir(target)
+	}
+	if err := a.fs.Symlink(target, localPath); err != nil {
 		return err
 	}
 
 	if !opts.NoDeps && len(fm.RequiresSkills) > 0 {
 		for _, dep := range fm.RequiresSkills {
-			skillRef := domain.MctRef(marketName + "/" + dep.File)
+			depMarket := marketName
+			if dep.Market != "" {
+				// Cross-market dependency: resolve the market name from URL
+				depMarketName, nameErr := marketNameFromURL(dep.Market)
+				if nameErr != nil {
+					return nameErr
+				}
+				depMarket = depMarketName
+
+				// Check if the market is registered; if not, ask user to add it
+				mc := findMarketConfig(cfg, depMarket)
+				if mc == nil {
+					if opts.ConfirmMarket == nil || !opts.ConfirmMarket(dep.Market) {
+						return &domain.DomainError{
+							Code:    "MARKET_NOT_REGISTERED",
+							Message: fmt.Sprintf("skill dependency requires market %q which is not registered", dep.Market),
+						}
+					}
+					if _, addErr := a.AddMarket(dep.Market, service.AddMarketOpts{}); addErr != nil {
+						return addErr
+					}
+				}
+			}
+
+			depFile := dep.File
+			// requires_skills may point to a skill directory (no .md suffix).
+			// Normalize to the SKILL.md file inside it.
+			if !strings.HasSuffix(depFile, ".md") {
+				depFile = strings.TrimSuffix(depFile, "/") + "/SKILL.md"
+			}
+			skillRef := domain.MctRef(depMarket + "@" + depFile)
 
 			existing, ok := installed.Entries[skillRef]
 			if ok && existing != nil {
@@ -205,7 +303,8 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
 			}
 
 			depOpts := service.AddOpts{
-				NoDeps: true,
+				NoDeps:        true,
+				ConfirmMarket: opts.ConfirmMarket,
 			}
 			if err := a.Add(skillRef, depOpts); err != nil {
 				return err
@@ -222,7 +321,7 @@ func (a *App) addProfile(
 	installed domain.ChecksumState,
 	opts service.AddOpts,
 ) error {
-	clonePath := filepath.Join(a.cacheDir, marketName)
+	clonePath := a.clonePath(marketName)
 	mfiles, err := a.git.ReadMarketFiles(clonePath, mc.Branch)
 	if err != nil {
 		return err
@@ -239,7 +338,10 @@ func (a *App) addProfile(
 		if isReadme(mf.Path) {
 			continue
 		}
-		fileRef := domain.MctRef(marketName + "/" + mf.Path)
+		if mc.SkillsOnly && !isSkillPath(mf.Path, mc.SkillsPath) {
+			continue
+		}
+		fileRef := domain.MctRef(marketName + "@" + mf.Path)
 		if existing, ok := installed.Entries[fileRef]; ok && existing != nil {
 			skippedCount++
 			continue
@@ -254,6 +356,15 @@ func (a *App) addProfile(
 		return domain.ErrEntryAlreadyInstalled
 	}
 	return nil
+}
+
+// isSkillDirRef returns true when relPath points to a skill directory
+// (e.g. "skills/azure-ai") rather than a concrete file (e.g. "skills/azure-ai/SKILL.md").
+func isSkillDirRef(relPath string) bool {
+	if strings.HasSuffix(relPath, ".md") {
+		return false
+	}
+	return inferEntryType(relPath) == domain.EntryTypeSkill
 }
 
 // isProfileRef returns true when relPath is a profile directory path
@@ -272,6 +383,11 @@ func isProfileRef(relPath string) bool {
 }
 
 func (a *App) Remove(ref domain.MctRef) error {
+	// Normalize skill directory refs: skills/foo → skills/foo/SKILL.md
+	if marketName, relPath, err := ref.Parse(); err == nil && isSkillDirRef(relPath) {
+		ref = domain.MctRef(marketName + "@" + relPath + "/SKILL.md")
+	}
+
 	cfg, err := a.cfg.Load(a.configPath)
 	if err != nil {
 		return err
@@ -364,7 +480,7 @@ func (a *App) PrepareDiff(ref domain.MctRef) (leftTmpPath, rightPath, tool strin
 		return "", "", "", domain.ErrMarketNotFound
 	}
 
-	clonePath := filepath.Join(a.cacheDir, marketName)
+	clonePath := a.clonePath(marketName)
 	registryContent, err := a.git.ReadFileAtRef(clonePath, marketCfg.Branch, relPath, "HEAD")
 	if err != nil {
 		return "", "", "", err
@@ -396,8 +512,12 @@ func (a *App) Init(opts service.InitOpts) error {
 		Markets:   []domain.MarketConfig{},
 	}
 
-	for name, url := range opts.Markets {
-		clonePath := filepath.Join(a.cacheDir, name)
+	for _, url := range opts.Markets {
+		name, err := marketNameFromURL(url)
+		if err != nil {
+			return err
+		}
+		clonePath := filepath.Join(a.cacheDir, marketDirName(name))
 		if err := a.git.Clone(url, clonePath); err != nil {
 			return err
 		}
@@ -434,14 +554,21 @@ func (a *App) resolveLocalPath(cfg domain.Config, relPath string) (string, error
 	}
 
 	filename := filepath.Base(cleaned)
-	stem := strings.TrimSuffix(filename, ".md")
 	parts := strings.Split(cleaned, string(filepath.Separator))
-	for _, p := range parts {
+	for i, p := range parts {
 		if p == "agents" {
 			return filepath.Join(cfg.LocalPath, p, filename), nil
 		}
 		if p == "skills" {
-			return filepath.Join(cfg.LocalPath, p, stem, "SKILL.md"), nil
+			// Symlink the skill directory, not individual files.
+			// Directory-based: skills/go-architect/SKILL.md → symlink .claude/skills/go-architect
+			if i+2 < len(parts) {
+				skillName := parts[i+1]
+				return filepath.Join(cfg.LocalPath, p, skillName), nil
+			}
+			// Flat file: skills/bar.md → symlink .claude/skills/bar
+			stem := strings.TrimSuffix(filename, ".md")
+			return filepath.Join(cfg.LocalPath, p, stem), nil
 		}
 	}
 	return filepath.Join(cfg.LocalPath, filename), nil
@@ -470,14 +597,18 @@ func checksumEntryToDomainEntry(ref domain.MctRef, ce *domain.ChecksumEntry) dom
 }
 
 // refProfile extracts the profile portion from a full ref.
-// "market/seg1/seg2/agents/foo.md" -> "market/seg1/seg2"
-// Falls back to "market" if there are fewer than 3 segments.
+// "market@seg1/seg2/agents/foo.md" -> "market@seg1/seg2"
+// Falls back to "market" if there are fewer than 2 path segments.
 func refProfile(ref domain.MctRef) string {
-	parts := strings.Split(string(ref), "/")
-	if len(parts) >= 3 {
-		return strings.Join(parts[:3], "/")
+	market, relPath, err := ref.Parse()
+	if err != nil {
+		return string(ref)
 	}
-	return parts[0]
+	parts := strings.Split(relPath, "/")
+	if len(parts) >= 2 {
+		return market + "@" + parts[0] + "/" + parts[1]
+	}
+	return market
 }
 
 func inferEntryType(relPath string) domain.EntryType {
@@ -507,13 +638,7 @@ func resolveDifftool(configuredTool string, git interface{ ReadGlobalDifftool() 
 // deleteEntryFile deletes the entry file. For skills installed as
 // skills/<name>/SKILL.md, it also removes the now-empty parent directory.
 func (a *App) deleteEntryFile(localPath string) error {
-	if err := a.fs.DeleteFile(localPath); err != nil {
-		return err
-	}
-	if filepath.Base(localPath) == "SKILL.md" {
-		_ = a.fs.RemoveAll(filepath.Dir(localPath))
-	}
-	return nil
+	return a.fs.DeleteFile(localPath)
 }
 
 func listMdFiles(fsys fs.ReadDirFS, dir string) ([]string, error) {

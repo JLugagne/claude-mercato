@@ -2,14 +2,14 @@
   "version": 1,
   "markets": [
     {
-      "name": "claude-skills",
+      "name": "jlugagne/claude-skills",
       "url": "https://github.com/JLugagne/claude-skills",
       "branch": "main"
     }
   ],
   "entries": [
     {
-      "profile": "claude-skills/dev/go-hexagonal"
+      "profile": "jlugagne/claude-skills@dev/go-hexagonal"
     }
   ]
 }

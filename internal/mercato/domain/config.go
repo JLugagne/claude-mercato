@@ -13,9 +13,11 @@ type Config struct {
 }
 
 type MarketConfig struct {
-	Name     string `yaml:"name"`
-	URL      string `yaml:"url"`
-	Branch   string `yaml:"branch"`
-	Trusted  bool   `yaml:"trusted,omitempty"`
-	ReadOnly bool   `yaml:"read_only,omitempty"`
+	Name       string `yaml:"name"`
+	URL        string `yaml:"url"`
+	Branch     string `yaml:"branch"`
+	Trusted    bool   `yaml:"trusted,omitempty"`
+	ReadOnly   bool   `yaml:"read_only,omitempty"`
+	SkillsOnly bool   `yaml:"skills_only,omitempty"`
+	SkillsPath string `yaml:"skills_path,omitempty"`
 }

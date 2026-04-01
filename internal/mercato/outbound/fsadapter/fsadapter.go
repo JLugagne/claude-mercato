@@ -69,6 +69,37 @@ func (a *Adapter) MD5Checksum(content []byte) string {
 	return fmt.Sprintf("%x", hash)
 }
 
+func (a *Adapter) Symlink(target, link string) error {
+	if err := os.MkdirAll(filepath.Dir(link), 0755); err != nil {
+		return err
+	}
+	return os.Symlink(target, link)
+}
+
+func (a *Adapter) Readlink(path string) (string, error) {
+	return os.Readlink(path)
+}
+
+func (a *Adapter) IsSymlink(path string) bool {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeSymlink != 0
+}
+
+func (a *Adapter) ListDir(path string) ([]string, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(entries))
+	for i, e := range entries {
+		names[i] = e.Name()
+	}
+	return names, nil
+}
+
 func (a *Adapter) TempFile(name string, content []byte) (string, error) {
 	f, err := os.CreateTemp("", name)
 	if err != nil {

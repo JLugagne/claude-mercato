@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
@@ -55,18 +54,6 @@ func (p *MarketPopup) load(markets []domain.Market) {
 			p.selected[mk.Name] = true
 		}
 	}
-}
-
-// selectedMarkets returns the set of market names the user has checked.
-// If none are explicitly deselected (all selected), returns nil meaning "all".
-func (p *MarketPopup) selectedMarkets() []string {
-	var names []string
-	for _, mk := range p.markets {
-		if p.selected[mk.Name] {
-			names = append(names, mk.Name)
-		}
-	}
-	return names
 }
 
 func (p *MarketPopup) selectedMarket() (domain.Market, bool) {
@@ -176,34 +163,9 @@ func (m *AppModel) handleMarketPopupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *AppModel) addMarketCmd(url string) tea.Cmd {
 	return func() tea.Msg {
-		name := marketNameFromURL(url)
-		_, err := m.svc.Markets.AddMarket(name, url, service.AddMarketOpts{})
-		return MarketAddedMsg{Name: name, Err: err}
+		_, err := m.svc.Markets.AddMarket(url, service.AddMarketOpts{})
+		return MarketAddedMsg{Name: url, Err: err}
 	}
-}
-
-func marketNameFromURL(rawURL string) string {
-	s := rawURL
-	// Strip trailing .git
-	s = strings.TrimSuffix(s, ".git")
-	// Get the last path component
-	if idx := strings.LastIndex(s, "/"); idx >= 0 {
-		s = s[idx+1:]
-	}
-	// Handle git@host:user/repo format
-	if idx := strings.LastIndex(s, ":"); idx >= 0 {
-		s = s[idx+1:]
-		if idx2 := strings.LastIndex(s, "/"); idx2 >= 0 {
-			s = s[idx2+1:]
-		}
-	}
-	// Lowercase and replace underscores with hyphens
-	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, "_", "-")
-	if s == "" {
-		s = "market"
-	}
-	return s
 }
 
 func (m *AppModel) removeMarketCmd(name string) tea.Cmd {

@@ -11,67 +11,37 @@ func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 		return nil, err
 	}
 
-	checksums, err := a.scanInstalledEntries(cfg)
+	installed, err := a.scanInstalledEntries(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	branchByMarket := make(map[string]string, len(cfg.Markets))
-	for _, mc := range cfg.Markets {
-		branchByMarket[mc.Name] = mc.Branch
-	}
-
 	var statuses []domain.EntryStatus
 
-	for ref, entry := range checksums.Entries {
+	for ref, entry := range installed.Entries {
 		if entry == nil {
 			continue
 		}
 
 		marketName := ref.Market()
-		relPath := ref.RelPath()
 
 		if opts.Market != "" && marketName != opts.Market {
 			continue
 		}
 
-		content, err := a.fs.ReadFile(entry.LocalPath)
-		if err != nil {
+		// With symlinks, the file is always up to date if the symlink is valid.
+		// Check if the symlink target still exists.
+		if !a.fs.IsSymlink(entry.LocalPath) {
 			statuses = append(statuses, domain.EntryStatus{
 				Ref:   ref,
-				State: domain.StateOrphaned,
+				State: domain.StateDrift,
 			})
 			continue
 		}
 
-		currentChecksum := a.fs.MD5Checksum(content)
-		drifted := currentChecksum != entry.ChecksumAtInstall
-
-		clonePath := a.clonePath(marketName)
-
-		newVersion, err := a.git.FileVersion(clonePath, relPath)
-		if err != nil {
-			newVersion = entry.MctVersion
-		}
-
-		versionChanged := newVersion != entry.MctVersion
-
-		var state domain.EntryState
-		switch {
-		case drifted && versionChanged:
-			state = domain.StateUpdateAndDrift
-		case drifted:
-			state = domain.StateDrift
-		case versionChanged:
-			state = domain.StateUpdateAvailable
-		default:
-			state = domain.StateClean
-		}
-
 		statuses = append(statuses, domain.EntryStatus{
-			Ref:        ref,
-			State:      state,
-			NewVersion: newVersion,
+			Ref:   ref,
+			State: domain.StateClean,
 		})
 	}
 
@@ -128,7 +98,16 @@ func (a *App) Refresh(opts service.RefreshOpts) ([]service.RefreshResult, error)
 		if oldSHA != "" {
 			diffs, diffErr := a.git.DiffSinceCommit(clonePath, mc.Branch, oldSHA)
 			if diffErr == nil {
-				changedFiles = len(diffs)
+				for _, d := range diffs {
+					path := d.To
+					if path == "" {
+						path = d.From
+					}
+					if mc.SkillsOnly && !isSkillPath(path, mc.SkillsPath) {
+						continue
+					}
+					changedFiles++
+				}
 			}
 		}
 
@@ -166,7 +145,7 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 		return nil, err
 	}
 
-	checksums, err := a.scanInstalledEntries(cfg)
+	installed, err := a.scanInstalledEntries(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -200,14 +179,18 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 				filePath = diff.From
 			}
 
-			ref := domain.MctRef(mc.Name + "/" + filePath)
+			if mc.SkillsOnly && !isSkillPath(filePath, mc.SkillsPath) {
+				continue
+			}
+
+			ref := domain.MctRef(mc.Name + "@" + filePath)
 
 			if opts.Ref != "" && ref != opts.Ref {
 				continue
 			}
 
-			entry, installed := checksums.Entries[ref]
-			if !installed || entry == nil {
+			entry, isInstalled := installed.Entries[ref]
+			if !isInstalled || entry == nil {
 				continue
 			}
 
@@ -215,89 +198,11 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 				continue
 			}
 
-			content, err := a.fs.ReadFile(entry.LocalPath)
-			if err != nil {
-				results = append(results, service.UpdateResult{
-					Ref:        ref,
-					Action:     "error",
-					OldVersion: entry.MctVersion,
-					Err:        err,
-				})
-				continue
-			}
-
-			currentChecksum := a.fs.MD5Checksum(content)
-			drifted := currentChecksum != entry.ChecksumAtInstall
-
-			newVersion, err := a.git.FileVersion(clonePath, filePath)
-			if err != nil {
-				results = append(results, service.UpdateResult{
-					Ref:        ref,
-					Action:     "error",
-					OldVersion: entry.MctVersion,
-					Err:        err,
-				})
-				continue
-			}
-
-			oldVersion := entry.MctVersion
-
-			if drifted && !opts.CI {
-				results = append(results, service.UpdateResult{
-					Ref:        ref,
-					Action:     "conflict",
-					OldVersion: oldVersion,
-					NewVersion: newVersion,
-				})
-				continue
-			}
-
-			if opts.DryRun {
-				results = append(results, service.UpdateResult{
-					Ref:        ref,
-					Action:     "update",
-					OldVersion: oldVersion,
-					NewVersion: newVersion,
-				})
-				continue
-			}
-
-			newContent, err := a.git.ReadFileAtRef(clonePath, mc.Branch, filePath, "")
-			if err != nil {
-				results = append(results, service.UpdateResult{
-					Ref:        ref,
-					Action:     "error",
-					OldVersion: oldVersion,
-					Err:        err,
-				})
-				continue
-			}
-
-			newChecksum := a.fs.MD5Checksum(newContent)
-
-			injected, err := domain.InjectMctFields(newContent, ref, newVersion, ref.Market(), newChecksum, entry.MctProfile)
-			if err != nil {
-				injected, err = domain.PatchMctVersion(newContent, newVersion)
-				if err != nil {
-					injected = newContent
-				}
-			}
-
-			if err := a.fs.WriteFile(entry.LocalPath, injected); err != nil {
-				results = append(results, service.UpdateResult{
-					Ref:        ref,
-					Action:     "error",
-					OldVersion: oldVersion,
-					Err:        err,
-				})
-				continue
-			}
-
+			// With symlinks, the file is already updated via the cache.
+			// Just report the change.
 			results = append(results, service.UpdateResult{
-				Ref:        ref,
-				Action:     "update",
-				OldVersion: oldVersion,
-				NewVersion: newVersion,
+				Ref:    ref,
+				Action: "update",
 			})
 		}
 	}

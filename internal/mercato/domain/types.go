@@ -11,14 +11,14 @@ type MctVersion string
 type EntryType string
 
 // Parse splits a ref into its market name and relative path components.
-// Returns an error if the ref is not in "market/path" format.
+// Returns an error if the ref is not in "market@path" format.
 func (r MctRef) Parse() (market, relPath string, err error) {
 	s := string(r)
-	idx := strings.Index(s, "/")
+	idx := strings.Index(s, "@")
 	if idx <= 0 || idx == len(s)-1 {
 		return "", "", &DomainError{
 			Code:    "INVALID_REF",
-			Message: "ref must be in format market/path",
+			Message: "ref must be in format market@path",
 		}
 	}
 	return s[:idx], s[idx+1:], nil
@@ -45,12 +45,14 @@ const (
 )
 
 type Market struct {
-	Name      string `json:"name"`
-	URL       string `json:"url"`
-	Branch    string `json:"branch"`
-	ClonePath string `json:"clone_path,omitempty"`
-	Trusted   bool   `json:"trusted"`
-	ReadOnly  bool   `json:"read_only"`
+	Name       string `json:"name"`
+	URL        string `json:"url"`
+	Branch     string `json:"branch"`
+	ClonePath  string `json:"clone_path,omitempty"`
+	Trusted    bool   `json:"trusted"`
+	ReadOnly   bool   `json:"read_only"`
+	SkillsOnly bool   `json:"skills_only"`
+	SkillsPath string `json:"skills_path,omitempty"`
 }
 
 type Entry struct {
@@ -75,8 +77,9 @@ type Entry struct {
 }
 
 type SkillDep struct {
-	File string `yaml:"file" json:"file"`
-	Pin  string `yaml:"pin,omitempty" json:"pin,omitempty"`
+	File   string `yaml:"file" json:"file"`
+	Pin    string `yaml:"pin,omitempty" json:"pin,omitempty"`
+	Market string `yaml:"market,omitempty" json:"market,omitempty"`
 }
 
 type Tombstone struct {
@@ -145,6 +148,13 @@ type Conflict struct {
 	Refs        []MctRef `json:"refs"`
 	Description string   `json:"description"`
 	Severity    string   `json:"severity"`
+}
+
+// SkillDirFile represents a file inside a skill directory in a market repo.
+type SkillDirFile struct {
+	Path    string // relative path within the market (e.g. "skills/azure-ai/SKILL.md")
+	Name    string // filename only (e.g. "SKILL.md")
+	Content string // populated only for .md files
 }
 
 type ReadmeEntry struct {

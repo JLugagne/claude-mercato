@@ -13,16 +13,13 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
-// installedContent is a valid installed entry with mct fields.
-const installedContent = "---\nmct_ref: mkt/agents/foo.md\nmct_version: sha123\nmct_market: mkt\nmct_checksum: md5abc\ntype: agent\ndescription: test\n---\n# foo\n"
-
 // newTestApp constructs an App for testing.
 func newTestApp(cfg *configstoretest.MockConfigStore, git *gitrepotest.MockGitRepo, fs *filesystemtest.MockFilesystem, state *statestoretest.MockStateStore) *App {
 	return New(git, fs, cfg, state, "/config/path", "/cache/dir")
 }
 
 // setupInstalledEntry configures mocks so that scanInstalledEntries returns one
-// entry for "mkt/agents/foo.md". localFile is the full path key in MapFS.
+// entry for "mkt@agents/foo.md". localFile is the full path key in MapFS.
 func setupInstalledEntry(cfg *configstoretest.MockConfigStore, fsMock *filesystemtest.MockFilesystem, localFile string) {
 	cfg.LoadFn = func(path string) (domain.Config, error) {
 		return domain.Config{
@@ -31,25 +28,39 @@ func setupInstalledEntry(cfg *configstoretest.MockConfigStore, fsMock *filesyste
 		}, nil
 	}
 	fsMock.FS = fstest.MapFS{
-		localFile: &fstest.MapFile{Data: []byte(installedContent)},
+		localFile: &fstest.MapFile{Data: []byte("---\ndescription: test\n---\n")},
+	}
+	setupSymlinkMock(fsMock, map[string]string{
+		localFile: "/cache/dir/mkt/agents/foo.md",
+	})
+}
+
+// setupSymlinkMock configures IsSymlinkFn and ReadlinkFn on a MockFilesystem
+// to simulate symlinks. The map keys are local file paths and the values are
+// the symlink targets (absolute paths inside the cache directory).
+func setupSymlinkMock(fsMock *filesystemtest.MockFilesystem, symlinks map[string]string) {
+	fsMock.IsSymlinkFn = func(path string) bool {
+		_, ok := symlinks[path]
+		return ok
+	}
+	fsMock.ReadlinkFn = func(path string) (string, error) {
+		target, ok := symlinks[path]
+		if !ok {
+			return "", errors.New("not a symlink")
+		}
+		return target, nil
 	}
 }
 
-// TestCheck_Clean verifies that a matching checksum and version produces StateClean.
+// TestCheck_Clean verifies that a valid symlink produces StateClean.
 func TestCheck_Clean(t *testing.T) {
 	cfg := &configstoretest.MockConfigStore{}
-	git := &gitrepotest.MockGitRepo{}
 	fsMock := &filesystemtest.MockFilesystem{}
 	state := &statestoretest.MockStateStore{}
 
 	setupInstalledEntry(cfg, fsMock, ".claude/agents/foo.md")
 
-	fsMock.MD5ChecksumFn = func(content []byte) string { return "md5abc" }
-	git.FileVersionFn = func(clonePath, filePath string) (domain.MctVersion, error) {
-		return "sha123", nil
-	}
-
-	app := newTestApp(cfg, git, fsMock, state)
+	app := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, state)
 	statuses, err := app.Check(service.CheckOpts{})
 	if err != nil {
 		t.Fatal("unexpected error:", err)
@@ -62,21 +73,34 @@ func TestCheck_Clean(t *testing.T) {
 	}
 }
 
-// TestCheck_Drift verifies that a checksum mismatch produces StateDrift.
+// TestCheck_Drift verifies that a non-symlink file produces StateDrift.
 func TestCheck_Drift(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	git := &gitrepotest.MockGitRepo{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	state := &statestoretest.MockStateStore{}
-
-	setupInstalledEntry(cfg, fsMock, ".claude/agents/foo.md")
-
-	fsMock.MD5ChecksumFn = func(content []byte) string { return "DIFFERENT" }
-	git.FileVersionFn = func(clonePath, filePath string) (domain.MctVersion, error) {
-		return "sha123", nil
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
+			}, nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		FS: fstest.MapFS{
+			".claude/agents/foo.md": &fstest.MapFile{Data: []byte("---\ndescription: test\n---\n")},
+		},
+	}
+	// File exists in walker but IsSymlink returns true for scan, then false for check.
+	// To simulate: scan finds symlink, but Check sees it's no longer a symlink.
+	// Use a counter: first IsSymlink call (scan) returns true, second (check) returns false.
+	callCount := 0
+	fsMock.IsSymlinkFn = func(path string) bool {
+		callCount++
+		return callCount <= 1 // true on first call (scan), false on second (check)
+	}
+	fsMock.ReadlinkFn = func(path string) (string, error) {
+		return "/cache/dir/mkt/agents/foo.md", nil
 	}
 
-	app := newTestApp(cfg, git, fsMock, state)
+	app := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
 	statuses, err := app.Check(service.CheckOpts{})
 	if err != nil {
 		t.Fatal("unexpected error:", err)
@@ -86,105 +110,6 @@ func TestCheck_Drift(t *testing.T) {
 	}
 	if statuses[0].State != domain.StateDrift {
 		t.Errorf("expected StateDrift, got %v", statuses[0].State)
-	}
-}
-
-// TestCheck_UpdateAvailable verifies that a new version produces StateUpdateAvailable.
-func TestCheck_UpdateAvailable(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	git := &gitrepotest.MockGitRepo{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	state := &statestoretest.MockStateStore{}
-
-	setupInstalledEntry(cfg, fsMock, ".claude/agents/foo.md")
-
-	fsMock.MD5ChecksumFn = func(content []byte) string { return "md5abc" }
-	git.FileVersionFn = func(clonePath, filePath string) (domain.MctVersion, error) {
-		return "newsha", nil
-	}
-
-	app := newTestApp(cfg, git, fsMock, state)
-	statuses, err := app.Check(service.CheckOpts{})
-	if err != nil {
-		t.Fatal("unexpected error:", err)
-	}
-	if len(statuses) != 1 {
-		t.Fatalf("expected 1 status, got %d", len(statuses))
-	}
-	if statuses[0].State != domain.StateUpdateAvailable {
-		t.Errorf("expected StateUpdateAvailable, got %v", statuses[0].State)
-	}
-	if statuses[0].NewVersion != "newsha" {
-		t.Errorf("expected NewVersion=newsha, got %q", statuses[0].NewVersion)
-	}
-}
-
-// TestCheck_UpdateAndDrift verifies that both drift and version change produces StateUpdateAndDrift.
-func TestCheck_UpdateAndDrift(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	git := &gitrepotest.MockGitRepo{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	state := &statestoretest.MockStateStore{}
-
-	setupInstalledEntry(cfg, fsMock, ".claude/agents/foo.md")
-
-	fsMock.MD5ChecksumFn = func(content []byte) string { return "DIFFERENT" }
-	git.FileVersionFn = func(clonePath, filePath string) (domain.MctVersion, error) {
-		return "newsha", nil
-	}
-
-	app := newTestApp(cfg, git, fsMock, state)
-	statuses, err := app.Check(service.CheckOpts{})
-	if err != nil {
-		t.Fatal("unexpected error:", err)
-	}
-	if len(statuses) != 1 {
-		t.Fatalf("expected 1 status, got %d", len(statuses))
-	}
-	if statuses[0].State != domain.StateUpdateAndDrift {
-		t.Errorf("expected StateUpdateAndDrift, got %v", statuses[0].State)
-	}
-}
-
-// TestCheck_Orphaned verifies that a missing local file produces StateOrphaned.
-func TestCheck_Orphaned(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	git := &gitrepotest.MockGitRepo{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	state := &statestoretest.MockStateStore{}
-
-	cfg.LoadFn = func(path string) (domain.Config, error) {
-		return domain.Config{
-			LocalPath: ".claude",
-			Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
-		}, nil
-	}
-	// Put the file in MapFS so DirExists(".claude/agents") works and WalkDir finds it.
-	fsMock.FS = fstest.MapFS{
-		".claude/agents/foo.md": &fstest.MapFile{Data: []byte(installedContent)},
-	}
-	// Use ReadFileFn with a call counter:
-	// - First call (scan): return content so entry is found.
-	// - Second call (Check): return error to simulate orphaned.
-	callCount := 0
-	fsMock.ReadFileFn = func(path string) ([]byte, error) {
-		callCount++
-		if callCount == 1 {
-			return []byte(installedContent), nil
-		}
-		return nil, errors.New("file gone")
-	}
-
-	app := newTestApp(cfg, git, fsMock, state)
-	statuses, err := app.Check(service.CheckOpts{})
-	if err != nil {
-		t.Fatal("unexpected error:", err)
-	}
-	if len(statuses) != 1 {
-		t.Fatalf("expected 1 status, got %d", len(statuses))
-	}
-	if statuses[0].State != domain.StateOrphaned {
-		t.Errorf("expected StateOrphaned, got %v", statuses[0].State)
 	}
 }
 
@@ -394,11 +319,14 @@ func setupInstalledEntryForUpdate(cfg *configstoretest.MockConfigStore, fsMock *
 		}, nil
 	}
 	fsMock.FS = fstest.MapFS{
-		localFile: &fstest.MapFile{Data: []byte(installedContent)},
+		localFile: &fstest.MapFile{Data: []byte("---\ndescription: test\n---\n")},
 	}
+	setupSymlinkMock(fsMock, map[string]string{
+		localFile: "/cache/dir/mkt/agents/foo.md",
+	})
 }
 
-// TestUpdate_Success verifies a successful update writes the file and returns correct result.
+// TestUpdate_Success verifies that an installed entry with upstream changes reports action=update.
 func TestUpdate_Success(t *testing.T) {
 	cfg := &configstoretest.MockConfigStore{}
 	git := &gitrepotest.MockGitRepo{}
@@ -420,20 +348,6 @@ func TestUpdate_Success(t *testing.T) {
 			{Action: domain.DiffModify, From: "agents/foo.md", To: "agents/foo.md"},
 		}, nil
 	}
-	// MD5Checksum returns "md5abc" so no drift.
-	fsMock.MD5ChecksumFn = func(content []byte) string { return "md5abc" }
-	git.FileVersionFn = func(clonePath, filePath string) (domain.MctVersion, error) {
-		return "newsha", nil
-	}
-	newContent := []byte("---\ntype: agent\ndescription: updated\n---\n# foo updated\n")
-	git.ReadFileAtRefFn = func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
-		return newContent, nil
-	}
-	writeFileCalled := false
-	fsMock.WriteFileFn = func(path string, content []byte) error {
-		writeFileCalled = true
-		return nil
-	}
 
 	app := newTestApp(cfg, git, fsMock, state)
 	results, err := app.Update(service.UpdateOpts{})
@@ -443,25 +357,12 @@ func TestUpdate_Success(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	r := results[0]
-	if r.Action != "update" {
-		t.Errorf("expected Action=update, got %q", r.Action)
-	}
-	if r.OldVersion != "sha123" {
-		t.Errorf("expected OldVersion=sha123, got %q", r.OldVersion)
-	}
-	if r.NewVersion != "newsha" {
-		t.Errorf("expected NewVersion=newsha, got %q", r.NewVersion)
-	}
-	if r.Err != nil {
-		t.Errorf("expected no error, got %v", r.Err)
-	}
-	if !writeFileCalled {
-		t.Error("expected WriteFile to be called")
+	if results[0].Action != "update" {
+		t.Errorf("expected Action=update, got %q", results[0].Action)
 	}
 }
 
-// TestUpdate_DryRun verifies that DryRun does not write the file but returns action=update.
+// TestUpdate_DryRun verifies that DryRun still reports changes (symlinks auto-update).
 func TestUpdate_DryRun(t *testing.T) {
 	cfg := &configstoretest.MockConfigStore{}
 	git := &gitrepotest.MockGitRepo{}
@@ -483,15 +384,6 @@ func TestUpdate_DryRun(t *testing.T) {
 			{Action: domain.DiffModify, From: "agents/foo.md", To: "agents/foo.md"},
 		}, nil
 	}
-	fsMock.MD5ChecksumFn = func(content []byte) string { return "md5abc" }
-	git.FileVersionFn = func(clonePath, filePath string) (domain.MctVersion, error) {
-		return "newsha", nil
-	}
-	writeFileCalled := false
-	fsMock.WriteFileFn = func(path string, content []byte) error {
-		writeFileCalled = true
-		return nil
-	}
 
 	app := newTestApp(cfg, git, fsMock, state)
 	results, err := app.Update(service.UpdateOpts{DryRun: true})
@@ -503,9 +395,6 @@ func TestUpdate_DryRun(t *testing.T) {
 	}
 	if results[0].Action != "update" {
 		t.Errorf("expected Action=update, got %q", results[0].Action)
-	}
-	if writeFileCalled {
-		t.Error("WriteFile should NOT be called in dry-run mode")
 	}
 }
 
@@ -548,9 +437,8 @@ func TestUpdate_NothingInstalled(t *testing.T) {
 	}
 }
 
-// TestUpdate_Conflict verifies that when the local checksum differs from the
-// stored checksum, the result action is "conflict".
-func TestUpdate_Conflict(t *testing.T) {
+// TestUpdate_DeletedEntrySkipped verifies that deleted diffs are skipped.
+func TestUpdate_DeletedEntrySkipped(t *testing.T) {
 	cfg := &configstoretest.MockConfigStore{}
 	git := &gitrepotest.MockGitRepo{}
 	fsMock := &filesystemtest.MockFilesystem{}
@@ -568,18 +456,8 @@ func TestUpdate_Conflict(t *testing.T) {
 	}
 	git.DiffSinceCommitFn = func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
 		return []domain.FileDiff{
-			{Action: domain.DiffModify, From: "agents/foo.md", To: "agents/foo.md"},
+			{Action: domain.DiffDelete, From: "agents/foo.md", To: ""},
 		}, nil
-	}
-	// Return a different checksum than the stored "md5abc" to trigger conflict.
-	fsMock.MD5ChecksumFn = func(content []byte) string { return "DRIFTED" }
-	git.FileVersionFn = func(clonePath, filePath string) (domain.MctVersion, error) {
-		return "newsha", nil
-	}
-	writeFileCalled := false
-	fsMock.WriteFileFn = func(path string, content []byte) error {
-		writeFileCalled = true
-		return nil
 	}
 
 	app := newTestApp(cfg, git, fsMock, state)
@@ -587,67 +465,8 @@ func TestUpdate_Conflict(t *testing.T) {
 	if err != nil {
 		t.Fatal("unexpected error:", err)
 	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	if results[0].Action != "conflict" {
-		t.Errorf("expected action=conflict, got %q", results[0].Action)
-	}
-	if writeFileCalled {
-		t.Error("WriteFile should NOT be called for a conflict")
-	}
-}
-
-// TestUpdate_AppliesUpdate verifies that when not in dry-run mode and no drift,
-// WriteFile is called and the result action is "update".
-func TestUpdate_AppliesUpdate(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	git := &gitrepotest.MockGitRepo{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	state := &statestoretest.MockStateStore{}
-
-	setupInstalledEntryForUpdate(cfg, fsMock, ".claude/agents/foo.md")
-
-	state.LoadSyncStateFn = func(cacheDir string) (domain.SyncState, error) {
-		return domain.SyncState{
-			Version: 1,
-			Markets: map[string]domain.MarketSyncState{
-				"mkt": {LastSyncedSHA: "oldhash"},
-			},
-		}, nil
-	}
-	git.DiffSinceCommitFn = func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
-		return []domain.FileDiff{
-			{Action: domain.DiffModify, From: "agents/foo.md", To: "agents/foo.md"},
-		}, nil
-	}
-	fsMock.MD5ChecksumFn = func(content []byte) string { return "md5abc" }
-	git.FileVersionFn = func(clonePath, filePath string) (domain.MctVersion, error) {
-		return "newsha", nil
-	}
-	newContent := []byte("---\ntype: agent\ndescription: updated\n---\n# updated\n")
-	git.ReadFileAtRefFn = func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
-		return newContent, nil
-	}
-	writeFileCalled := false
-	fsMock.WriteFileFn = func(path string, content []byte) error {
-		writeFileCalled = true
-		return nil
-	}
-
-	app := newTestApp(cfg, git, fsMock, state)
-	results, err := app.Update(service.UpdateOpts{})
-	if err != nil {
-		t.Fatal("unexpected error:", err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	if results[0].Action != "update" {
-		t.Errorf("expected action=update, got %q", results[0].Action)
-	}
-	if !writeFileCalled {
-		t.Error("expected WriteFile to be called")
+	if len(results) != 0 {
+		t.Errorf("expected 0 results for deleted entry, got %d", len(results))
 	}
 }
 

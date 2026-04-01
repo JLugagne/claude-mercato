@@ -95,11 +95,11 @@ func TestBuildCorpus_WithEntries(t *testing.T) {
 	// Find the Go agent entry.
 	var e domain.Entry
 	for _, candidate := range entries {
-		if candidate.Ref == "mkt/dev/go/agents/foo.md" {
+		if candidate.Ref == "mkt@dev/go/agents/foo.md" {
 			e = candidate
 		}
 	}
-	if e.Ref != "mkt/dev/go/agents/foo.md" {
+	if e.Ref != "mkt@dev/go/agents/foo.md" {
 		t.Errorf("unexpected Ref: %q", e.Ref)
 	}
 	if e.Market != "mkt" {
@@ -260,6 +260,9 @@ func TestTokenize(t *testing.T) {
 	}{
 		{"hello world", []string{"hello", "world"}},
 		{"Go-lang", []string{"go", "lang"}},
+		{"discovering skills", []string{"discov", "skill"}},          // stemming
+		{"the agent is running", []string{"the", "agent", "is", "run"}}, // stemming (no stop word removal)
+		{"hexagonal architecture", []string{"hexagon", "architectur"}}, // stemming
 	}
 	for _, tt := range tests {
 		got := tokenize(tt.input)

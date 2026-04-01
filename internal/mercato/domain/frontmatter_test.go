@@ -125,13 +125,13 @@ func TestParseFrontmatter(t *testing.T) {
 	})
 
 	t.Run("mct_ref, mct_version, mct_market, mct_checksum are parsed if present", func(t *testing.T) {
-		content := makeFrontmatter("mct_ref: mymarket/agents/foo.md\nmct_version: v1.2.3\nmct_market: mymarket\nmct_checksum: abc123def456")
+		content := makeFrontmatter("mct_ref: mymarket@agents/foo.md\nmct_version: v1.2.3\nmct_market: mymarket\nmct_checksum: abc123def456")
 		fm, err := ParseFrontmatter(content)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if fm.MctRef != "mymarket/agents/foo.md" {
-			t.Errorf("expected mct_ref %q, got %q", "mymarket/agents/foo.md", fm.MctRef)
+		if fm.MctRef != "mymarket@agents/foo.md" {
+			t.Errorf("expected mct_ref %q, got %q", "mymarket@agents/foo.md", fm.MctRef)
 		}
 		if fm.MctVersion != "v1.2.3" {
 			t.Errorf("expected mct_version %q, got %q", "v1.2.3", fm.MctVersion)
@@ -193,11 +193,11 @@ func TestParseReadmeFrontmatter(t *testing.T) {
 func TestInjectMctFields(t *testing.T) {
 	content := makeFrontmatter("description: Test agent\nauthor: bob")
 
-	ref := MctRef("mymarket/agents/test.md")
+	ref := MctRef("mymarket@agents/test.md")
 	version := MctVersion("v2.0.0")
 	market := "mymarket"
 	checksum := "sha256abc"
-	profile := "mymarket/agents"
+	profile := "mymarket@agents"
 
 	result, err := InjectMctFields(content, ref, version, market, checksum, profile)
 	if err != nil {

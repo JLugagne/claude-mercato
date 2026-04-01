@@ -39,6 +39,9 @@ type AppModel struct {
 	selectedEntryContent string
 	selectedEntryRef     domain.MctRef
 	statusByRef          map[domain.MctRef]domain.EntryState
+	skillsOnlyMarkets    map[string]bool
+	skillDirFiles        []domain.SkillDirFile
+	skillDirMarket       string // market of the currently loaded skill dir files
 
 	marketPopup MarketPopup
 
@@ -67,6 +70,7 @@ func NewAppModel(svc TUIServices) AppModel {
 	pl.SetShowHelp(false)
 	pl.SetShowStatusBar(false)
 	pl.SetShowPagination(false)
+	pl.SetFilteringEnabled(false)
 	pl.InfiniteScrolling = true
 
 	el := list.New(nil, entryDelegate{}, 0, 0)
@@ -74,6 +78,7 @@ func NewAppModel(svc TUIServices) AppModel {
 	el.SetShowHelp(false)
 	el.SetShowStatusBar(false)
 	el.SetShowPagination(false)
+	el.SetFilteringEnabled(false)
 	el.InfiniteScrolling = true
 
 	vp := viewport.New(0, 0)
@@ -105,12 +110,12 @@ func (m AppModel) Init() tea.Cmd {
 
 func (m AppModel) loadAllMarkets() tea.Cmd {
 	return func() tea.Msg {
-		entries, err := m.svc.Search.DumpIndex()
+		results, err := m.svc.Search.Search("", service.SearchOpts{})
 		if err != nil {
-			return IndexReadyMsg{Entries: nil, Elapsed: 0}
+			return IndexReadyMsg{Elapsed: 0}
 		}
 		statuses, _ := m.svc.Check.Check(service.CheckOpts{})
-		return IndexReadyMsg{Entries: entries, Statuses: statuses, Elapsed: 0}
+		return IndexReadyMsg{Results: results, Statuses: statuses, Elapsed: 0}
 	}
 }
 
@@ -139,36 +144,35 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, s := range msg.Statuses {
 			m.statusByRef[s.Ref] = s.State
 		}
-		m.allEntries = make([]EntryItem, len(msg.Entries))
-		for i, e := range msg.Entries {
-			m.allEntries[i] = EntryItem{Entry: e}
+		m.allEntries = make([]EntryItem, len(msg.Results))
+		for i, r := range msg.Results {
+			m.allEntries[i] = EntryItem{Entry: r.Entry}
 		}
-		// Apply market selection filter if any markets are deselected.
-		if len(m.marketPopup.selected) > 0 {
-			filtered := make([]EntryItem, 0, len(m.allEntries))
-			for _, ei := range m.allEntries {
-				if m.marketPopup.selected[ei.Entry.Market] {
-					filtered = append(filtered, ei)
+		m.filteredEntries = m.allEntries
+		m.skillsOnlyMarkets = make(map[string]bool)
+		if markets, err := m.svc.Markets.ListMarkets(); err == nil {
+			for _, mk := range markets {
+				if mk.SkillsOnly {
+					m.skillsOnlyMarkets[mk.Name] = true
 				}
 			}
-			m.filteredEntries = filtered
-		} else {
-			m.filteredEntries = m.allEntries
 		}
+		m.updateLayout()
 		m.updateProfilesList()
 		m.updateEntriesList()
 		m.updateDetailContent()
-		return m, nil
+		return m, m.maybeLoadSkillDirFiles()
 
 	case SearchResultMsg:
 		m.filteredEntries = make([]EntryItem, len(msg.Results))
 		for i, r := range msg.Results {
 			m.filteredEntries[i] = EntryItem{Entry: r.Entry}
 		}
+		m.updateLayout()
 		m.updateProfilesList()
 		m.updateEntriesList()
 		m.updateDetailContent()
-		return m, nil
+		return m, m.maybeLoadSkillDirFiles()
 
 	case EntryContentMsg:
 		if msg.Err != nil {
@@ -231,6 +235,17 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		markets, _ := m.svc.Markets.ListMarkets()
 		m.marketPopup.load(markets)
 		return m, m.loadAllMarkets()
+
+	case SkillDirFilesMsg:
+		if msg.Err != nil {
+			m.skillDirFiles = nil
+			m.skillDirMarket = ""
+		} else {
+			m.skillDirFiles = msg.Files
+			m.skillDirMarket = msg.Market
+		}
+		m.updateEntriesList()
+		return m, nil
 
 	case MarketRenamedMsg:
 		if msg.Err != nil {
@@ -330,7 +345,9 @@ func (m *AppModel) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case FocusProfiles:
 			m.focus = FocusDetail
 		case FocusDetail:
-			m.focus = FocusEntries
+			if m.threeCol() {
+				m.focus = FocusEntries
+			}
 		}
 		return m, nil
 	case "r":
@@ -371,10 +388,12 @@ func (m *AppModel) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		prevIdx := m.profilesList.Index()
 		m.profilesList, cmd = m.profilesList.Update(msg)
 		if m.profilesList.Index() != prevIdx {
+			m.updateLayout()
 			m.updateEntriesList()
 			m.updateDetailContent()
 			m.selectedEntryContent = ""
 			m.contentView.SetContent("")
+			return m, tea.Batch(cmd, m.maybeLoadSkillDirFiles())
 		}
 		return m, cmd
 	case FocusDetail:
@@ -397,18 +416,30 @@ func (m *AppModel) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *AppModel) loadEntryContent() tea.Cmd {
-	item, ok := m.entriesList.SelectedItem().(EntryItem)
-	if !ok {
-		return nil
-	}
-	entry := item.Entry
-	return func() tea.Msg {
-		content, err := m.svc.Content.ReadEntryContent(entry.Market, entry.RelPath)
-		if err != nil {
-			return EntryContentMsg{Ref: entry.Ref, Err: err}
+	switch v := m.entriesList.SelectedItem().(type) {
+	case EntryItem:
+		entry := v.Entry
+		return func() tea.Msg {
+			content, err := m.svc.Content.ReadEntryContent(entry.Market, entry.RelPath)
+			if err != nil {
+				return EntryContentMsg{Ref: entry.Ref, Err: err}
+			}
+			return EntryContentMsg{Ref: entry.Ref, Content: string(content)}
 		}
-		return EntryContentMsg{Ref: entry.Ref, Content: string(content)}
+	case SkillFileItem:
+		// For skill files, content is already loaded for .md files
+		content := v.File.Content
+		ref := domain.MctRef(v.File.Path)
+		if content == "" {
+			return func() tea.Msg {
+				return EntryContentMsg{Ref: ref, Content: "(binary or non-markdown file)"}
+			}
+		}
+		return func() tea.Msg {
+			return EntryContentMsg{Ref: ref, Content: content}
+		}
 	}
+	return nil
 }
 
 func (m *AppModel) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -535,32 +566,8 @@ func (m *AppModel) profileRemoveCmd(p ProfileItem) tea.Cmd {
 }
 
 func (m *AppModel) searchCmd(query string) tea.Cmd {
-	markets := m.marketPopup.selectedMarkets()
 	return func() tea.Msg {
-		var results []service.SearchResult
-		var err error
-		if len(markets) == 0 {
-			// No markets selected: return empty result set immediately.
-			return SearchResultMsg{Query: query}
-		}
-		if len(markets) == 1 {
-			results, err = m.svc.Search.Search(query, service.SearchOpts{Limit: 50, Market: markets[0]})
-		} else {
-			results, err = m.svc.Search.Search(query, service.SearchOpts{Limit: 50})
-			if err == nil {
-				marketSet := make(map[string]bool, len(markets))
-				for _, mk := range markets {
-					marketSet[mk] = true
-				}
-				filtered := results[:0]
-				for _, r := range results {
-					if marketSet[r.Entry.Market] {
-						filtered = append(filtered, r)
-					}
-				}
-				results = filtered
-			}
-		}
+		results, err := m.svc.Search.Search(query, service.SearchOpts{Limit: 50})
 		if err != nil {
 			return SearchResultMsg{Query: query}
 		}
@@ -595,11 +602,6 @@ func (m *AppModel) updateProfilesList() {
 		items[i] = p
 	}
 	m.profilesList.SetItems(items)
-	// Force all items onto a single page so the list never paginates.
-	if len(items) > m.profilesList.Paginator.PerPage {
-		m.profilesList.Paginator.PerPage = len(items)
-		m.profilesList.Paginator.SetTotalPages(1)
-	}
 }
 
 func (m *AppModel) updateDetailContent() {
@@ -613,6 +615,18 @@ func (m *AppModel) updateEntriesList() {
 		m.entriesList.SetItems(nil)
 		return
 	}
+
+	// For skills-only markets, show skill dir files instead of entries
+	if m.skillsOnlyMarkets[item.Market] && len(m.skillDirFiles) > 0 {
+		m.entriesList.Title = "Files"
+		items := make([]list.Item, len(m.skillDirFiles))
+		for i, f := range m.skillDirFiles {
+			items[i] = SkillFileItem{File: f}
+		}
+		m.entriesList.SetItems(items)
+		return
+	}
+	m.entriesList.Title = "Agents & Skills"
 
 	items := make([]list.Item, len(item.Entries))
 	for i, e := range item.Entries {
@@ -656,6 +670,33 @@ func (m *AppModel) buildProfiles(entries []EntryItem) []ProfileItem {
 		return profiles[i].Name < profiles[j].Name
 	})
 	return profiles
+}
+
+func (m AppModel) isSelectedProfileSkillsOnly() bool {
+	item, ok := m.profilesList.SelectedItem().(ProfileItem)
+	if !ok {
+		return false
+	}
+	return m.skillsOnlyMarkets[item.Market]
+}
+
+func (m *AppModel) maybeLoadSkillDirFiles() tea.Cmd {
+	if !m.isSelectedProfileSkillsOnly() {
+		m.skillDirFiles = nil
+		m.skillDirMarket = ""
+		return nil
+	}
+	item, ok := m.profilesList.SelectedItem().(ProfileItem)
+	if !ok {
+		return nil
+	}
+	// For skills-only profiles, the category IS the skill dir path (e.g. "skills/azure-ai")
+	market := item.Market
+	dirPrefix := item.Name
+	return func() tea.Msg {
+		files, err := m.svc.SkillDirs.ListSkillDirFiles(market, dirPrefix)
+		return SkillDirFilesMsg{Market: market, Dir: dirPrefix, Files: files, Err: err}
+	}
 }
 
 func (m AppModel) threeCol() bool { return m.width > 100 }
@@ -819,6 +860,8 @@ func (m AppModel) buildDetailContent() string {
 
 	return s
 }
+
+
 
 func (m AppModel) viewStatusBar() string {
 	if m.statusMsg != "" {

@@ -23,8 +23,11 @@ func (a *App) Conflicts() ([]domain.Conflict, error) {
 			continue
 		}
 		for _, f := range files {
+			if mc.SkillsOnly && !isSkillPath(f, mc.SkillsPath) {
+				continue
+			}
 			base := filepath.Base(f)
-			ref := domain.MctRef(mc.Name + "/" + f)
+			ref := domain.MctRef(mc.Name + "@" + f)
 			filesByName[base] = append(filesByName[base], ref)
 		}
 	}
