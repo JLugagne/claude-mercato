@@ -233,6 +233,16 @@ Duplicate detection is by URL, not by name -- if you renamed a market locally, `
 
 See [MARKET.md](MARKET.md) for the market repository structure and how to create your own.
 
+## Privacy
+
+`mct` does not collect any telemetry, analytics, or usage data. It never phones home. All operations happen locally on your machine and communicate only with the Git repositories you explicitly register. Your workflow, your data, your business.
+
+## Why mct
+
+Stop copy-pasting markdown files between repos and hoping everyone is on the same version. `mct` gives your team a single command to install, update, and discover Claude agent and skill definitions -- with version tracking, dependency resolution, and drift detection built in. It works with any Git host, public or private, and requires zero infrastructure: no registry, no server, no account. Just `mct market add` and you're up and running.
+
+Teams already commit `.eslintrc`, `.editorconfig`, and `pyproject.toml` so every contributor shares the same linting and formatting rules. Agent and skill definitions are the next layer of that idea -- they encode *how the AI works on your project*: which patterns to follow, which tests to write, which architectural rules to enforce. With `mct save`, you check a `.mct.json` into your repo, and anyone who runs `mct restore` gets the exact same set of agents and skills. Same context, same standards, same results -- no setup wiki, no onboarding checklist.
+
 ## License
 
 See [LICENSE](LICENSE).
