@@ -12,13 +12,6 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
-// noInstalledEntries configures the fs mock so scanInstalledEntries returns nothing.
-// An empty MockFilesystem has no files in MapFS, so DirExists returns false.
-func noInstalledEntries(fs *filesystemtest.MockFilesystem) {
-	// Empty MapFS means Stat on any path returns error → DirExists = false.
-	// Nothing to do — zero-value MockFilesystem already behaves this way.
-}
-
 // agentContent is a minimal agent frontmatter for search tests.
 var agentContent = []byte("---\ndescription: Go expert\nauthor: alice\n---\n# foo\n")
 
@@ -53,7 +46,6 @@ func setupSearchMocks() (*configstoretest.MockConfigStore, *gitrepotest.MockGitR
 			{Path: "dev/rust/README.md", Content: rustReadmeContentBytes, Version: "sha3"},
 		}, nil
 	}
-	noInstalledEntries(fs)
 	return cfg, git, fs, state
 }
 
@@ -67,8 +59,6 @@ func TestBuildCorpus_Empty(t *testing.T) {
 	cfg.LoadFn = func(path string) (domain.Config, error) {
 		return domain.Config{Markets: nil}, nil
 	}
-	noInstalledEntries(fs)
-
 	app := newTestApp(cfg, git, fs, state)
 	entries, err := app.buildCorpus()
 	if err != nil {

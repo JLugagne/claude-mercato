@@ -38,7 +38,8 @@ func NewApp(configPath, cacheDir string) *cobra.Command {
 	cfgStore := cfgadapter.NewConfigStore()
 	stateStore := cfgadapter.NewStateStore()
 
-	application := app.New(gitRepo, fs, cfgStore, stateStore, configPath, cacheDir)
+	installDB := cfgadapter.NewInstallDB()
+	application := app.New(gitRepo, fs, cfgStore, stateStore, installDB, configPath, cacheDir)
 
 	svc := commands.Services{
 		Markets: application,

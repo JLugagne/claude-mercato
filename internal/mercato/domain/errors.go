@@ -65,10 +65,6 @@ var (
 )
 
 var (
-	ErrChecksumMismatch = &DomainError{Code: "CHECKSUM_MISMATCH", Message: "local file has been modified after install"}
-)
-
-var (
 	ErrConflictRefCollision = &DomainError{Code: "CONFLICT_REF_COLLISION", Message: "same filename in two markets resolves to same local path"}
 	ErrConflictDepVersion   = &DomainError{Code: "CONFLICT_DEP_VERSION", Message: "two agents require same skill at incompatible versions"}
 	ErrConflictDepDeleted   = &DomainError{Code: "CONFLICT_DEP_DELETED", Message: "a required skill was deleted from its market"}
@@ -77,4 +73,12 @@ var (
 var (
 	ErrCloneExists = &DomainError{Code: "CLONE_EXISTS", Message: "clone directory exists but market is not registered"}
 	ErrSSHDisabled = &DomainError{Code: "SSH_DISABLED", Message: "SSH is disabled. To enable:\n  mct config set ssh_enabled true\nor set MCT_SSH_ENABLED=true"}
+)
+
+var (
+	ErrLockContention  = &DomainError{Code: "LOCK_CONTENTION", Message: "another mct process holds the lock"}
+	ErrStaleLock       = &DomainError{Code: "STALE_LOCK", Message: "lock file is stale (owning process no longer exists)"}
+	ErrDriftDetected   = &DomainError{Code: "DRIFT_DETECTED", Message: "local file has been modified since last install"}
+	ErrDependencyCycle = &DomainError{Code: "DEPENDENCY_CYCLE", Message: "circular dependency detected in requires_skills"}
+	ErrPathTraversal   = &DomainError{Code: "PATH_TRAVERSAL", Message: "path contains traversal or is outside allowed directory"}
 )

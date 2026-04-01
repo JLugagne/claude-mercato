@@ -12,7 +12,7 @@ type EntryQueries interface {
 type EntryCommands interface {
 	EntryQueries
 	Add(ref domain.MctRef, opts AddOpts) error
-	Remove(ref domain.MctRef) error
+	Remove(ref domain.MctRef, opts RemoveOpts) error
 	Prune(opts PruneOpts) ([]PruneResult, error)
 	Init(opts InitOpts) error
 }
@@ -34,6 +34,10 @@ type AddOpts struct {
 	NoDeps         bool
 	DryRun         bool
 	ConfirmMarket  ConfirmMarketFunc
+}
+
+type RemoveOpts struct {
+	AllLocations bool // remove from all locations, not just current project
 }
 
 type PruneOpts struct {

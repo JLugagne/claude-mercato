@@ -5,13 +5,13 @@ import (
 	"io/fs"
 	"path/filepath"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/installdb/installdbtest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
@@ -557,8 +557,6 @@ func TestRemoveMarket_NotFound(t *testing.T) {
 }
 
 func TestRemoveMarket_HasInstalledEntries(t *testing.T) {
-	filePath := ".claude/agents/bar.md"
-
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return domain.Config{
@@ -569,27 +567,27 @@ func TestRemoveMarket_HasInstalledEntries(t *testing.T) {
 			}, nil
 		},
 	}
-	symlinks := map[string]string{
-		filePath: "/cache/dir/foo/agents/bar.md",
-	}
-	fsMock := &filesystemtest.MockFilesystem{
-		FS: fstest.MapFS{
-			filePath: &fstest.MapFile{Data: []byte("---\ndescription: test\n---\n")},
+	fsMock := &filesystemtest.MockFilesystem{}
+
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "foo",
+						Packages: []domain.InstalledPackage{
+							{Profile: "foo@agents/bar.md", Version: "abc", Files: domain.InstalledFiles{Agents: []string{"bar.md"}}, Locations: []string{"."}},
+						},
+					},
+				},
+			}, nil
 		},
-		IsSymlinkFn: func(path string) bool {
-			_, ok := symlinks[path]
-			return ok
-		},
-		ReadlinkFn: func(path string) (string, error) {
-			target, ok := symlinks[path]
-			if !ok {
-				return "", errors.New("not a symlink")
-			}
-			return target, nil
-		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
 	}
 
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
 	err := a.RemoveMarket("foo", service.RemoveMarketOpts{Force: false})
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -1110,9 +1108,6 @@ func TestMarketInfo_NoSyncStateEntry(t *testing.T) {
 }
 
 func TestMarketInfo_InstalledEntryCounting(t *testing.T) {
-	localAgentPath1 := ".claude/agents/bar.md"
-	localAgentPath2 := ".claude/agents/baz.md"
-
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return domain.Config{
@@ -1124,27 +1119,7 @@ func TestMarketInfo_InstalledEntryCounting(t *testing.T) {
 			}, nil
 		},
 	}
-	symlinks := map[string]string{
-		localAgentPath1: "/cache/dir/mkt/agents/bar.md",
-		localAgentPath2: "/cache/dir/mkt/agents/baz.md",
-	}
-	fsMock := &filesystemtest.MockFilesystem{
-		FS: fstest.MapFS{
-			localAgentPath1: &fstest.MapFile{Data: []byte("---\ndescription: test\n---\n")},
-			localAgentPath2: &fstest.MapFile{Data: []byte("---\ndescription: test2\n---\n")},
-		},
-		IsSymlinkFn: func(path string) bool {
-			_, ok := symlinks[path]
-			return ok
-		},
-		ReadlinkFn: func(path string) (string, error) {
-			target, ok := symlinks[path]
-			if !ok {
-				return "", errors.New("not a symlink")
-			}
-			return target, nil
-		},
-	}
+	fsMock := &filesystemtest.MockFilesystem{}
 	state := &statestoretest.MockStateStore{
 		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
 			return domain.SyncState{Version: 1, Markets: map[string]domain.MarketSyncState{}}, nil
@@ -1156,7 +1131,36 @@ func TestMarketInfo_InstalledEntryCounting(t *testing.T) {
 		},
 	}
 
-	a := newTestApp(cfg, git, fsMock, state)
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@agents/bar.md",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"bar.md"}},
+								Locations: []string{"."},
+							},
+							{
+								Profile:   "mkt@agents/baz.md",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"baz.md"}},
+								Locations: []string{"."},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+
+	a := newTestApp(cfg, git, fsMock, state, idb)
 	result, err := a.MarketInfo("mkt")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

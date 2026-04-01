@@ -503,7 +503,7 @@ func (m *AppModel) updateCmd(ref domain.MctRef) tea.Cmd {
 
 func (m *AppModel) removeCmd(ref domain.MctRef) tea.Cmd {
 	return func() tea.Msg {
-		err := m.svc.Entries.Remove(ref)
+		err := m.svc.Entries.Remove(ref, service.RemoveOpts{})
 		return PruneCompleteMsg{Ref: ref, Action: "removed", Err: err}
 	}
 }
@@ -553,7 +553,7 @@ func (m *AppModel) profileRemoveCmd(p ProfileItem) tea.Cmd {
 			if !e.Installed {
 				continue
 			}
-			if err := m.svc.Entries.Remove(e.Ref); err != nil {
+			if err := m.svc.Entries.Remove(e.Ref, service.RemoveOpts{}); err != nil {
 				errs = append(errs, err)
 			}
 		}

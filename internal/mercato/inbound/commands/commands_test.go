@@ -178,7 +178,7 @@ func (s *stubEntries) Add(ref domain.MctRef, opts service.AddOpts) error {
 	return nil
 }
 
-func (s *stubEntries) Remove(ref domain.MctRef) error {
+func (s *stubEntries) Remove(ref domain.MctRef, opts service.RemoveOpts) error {
 	if s.removeFn != nil {
 		return s.removeFn(ref)
 	}

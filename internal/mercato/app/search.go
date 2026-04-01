@@ -9,7 +9,6 @@ import (
 
 	"github.com/JLugagne/bm25"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	fsrepo "github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 	"github.com/JLugagne/snowball"
 )
@@ -196,9 +195,42 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	installed, err := a.scanInstalledEntries(cfg)
+
+	db, err := a.idb.Load(a.cacheDir)
 	if err != nil {
 		return nil, err
+	}
+
+	projectPath := filepath.Dir(filepath.Clean(cfg.LocalPath))
+	if projectPath == "." {
+		projectPath = "."
+	}
+
+	// Build a set of installed refs from installdb for quick lookup.
+	installedRefs := make(map[domain.MctRef]bool)
+	for _, im := range db.Markets {
+		for _, pkg := range im.Packages {
+			atLocation := false
+			for _, loc := range pkg.Locations {
+				if loc == projectPath {
+					atLocation = true
+					break
+				}
+			}
+			if !atLocation {
+				continue
+			}
+			for _, skill := range pkg.Files.Skills {
+				repoPath := a.skillFileRepoPath(pkg.Profile, skill, "SKILL.md")
+				ref := domain.MctRef(im.Market + "@" + repoPath)
+				installedRefs[ref] = true
+			}
+			for _, agent := range pkg.Files.Agents {
+				repoPath := a.agentFileRepoPath(pkg.Profile, agent)
+				ref := domain.MctRef(im.Market + "@" + repoPath)
+				installedRefs[ref] = true
+			}
+		}
 	}
 
 	var entries []domain.Entry
@@ -234,8 +266,6 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 				continue
 			}
 			ref := domain.MctRef(mc.Name + "@" + mf.Path)
-			ce, inInstalled := installed.Entries[ref]
-			isInstalled := inInstalled && ce != nil && fsrepo.Exists(a.fs, ce.LocalPath)
 
 			entry := domain.Entry{
 				Ref:            ref,
@@ -247,7 +277,7 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 				Description:    fm.Description,
 				Author:         fm.Author,
 				Version:        mf.Version,
-				Installed:      isInstalled,
+				Installed:      installedRefs[ref],
 				BreakingChange: fm.BreakingChange,
 				Deprecated:     fm.Deprecated,
 				RequiresSkills: fm.RequiresSkills,

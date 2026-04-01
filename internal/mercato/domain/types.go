@@ -93,15 +93,6 @@ type Tombstone struct {
 	RemovedLocally bool
 }
 
-type ChecksumEntry struct {
-	LocalPath         string     `json:"local_path"`
-	MctRef            MctRef     `json:"mct_ref"`
-	MctVersion        MctVersion `json:"mct_version"`
-	MctProfile        string     `json:"mct_profile"`
-	InstalledAt       time.Time  `json:"installed_at"`
-	ChecksumAtInstall string     `json:"checksum_at_install"`
-}
-
 type EntryState int
 
 const (

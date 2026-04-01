@@ -2,16 +2,15 @@ package app
 
 import (
 	"errors"
-	"io/fs"
 	"path/filepath"
 	"testing"
-	"testing/fstest"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/installdb/installdbtest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
@@ -54,9 +53,6 @@ func TestList_Empty(t *testing.T) {
 }
 
 func TestList_InstalledFilter(t *testing.T) {
-	const file1 = ".claude/agents/foo.md"
-	const file2 = ".claude/agents/bar.md"
-
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return domain.Config{
@@ -65,57 +61,55 @@ func TestList_InstalledFilter(t *testing.T) {
 			}, nil
 		},
 	}
-	mapFS := fstest.MapFS{
-		".claude/agents/foo.md": {Data: []byte("---\ndescription: test\n---\n")},
-		".claude/agents/bar.md": {Data: []byte("---\ndescription: test\n---\n")},
-	}
-	// Simulate symlinks: both files are symlinks pointing into the cache
-	symlinks := map[string]string{
-		file1: "/cache/dir/mkt/agents/foo.md",
-		file2: "/cache/dir/mkt/agents/bar.md",
-	}
-	fsMock := &filesystemtest.MockFilesystem{
-		FS: mapFS,
-		IsSymlinkFn: func(path string) bool {
-			_, ok := symlinks[path]
-			return ok
+	fsMock := &filesystemtest.MockFilesystem{}
+
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@agents/foo.md",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
+								Locations: []string{"."},
+							},
+							{
+								Profile:   "mkt@agents/bar.md",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"bar.md"}},
+								Locations: []string{"."},
+							},
+						},
+					},
+				},
+			}, nil
 		},
-		ReadlinkFn: func(path string) (string, error) {
-			target, ok := symlinks[path]
-			if !ok {
-				return "", errors.New("not a symlink")
-			}
-			return target, nil
-		},
-		StatFn: func(name string) (fs.FileInfo, error) {
-			if name == file2 {
-				return nil, errors.New("not found")
-			}
-			return fs.Stat(mapFS, name)
-		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
 	}
 
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
 
-	// Without installed filter: both symlinked entries are returned
+	// Without filter: both entries returned (both installed at ".")
 	entries, err := a.List(service.ListOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(entries) != 2 {
-		t.Errorf("expected 2 entries without filter, got %d", len(entries))
+		t.Errorf("expected 2 entries, got %d", len(entries))
 	}
 
-	// With installed filter: only file1 (which Stat returns info for)
+	// With installed filter: all entries from installdb are installed
 	installed, err := a.List(service.ListOpts{Installed: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(installed) != 1 {
-		t.Errorf("expected 1 installed entry, got %d", len(installed))
-	}
-	if installed[0].Ref != "mkt@agents/foo.md" {
-		t.Errorf("unexpected ref: %v", installed[0].Ref)
+	if len(installed) != 2 {
+		t.Errorf("expected 2 installed entries, got %d", len(installed))
 	}
 }
 
@@ -124,23 +118,37 @@ func TestList_InstalledFilter(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetEntry_Found(t *testing.T) {
-	filePath := ".claude/agents/foo.md"
-
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
 		},
 	}
-	fsMock := &filesystemtest.MockFilesystem{
-		FS: fstest.MapFS{
-			filePath: {Data: []byte("---\ndescription: test\n---\n")},
-		},
-	}
-	setupSymlinkMock(fsMock, map[string]string{
-		filePath: "/cache/dir/mkt/agents/foo.md",
-	})
+	fsMock := &filesystemtest.MockFilesystem{}
 
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@agents/foo.md",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
+								Locations: []string{"."},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
 
 	entry, err := a.GetEntry("mkt@agents/foo.md")
 	if err != nil {
@@ -180,7 +188,7 @@ func TestGetEntry_NotFound(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestAdd_Success(t *testing.T) {
-	symlinkCalled := false
+	writeFileCalled := false
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
@@ -188,14 +196,10 @@ func TestAdd_Success(t *testing.T) {
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
-		SymlinkFn: func(target, link string) error {
-			symlinkCalled = true
-			expectedTarget := filepath.Join("/cache/dir/mkt", "agents/foo.md")
-			if target != expectedTarget {
-				t.Errorf("expected symlink target %q, got %q", expectedTarget, target)
-			}
-			if link != ".claude/agents/foo.md" {
-				t.Errorf("expected symlink link %q, got %q", ".claude/agents/foo.md", link)
+		WriteFileFn: func(path string, content []byte) error {
+			writeFileCalled = true
+			if path != ".claude/agents/foo.md" {
+				t.Errorf("expected write path %q, got %q", ".claude/agents/foo.md", path)
 			}
 			return nil
 		},
@@ -204,37 +208,65 @@ func TestAdd_Success(t *testing.T) {
 		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
 			return agentFile(), nil
 		},
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "abc123", nil
+		},
 	}
 
-	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{Markets: []domain.InstalledMarket{}}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
 
 	err := a.Add("mkt@agents/foo.md", service.AddOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !symlinkCalled {
-		t.Error("expected Symlink to be called")
+	if !writeFileCalled {
+		t.Error("expected WriteFile to be called")
 	}
 }
 
 func TestAdd_AlreadyInstalled(t *testing.T) {
-	filePath := ".claude/agents/foo.md"
-
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
 		},
 	}
-	fsMock := &filesystemtest.MockFilesystem{
-		FS: fstest.MapFS{
-			filePath: {Data: []byte("---\ndescription: test\n---\n")},
-		},
-	}
-	setupSymlinkMock(fsMock, map[string]string{
-		filePath: "/cache/dir/mkt/agents/foo.md",
-	})
+	fsMock := &filesystemtest.MockFilesystem{}
 
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+	// installdb already has the package at this location
+	// refProfile("mkt@agents/foo.md") = "mkt@agents/foo.md" (first 2 path segments)
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@agents/foo.md",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
+								Locations: []string{"."},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
 
 	err := a.Add("mkt@agents/foo.md", service.AddOpts{})
 	if err == nil {
@@ -246,7 +278,7 @@ func TestAdd_AlreadyInstalled(t *testing.T) {
 }
 
 func TestAdd_DryRun(t *testing.T) {
-	symlinkCalled := false
+	writeFileCalled := false
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
@@ -254,8 +286,8 @@ func TestAdd_DryRun(t *testing.T) {
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
-		SymlinkFn: func(target, link string) error {
-			symlinkCalled = true
+		WriteFileFn: func(path string, content []byte) error {
+			writeFileCalled = true
 			return nil
 		},
 	}
@@ -271,8 +303,8 @@ func TestAdd_DryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if symlinkCalled {
-		t.Error("expected Symlink NOT to be called in dry-run mode")
+	if writeFileCalled {
+		t.Error("expected WriteFile NOT to be called in dry-run mode")
 	}
 }
 
@@ -296,7 +328,7 @@ func TestAdd_MarketNotFound(t *testing.T) {
 }
 
 func TestAdd_MctFieldsInRepo(t *testing.T) {
-	// mct_* fields in repo files are no longer rejected (symlink-based install).
+	// mct_* fields in repo files are no longer rejected (copy-based install).
 	// This test verifies that Add succeeds even if the repo file has mct_* fields.
 	contentWithMctFields := []byte("---\nmct_ref: mkt@agents/foo.md\ndescription: test\n---\n# content\n")
 
@@ -306,11 +338,14 @@ func TestAdd_MctFieldsInRepo(t *testing.T) {
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
-		SymlinkFn: func(target, link string) error { return nil },
+		WriteFileFn: func(path string, content []byte) error { return nil },
 	}
 	git := &gitrepotest.MockGitRepo{
 		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
 			return contentWithMctFields, nil
+		},
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "abc123", nil
 		},
 	}
 
@@ -334,7 +369,7 @@ func TestAdd_WithDependency(t *testing.T) {
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
-		SymlinkFn: func(target, link string) error { return nil },
+		WriteFileFn: func(path string, content []byte) error { return nil },
 	}
 	git := &gitrepotest.MockGitRepo{
 		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
@@ -346,6 +381,12 @@ func TestAdd_WithDependency(t *testing.T) {
 				return skillContent, nil
 			}
 			return nil, errors.New("unexpected file: " + filePath)
+		},
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "abc123", nil
+		},
+		ListDirFilesFn: func(clonePath, branch, dirPrefix string) ([]string, error) {
+			return []string{dirPrefix + "/SKILL.md"}, nil
 		},
 	}
 
@@ -369,7 +410,7 @@ func skillFile() []byte {
 }
 
 func TestAdd_ProfileExpand_Success(t *testing.T) {
-	symlinkPaths := []string{}
+	writePaths := []string{}
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
@@ -377,8 +418,8 @@ func TestAdd_ProfileExpand_Success(t *testing.T) {
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
-		SymlinkFn: func(target, link string) error {
-			symlinkPaths = append(symlinkPaths, link)
+		WriteFileFn: func(path string, content []byte) error {
+			writePaths = append(writePaths, path)
 			return nil
 		},
 	}
@@ -398,6 +439,12 @@ func TestAdd_ProfileExpand_Success(t *testing.T) {
 			}
 			return nil, errors.New("unexpected file: " + filePath)
 		},
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "abc123", nil
+		},
+		ListDirFilesFn: func(clonePath, branch, dirPrefix string) ([]string, error) {
+			return []string{dirPrefix + "/bar.md"}, nil
+		},
 	}
 
 	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
@@ -406,13 +453,13 @@ func TestAdd_ProfileExpand_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(symlinkPaths) != 2 {
-		t.Errorf("expected Symlink called twice, got %d", len(symlinkPaths))
+	if len(writePaths) != 2 {
+		t.Errorf("expected WriteFile called twice, got %d: %v", len(writePaths), writePaths)
 	}
 }
 
 func TestAdd_ProfileExpand_DryRun(t *testing.T) {
-	symlinkCalled := false
+	writeFileCalled := false
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
@@ -420,8 +467,8 @@ func TestAdd_ProfileExpand_DryRun(t *testing.T) {
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
-		SymlinkFn: func(target, link string) error {
-			symlinkCalled = true
+		WriteFileFn: func(path string, content []byte) error {
+			writeFileCalled = true
 			return nil
 		},
 	}
@@ -442,27 +489,18 @@ func TestAdd_ProfileExpand_DryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if symlinkCalled {
-		t.Error("expected Symlink NOT to be called in dry-run mode")
+	if writeFileCalled {
+		t.Error("expected WriteFile NOT to be called in dry-run mode")
 	}
 }
 
 func TestAdd_ProfileExpand_AllAlreadyInstalled(t *testing.T) {
-	const agentLocalPath = ".claude/agents/foo.md"
-
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
 		},
 	}
-	fsMock := &filesystemtest.MockFilesystem{
-		FS: fstest.MapFS{
-			agentLocalPath: {Data: []byte("---\ndescription: test\n---\n")},
-		},
-	}
-	setupSymlinkMock(fsMock, map[string]string{
-		agentLocalPath: "/cache/dir/mkt/dev/go/agents/foo.md",
-	})
+	fsMock := &filesystemtest.MockFilesystem{}
 	git := &gitrepotest.MockGitRepo{
 		ReadMarketFilesFn: func(clonePath, branch string) ([]gitrepo.MarketFile, error) {
 			return []gitrepo.MarketFile{
@@ -471,7 +509,31 @@ func TestAdd_ProfileExpand_AllAlreadyInstalled(t *testing.T) {
 		},
 	}
 
-	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+	// installdb already has the package at this location
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@dev/go",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
+								Locations: []string{"."},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
 
 	err := a.Add("mkt@dev/go", service.AddOpts{})
 	if err == nil {
@@ -483,8 +545,7 @@ func TestAdd_ProfileExpand_AllAlreadyInstalled(t *testing.T) {
 }
 
 func TestAdd_ProfileExpand_PartialInstall(t *testing.T) {
-	const agentLocalPath = ".claude/agents/foo.md"
-	symlinkPaths := []string{}
+	writePaths := []string{}
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
@@ -492,18 +553,11 @@ func TestAdd_ProfileExpand_PartialInstall(t *testing.T) {
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
-		FS: fstest.MapFS{
-			// foo.md already installed
-			agentLocalPath: {Data: []byte("---\ndescription: test\n---\n")},
-		},
-		SymlinkFn: func(target, link string) error {
-			symlinkPaths = append(symlinkPaths, link)
+		WriteFileFn: func(path string, content []byte) error {
+			writePaths = append(writePaths, path)
 			return nil
 		},
 	}
-	setupSymlinkMock(fsMock, map[string]string{
-		agentLocalPath: "/cache/dir/mkt/dev/go/agents/foo.md",
-	})
 	git := &gitrepotest.MockGitRepo{
 		ReadMarketFilesFn: func(clonePath, branch string) ([]gitrepo.MarketFile, error) {
 			return []gitrepo.MarketFile{
@@ -514,16 +568,46 @@ func TestAdd_ProfileExpand_PartialInstall(t *testing.T) {
 		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
 			return skillFile(), nil
 		},
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "abc123", nil
+		},
+		ListDirFilesFn: func(clonePath, branch, dirPrefix string) ([]string, error) {
+			return []string{dirPrefix + "/bar.md"}, nil
+		},
 	}
 
-	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+	// installdb has foo.md already installed but not bar.md
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@dev/go",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
+								Locations: []string{"."},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
 
 	err := a.Add("mkt@dev/go", service.AddOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(symlinkPaths) != 1 {
-		t.Errorf("expected Symlink called once (only bar.md), got %d", len(symlinkPaths))
+	if len(writePaths) != 1 {
+		t.Errorf("expected WriteFile called once (only bar.md), got %d: %v", len(writePaths), writePaths)
 	}
 }
 
@@ -550,7 +634,6 @@ func TestAdd_ProfileExpand_MarketNotFound(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRemove_Success(t *testing.T) {
-	filePath := ".claude/agents/foo.md"
 	deleteFileCalled := false
 
 	cfg := &configstoretest.MockConfigStore{
@@ -559,26 +642,96 @@ func TestRemove_Success(t *testing.T) {
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
-		FS: fstest.MapFS{
-			filePath: {Data: []byte("---\ndescription: test\n---\n")},
-		},
 		DeleteFileFn: func(path string) error {
 			deleteFileCalled = true
+			if path != filepath.Join(".claude", "agents", "foo.md") {
+				t.Errorf("unexpected delete path: %q", path)
+			}
 			return nil
 		},
 	}
-	setupSymlinkMock(fsMock, map[string]string{
-		filePath: "/cache/dir/mkt/agents/foo.md",
-	})
 
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@agents/foo.md",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
+								Locations: []string{"."},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
 
-	err := a.Remove("mkt@agents/foo.md")
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
+
+	err := a.Remove("mkt@agents/foo.md", service.RemoveOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !deleteFileCalled {
 		t.Error("expected DeleteFile to be called")
+	}
+}
+
+func TestRemove_LastLocation_PackageRemoved(t *testing.T) {
+	var savedDB domain.InstallDatabase
+
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		DeleteFileFn: func(path string) error { return nil },
+	}
+
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@agents/foo.md",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
+								Locations: []string{"."},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error {
+			savedDB = db
+			return nil
+		},
+	}
+
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
+
+	err := a.Remove("mkt@agents/foo.md", service.RemoveOpts{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// After removing the last location, the market should be gone entirely
+	if len(savedDB.Markets) != 0 {
+		t.Errorf("expected 0 markets after removing last location, got %d", len(savedDB.Markets))
 	}
 }
 
@@ -592,7 +745,49 @@ func TestRemove_NotInstalled(t *testing.T) {
 
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
 
-	err := a.Remove("mkt@agents/foo.md")
+	err := a.Remove("mkt@agents/foo.md", service.RemoveOpts{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !isDomainErrorWithCode(err, "ENTRY_NOT_INSTALLED") {
+		t.Errorf("expected ENTRY_NOT_INSTALLED, got %v", err)
+	}
+}
+
+func TestRemove_NotInstalledAtCurrentLocation(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{}
+
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@agents/foo.md",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
+								Locations: []string{"/other/project"},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
+
+	err := a.Remove("mkt@agents/foo.md", service.RemoveOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -652,9 +847,11 @@ func TestReadEntryContent_MarketNotFound(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPrune_AllKeep(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	setupInstalledEntry(cfg, fsMock, ".claude/agents/foo.md")
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
 
 	git := &gitrepotest.MockGitRepo{
 		FileVersionFn: func(clonePath, filePath string) (domain.MctVersion, error) {
@@ -662,7 +859,30 @@ func TestPrune_AllKeep(t *testing.T) {
 		},
 	}
 
-	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@agents/foo.md",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
+								Locations: []string{"."},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+
+	a := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{}, idb)
 	results, err := a.Prune(service.PruneOpts{AllKeep: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -676,9 +896,11 @@ func TestPrune_AllKeep(t *testing.T) {
 }
 
 func TestPrune_AllRemove(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	setupInstalledEntry(cfg, fsMock, ".claude/agents/foo.md")
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
 
 	git := &gitrepotest.MockGitRepo{
 		FileVersionFn: func(clonePath, filePath string) (domain.MctVersion, error) {
@@ -687,12 +909,37 @@ func TestPrune_AllRemove(t *testing.T) {
 	}
 
 	deleteFileCalled := false
-	fsMock.DeleteFileFn = func(path string) error {
-		deleteFileCalled = true
-		return nil
+	fsMock := &filesystemtest.MockFilesystem{
+		DeleteFileFn: func(path string) error {
+			deleteFileCalled = true
+			return nil
+		},
 	}
 
-	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@agents/foo.md",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
+								Locations: []string{"."},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
 	results, err := a.Prune(service.PruneOpts{AllRemove: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -858,7 +1105,7 @@ func TestIsSkillDirRef(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestAdd_SkillDirRef(t *testing.T) {
-	symlinkCalled := false
+	writeFileCalled := false
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
@@ -866,25 +1113,23 @@ func TestAdd_SkillDirRef(t *testing.T) {
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
-		SymlinkFn: func(target, link string) error {
-			symlinkCalled = true
-			// Skill symlinks point to the directory, not the SKILL.md file
-			expectedTarget := filepath.Dir(filepath.Join("/cache/dir/mkt", "skills/go-arch/SKILL.md"))
-			if target != expectedTarget {
-				t.Errorf("expected symlink target %q, got %q", expectedTarget, target)
-			}
-			if link != ".claude/skills/go-arch" {
-				t.Errorf("expected symlink link %q, got %q", ".claude/skills/go-arch", link)
+		WriteFileFn: func(path string, content []byte) error {
+			writeFileCalled = true
+			if path != filepath.Join(".claude/skills/go-arch", "SKILL.md") {
+				t.Errorf("expected write to .claude/skills/go-arch/SKILL.md, got %q", path)
 			}
 			return nil
 		},
 	}
 	git := &gitrepotest.MockGitRepo{
 		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
-			if filePath != "skills/go-arch/SKILL.md" {
-				t.Errorf("expected ReadFileAtRef for skills/go-arch/SKILL.md, got %q", filePath)
-			}
 			return skillFile(), nil
+		},
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "abc123", nil
+		},
+		ListDirFilesFn: func(clonePath, branch, dirPrefix string) ([]string, error) {
+			return []string{dirPrefix + "/SKILL.md"}, nil
 		},
 	}
 
@@ -895,8 +1140,8 @@ func TestAdd_SkillDirRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !symlinkCalled {
-		t.Error("expected Symlink to be called")
+	if !writeFileCalled {
+		t.Error("expected WriteFile to be called")
 	}
 }
 
@@ -905,8 +1150,7 @@ func TestAdd_SkillDirRef(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRemove_SkillDirRef(t *testing.T) {
-	skillLocalPath := ".claude/skills/go-arch"
-	deleteFileCalled := false
+	removeAllCalled := false
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
@@ -914,38 +1158,48 @@ func TestRemove_SkillDirRef(t *testing.T) {
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
-		FS: fstest.MapFS{
-			".claude/skills/go-arch/SKILL.md": {Data: []byte("---\ndescription: test\n---\n")},
-		},
-		DeleteFileFn: func(path string) error {
-			deleteFileCalled = true
-			if path != skillLocalPath {
-				t.Errorf("expected DeleteFile on symlink %q, got %q", skillLocalPath, path)
+		RemoveAllFn: func(path string) error {
+			removeAllCalled = true
+			expected := filepath.Join(".claude", "skills", "go-arch")
+			if path != expected {
+				t.Errorf("expected RemoveAll on %q, got %q", expected, path)
 			}
 			return nil
 		},
 	}
-	// Simulate skill directory symlink: .claude/skills/go-arch → cache/mkt/skills/go-arch
-	setupSymlinkMock(fsMock, map[string]string{
-		skillLocalPath: "/cache/dir/mkt/skills/go-arch",
-	})
-	// ListDir returns the skill directory name for scanning
-	fsMock.ListDirFn = func(dir string) ([]string, error) {
-		if dir == ".claude/skills" {
-			return []string{"go-arch"}, nil
-		}
-		return nil, nil
+
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@skills/go-arch",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Skills: []string{"go-arch"}},
+								Locations: []string{"."},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
 	}
 
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
 
 	// Pass skill directory ref without /SKILL.md — should be normalized
-	err := a.Remove("mkt@skills/go-arch")
+	err := a.Remove("mkt@skills/go-arch", service.RemoveOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !deleteFileCalled {
-		t.Error("expected DeleteFile to be called")
+	if !removeAllCalled {
+		t.Error("expected RemoveAll to be called")
 	}
 }
 
@@ -1272,15 +1526,15 @@ func TestAdd_ReadFileAtRefFailure(t *testing.T) {
 	}
 }
 
-func TestAdd_SymlinkFailure(t *testing.T) {
+func TestAdd_WriteFileFailure(t *testing.T) {
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
-		SymlinkFn: func(target, link string) error {
-			return errors.New("symlink failed")
+		WriteFileFn: func(path string, content []byte) error {
+			return errors.New("write failed")
 		},
 	}
 	git := &gitrepotest.MockGitRepo{
@@ -1315,9 +1569,11 @@ func TestPrune_ConfigLoadFailure(t *testing.T) {
 }
 
 func TestPrune_FileStillExistsInMarket(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	setupInstalledEntry(cfg, fsMock, ".claude/agents/foo.md")
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
 
 	git := &gitrepotest.MockGitRepo{
 		FileVersionFn: func(clonePath, filePath string) (domain.MctVersion, error) {
@@ -1325,7 +1581,30 @@ func TestPrune_FileStillExistsInMarket(t *testing.T) {
 		},
 	}
 
-	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{
+								Profile:   "mkt@agents/foo.md",
+								Version:   "abc123",
+								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
+								Locations: []string{"."},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+
+	a := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{}, idb)
 	results, err := a.Prune(service.PruneOpts{AllRemove: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1354,9 +1633,6 @@ func TestList_ConfigLoadFailure(t *testing.T) {
 }
 
 func TestList_FilterByMarket(t *testing.T) {
-	const file1 = ".claude/agents/foo.md"
-	const file2 = ".claude/agents/bar.md"
-
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return domain.Config{
@@ -1368,18 +1644,33 @@ func TestList_FilterByMarket(t *testing.T) {
 			}, nil
 		},
 	}
-	mapFS := fstest.MapFS{
-		file1: {Data: []byte("---\ndescription: test\n---\n")},
-		file2: {Data: []byte("---\ndescription: test\n---\n")},
-	}
-	symlinks := map[string]string{
-		file1: "/cache/dir/mkt1/agents/foo.md",
-		file2: "/cache/dir/mkt2/agents/bar.md",
-	}
-	fsMock := &filesystemtest.MockFilesystem{FS: mapFS}
-	setupSymlinkMock(fsMock, symlinks)
+	fsMock := &filesystemtest.MockFilesystem{}
 
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt1",
+						Packages: []domain.InstalledPackage{
+							{Profile: "mkt1@agents/foo.md", Version: "abc", Files: domain.InstalledFiles{Agents: []string{"foo.md"}}, Locations: []string{"."}},
+						},
+					},
+					{
+						Market: "mkt2",
+						Packages: []domain.InstalledPackage{
+							{Profile: "mkt2@agents/bar.md", Version: "abc", Files: domain.InstalledFiles{Agents: []string{"bar.md"}}, Locations: []string{"."}},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
 
 	entries, err := a.List(service.ListOpts{Market: "mkt1"})
 	if err != nil {
@@ -1394,9 +1685,6 @@ func TestList_FilterByMarket(t *testing.T) {
 }
 
 func TestList_FilterByType(t *testing.T) {
-	const agentFile1 = ".claude/agents/foo.md"
-	const skillDir = ".claude/skills/bar"
-
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
 			return domain.Config{
@@ -1405,25 +1693,28 @@ func TestList_FilterByType(t *testing.T) {
 			}, nil
 		},
 	}
-	mapFS := fstest.MapFS{
-		agentFile1: {Data: []byte("---\ndescription: test\n---\n")},
-	}
-	symlinks := map[string]string{
-		agentFile1: "/cache/dir/mkt/agents/foo.md",
-		skillDir:   "/cache/dir/mkt/skills/bar",
-	}
-	fsMock := &filesystemtest.MockFilesystem{
-		FS: mapFS,
-		ListDirFn: func(dir string) ([]string, error) {
-			if dir == ".claude/skills" {
-				return []string{"bar"}, nil
-			}
-			return nil, nil
-		},
-	}
-	setupSymlinkMock(fsMock, symlinks)
+	fsMock := &filesystemtest.MockFilesystem{}
 
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+	idb := &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return domain.InstallDatabase{
+				Markets: []domain.InstalledMarket{
+					{
+						Market: "mkt",
+						Packages: []domain.InstalledPackage{
+							{Profile: "mkt@agents/foo.md", Version: "abc", Files: domain.InstalledFiles{Agents: []string{"foo.md"}}, Locations: []string{"."}},
+							{Profile: "mkt@skills/bar", Version: "abc", Files: domain.InstalledFiles{Skills: []string{"bar"}}, Locations: []string{"."}},
+						},
+					},
+				},
+			}, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
 
 	agents, err := a.List(service.ListOpts{Type: domain.EntryTypeAgent})
 	if err != nil {
@@ -1443,42 +1734,6 @@ func TestList_FilterByType(t *testing.T) {
 		if e.Type != domain.EntryTypeSkill {
 			t.Errorf("expected all entries to be skills, got %q", e.Type)
 		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// resolveSymlinkEntry — additional branches
-// ---------------------------------------------------------------------------
-
-func TestResolveSymlinkEntry_ReadlinkError(t *testing.T) {
-	fsMock := &filesystemtest.MockFilesystem{
-		IsSymlinkFn: func(path string) bool { return true },
-		ReadlinkFn: func(path string) (string, error) {
-			return "", errors.New("readlink failed")
-		},
-	}
-	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
-
-	dirToMarket := map[string]string{"mkt": "mkt"}
-	result := a.resolveSymlinkEntry("/some/path", dirToMarket)
-	if result != nil {
-		t.Errorf("expected nil, got %+v", result)
-	}
-}
-
-func TestResolveSymlinkEntry_MarketDirNotInMap(t *testing.T) {
-	fsMock := &filesystemtest.MockFilesystem{
-		IsSymlinkFn: func(path string) bool { return true },
-		ReadlinkFn: func(path string) (string, error) {
-			return "/cache/dir/unknown-market/agents/foo.md", nil
-		},
-	}
-	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
-
-	dirToMarket := map[string]string{"mkt": "mkt"}
-	result := a.resolveSymlinkEntry("/some/path", dirToMarket)
-	if result != nil {
-		t.Errorf("expected nil for unknown market dir, got %+v", result)
 	}
 }
 

@@ -3,64 +3,94 @@ package app
 import (
 	"errors"
 	"testing"
-	"testing/fstest"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/installdb/installdbtest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
 // newTestApp constructs an App for testing.
-func newTestApp(cfg *configstoretest.MockConfigStore, git *gitrepotest.MockGitRepo, fs *filesystemtest.MockFilesystem, state *statestoretest.MockStateStore) *App {
-	return New(git, fs, cfg, state, "/config/path", "/cache/dir")
-}
-
-// setupInstalledEntry configures mocks so that scanInstalledEntries returns one
-// entry for "mkt@agents/foo.md". localFile is the full path key in MapFS.
-func setupInstalledEntry(cfg *configstoretest.MockConfigStore, fsMock *filesystemtest.MockFilesystem, localFile string) {
-	cfg.LoadFn = func(path string) (domain.Config, error) {
-		return domain.Config{
-			LocalPath: ".claude",
-			Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
-		}, nil
-	}
-	fsMock.FS = fstest.MapFS{
-		localFile: &fstest.MapFile{Data: []byte("---\ndescription: test\n---\n")},
-	}
-	setupSymlinkMock(fsMock, map[string]string{
-		localFile: "/cache/dir/mkt/agents/foo.md",
-	})
-}
-
-// setupSymlinkMock configures IsSymlinkFn and ReadlinkFn on a MockFilesystem
-// to simulate symlinks. The map keys are local file paths and the values are
-// the symlink targets (absolute paths inside the cache directory).
-func setupSymlinkMock(fsMock *filesystemtest.MockFilesystem, symlinks map[string]string) {
-	fsMock.IsSymlinkFn = func(path string) bool {
-		_, ok := symlinks[path]
-		return ok
-	}
-	fsMock.ReadlinkFn = func(path string) (string, error) {
-		target, ok := symlinks[path]
-		if !ok {
-			return "", errors.New("not a symlink")
+func newTestApp(cfg *configstoretest.MockConfigStore, git *gitrepotest.MockGitRepo, fs *filesystemtest.MockFilesystem, state *statestoretest.MockStateStore, idbOpts ...*installdbtest.MockInstallDB) *App {
+	var idb *installdbtest.MockInstallDB
+	if len(idbOpts) > 0 && idbOpts[0] != nil {
+		idb = idbOpts[0]
+	} else {
+		idb = &installdbtest.MockInstallDB{
+			LockFn:   func(cacheDir string) error { return nil },
+			UnlockFn: func(cacheDir string) error { return nil },
+			LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+				return domain.InstallDatabase{Markets: []domain.InstalledMarket{}}, nil
+			},
+			SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
 		}
-		return target, nil
+	}
+	return New(git, fs, cfg, state, idb, "/config/path", "/cache/dir")
+}
+
+// installedDB returns an installdb with one package at the "." location.
+func installedDB(market, profile, version string, files domain.InstalledFiles) domain.InstallDatabase {
+	return domain.InstallDatabase{
+		Markets: []domain.InstalledMarket{
+			{
+				Market: market,
+				Packages: []domain.InstalledPackage{
+					{
+						Profile:   profile,
+						Version:   version,
+						Files:     files,
+						Locations: []string{"."},
+					},
+				},
+			},
+		},
 	}
 }
 
-// TestCheck_Clean verifies that a valid symlink produces StateClean.
+// idbWithData returns a MockInstallDB that returns the given database.
+func idbWithData(db domain.InstallDatabase) *installdbtest.MockInstallDB {
+	return &installdbtest.MockInstallDB{
+		LockFn:   func(cacheDir string) error { return nil },
+		UnlockFn: func(cacheDir string) error { return nil },
+		LoadFn: func(cacheDir string) (domain.InstallDatabase, error) {
+			return db, nil
+		},
+		SaveFn: func(cacheDir string, db domain.InstallDatabase) error { return nil },
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Check
+// ---------------------------------------------------------------------------
+
+// TestCheck_Clean verifies that matching versions produce StateClean.
 func TestCheck_Clean(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
+			}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "abc123", nil // same as installed version
+		},
+		// ReadFileAtRef returns error to skip drift detection (file not found at ref)
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			return nil, errors.New("not found at ref")
+		},
+	}
 	fsMock := &filesystemtest.MockFilesystem{}
-	state := &statestoretest.MockStateStore{}
 
-	setupInstalledEntry(cfg, fsMock, ".claude/agents/foo.md")
+	db := installedDB("mkt", "mkt@agents/foo.md", "abc123", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	idb := idbWithData(db)
 
-	app := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, state)
+	app := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
 	statuses, err := app.Check(service.CheckOpts{})
 	if err != nil {
 		t.Fatal("unexpected error:", err)
@@ -73,7 +103,7 @@ func TestCheck_Clean(t *testing.T) {
 	}
 }
 
-// TestCheck_Drift verifies that a non-symlink file produces StateDrift.
+// TestCheck_Drift verifies that modified local files produce StateDrift.
 func TestCheck_Drift(t *testing.T) {
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
@@ -83,24 +113,26 @@ func TestCheck_Drift(t *testing.T) {
 			}, nil
 		},
 	}
-	fsMock := &filesystemtest.MockFilesystem{
-		FS: fstest.MapFS{
-			".claude/agents/foo.md": &fstest.MapFile{Data: []byte("---\ndescription: test\n---\n")},
+	git := &gitrepotest.MockGitRepo{
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "abc123", nil // same version => no update available
+		},
+		// ReadFileAtRef will fail => drift detection sees missing local file as drift
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			return []byte("original content"), nil
 		},
 	}
-	// File exists in walker but IsSymlink returns true for scan, then false for check.
-	// To simulate: scan finds symlink, but Check sees it's no longer a symlink.
-	// Use a counter: first IsSymlink call (scan) returns true, second (check) returns false.
-	callCount := 0
-	fsMock.IsSymlinkFn = func(path string) bool {
-		callCount++
-		return callCount <= 1 // true on first call (scan), false on second (check)
-	}
-	fsMock.ReadlinkFn = func(path string) (string, error) {
-		return "/cache/dir/mkt/agents/foo.md", nil
+	// MD5 returns different hashes to simulate drift. But since detectDrift
+	// uses os.ReadFile for local files, and the files don't actually exist on
+	// disk in test, the os.ReadFile will fail and that counts as drift.
+	fsMock := &filesystemtest.MockFilesystem{
+		MD5ChecksumFn: func(content []byte) string { return "hash" },
 	}
 
-	app := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+	db := installedDB("mkt", "mkt@agents/foo.md", "abc123", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	idb := idbWithData(db)
+
+	app := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
 	statuses, err := app.Check(service.CheckOpts{})
 	if err != nil {
 		t.Fatal("unexpected error:", err)
@@ -112,6 +144,133 @@ func TestCheck_Drift(t *testing.T) {
 		t.Errorf("expected StateDrift, got %v", statuses[0].State)
 	}
 }
+
+// TestCheck_UpdateAvailable verifies that a newer remote HEAD produces StateUpdateAvailable.
+func TestCheck_UpdateAvailable(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
+			}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "newsha456", nil // different from installed version
+		},
+		// Return error so drift detection skips all files (no drift)
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			return nil, errors.New("not found at ref")
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{}
+
+	db := installedDB("mkt", "mkt@agents/foo.md", "oldsha123", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	idb := idbWithData(db)
+
+	app := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
+	statuses, err := app.Check(service.CheckOpts{})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("expected 1 status, got %d", len(statuses))
+	}
+	if statuses[0].State != domain.StateUpdateAvailable {
+		t.Errorf("expected StateUpdateAvailable, got %v", statuses[0].State)
+	}
+}
+
+// TestCheck_UpdateAndDrift verifies StateUpdateAndDrift when both conditions hold.
+func TestCheck_UpdateAndDrift(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
+			}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "newsha456", nil // different from installed version => update available
+		},
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			return []byte("original"), nil // drift detection succeeds, but local file differs
+		},
+	}
+	// detectDrift uses os.ReadFile for local files which will fail => drift detected
+	fsMock := &filesystemtest.MockFilesystem{
+		MD5ChecksumFn: func(content []byte) string { return "hash" },
+	}
+
+	db := installedDB("mkt", "mkt@agents/foo.md", "oldsha123", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	idb := idbWithData(db)
+
+	app := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
+	statuses, err := app.Check(service.CheckOpts{})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("expected 1 status, got %d", len(statuses))
+	}
+	if statuses[0].State != domain.StateUpdateAndDrift {
+		t.Errorf("expected StateUpdateAndDrift, got %v", statuses[0].State)
+	}
+}
+
+// TestCheck_MarketFilter verifies that market filtering works.
+func TestCheck_MarketFilter(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets: []domain.MarketConfig{
+					{Name: "alpha", Branch: "main"},
+					{Name: "beta", Branch: "main"},
+				},
+			}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "abc123", nil
+		},
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			return nil, errors.New("skip")
+		},
+	}
+
+	db := domain.InstallDatabase{
+		Markets: []domain.InstalledMarket{
+			{Market: "alpha", Packages: []domain.InstalledPackage{
+				{Profile: "alpha@agents/a.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []string{"."}},
+			}},
+			{Market: "beta", Packages: []domain.InstalledPackage{
+				{Profile: "beta@agents/b.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []string{"."}},
+			}},
+		},
+	}
+	idb := idbWithData(db)
+
+	app := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{}, idb)
+	statuses, err := app.Check(service.CheckOpts{Market: "beta"})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("expected 1 status (only beta), got %d", len(statuses))
+	}
+	if statuses[0].Ref.Market() != "beta" {
+		t.Errorf("expected market=beta, got %q", statuses[0].Ref.Market())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Refresh
+// ---------------------------------------------------------------------------
 
 // TestRefresh_Success verifies that a successful fetch produces a complete result.
 func TestRefresh_Success(t *testing.T) {
@@ -282,6 +441,58 @@ func TestRefresh_DryRun(t *testing.T) {
 	}
 }
 
+// TestRefresh_UpdatesAvailable verifies that UpdatesAvailable counts packages
+// whose version differs from the new SHA.
+func TestRefresh_UpdatesAvailable(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				Markets: []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
+			}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{
+				Version: 1,
+				Markets: map[string]domain.MarketSyncState{
+					"mkt": {LastSyncedSHA: "oldhash"},
+				},
+			}, nil
+		},
+		SetMarketSyncDirtyFn: func(cacheDir, market string) error { return nil },
+		SetMarketSyncCleanFn: func(cacheDir, market, newSHA string) error { return nil },
+	}
+	git := &gitrepotest.MockGitRepo{
+		FetchFn: func(clonePath, branch string) (string, error) { return "newhash", nil },
+		DiffSinceCommitFn: func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
+			return nil, nil
+		},
+	}
+
+	db := domain.InstallDatabase{
+		Markets: []domain.InstalledMarket{
+			{Market: "mkt", Packages: []domain.InstalledPackage{
+				{Profile: "mkt@agents/a.md", Version: "oldhash", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []string{"."}},
+				{Profile: "mkt@agents/b.md", Version: "newhash", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []string{"."}},
+			}},
+		},
+	}
+	idb := idbWithData(db)
+
+	app := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state, idb)
+	results, err := app.Refresh(service.RefreshOpts{})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].UpdatesAvailable != 1 {
+		t.Errorf("expected UpdatesAvailable=1, got %d", results[0].UpdatesAvailable)
+	}
+}
+
 // TestSyncState verifies that SyncState() returns what the state store returns.
 func TestSyncState(t *testing.T) {
 	cfg := &configstoretest.MockConfigStore{}
@@ -312,46 +523,59 @@ func TestSyncState(t *testing.T) {
 	}
 }
 
-// setupInstalledEntryForUpdate sets up mocks for Update tests using a specific localFile path.
-func setupInstalledEntryForUpdate(cfg *configstoretest.MockConfigStore, fsMock *filesystemtest.MockFilesystem, localFile string) {
-	cfg.LoadFn = func(path string) (domain.Config, error) {
-		return domain.Config{
-			LocalPath: ".claude",
-			Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
-		}, nil
-	}
-	fsMock.FS = fstest.MapFS{
-		localFile: &fstest.MapFile{Data: []byte("---\ndescription: test\n---\n")},
-	}
-	setupSymlinkMock(fsMock, map[string]string{
-		localFile: "/cache/dir/mkt/agents/foo.md",
-	})
-}
+// ---------------------------------------------------------------------------
+// Update
+// ---------------------------------------------------------------------------
 
-// TestUpdate_Success verifies that an installed entry with upstream changes reports action=update.
+// TestUpdate_Success verifies that an installed entry with upstream changes
+// reports action=update.
 func TestUpdate_Success(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	git := &gitrepotest.MockGitRepo{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	state := &statestoretest.MockStateStore{}
-
-	setupInstalledEntryForUpdate(cfg, fsMock, ".claude/agents/foo.md")
-
-	state.LoadSyncStateFn = func(cacheDir string) (domain.SyncState, error) {
-		return domain.SyncState{
-			Version: 1,
-			Markets: map[string]domain.MarketSyncState{
-				"mkt": {LastSyncedSHA: "oldhash"},
-			},
-		}, nil
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
+			}, nil
+		},
 	}
-	git.DiffSinceCommitFn = func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
-		return []domain.FileDiff{
-			{Action: domain.DiffModify, From: "agents/foo.md", To: "agents/foo.md"},
-		}, nil
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{
+				Version: 1,
+				Markets: map[string]domain.MarketSyncState{
+					"mkt": {LastSyncedSHA: "oldhash"},
+				},
+			}, nil
+		},
 	}
 
-	app := newTestApp(cfg, git, fsMock, state)
+	git := &gitrepotest.MockGitRepo{
+		DiffSinceCommitFn: func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
+			return []domain.FileDiff{
+				{Action: domain.DiffModify, From: "agents/foo.md", To: "agents/foo.md"},
+			}, nil
+		},
+		// ReadFileAtRef for drift detection: return error to skip drift
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			if commitSHA == "HEAD" {
+				return []byte("new content"), nil
+			}
+			return nil, errors.New("not found at ref")
+		},
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "newhash", nil
+		},
+	}
+
+	fsMock := &filesystemtest.MockFilesystem{
+		WriteFileFn: func(path string, content []byte) error { return nil },
+		DeleteFileFn: func(path string) error { return nil },
+	}
+
+	db := installedDB("mkt", "mkt@agents/foo.md", "oldhash", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	idb := idbWithData(db)
+
+	app := newTestApp(cfg, git, fsMock, state, idb)
 	results, err := app.Update(service.UpdateOpts{})
 	if err != nil {
 		t.Fatal("unexpected error:", err)
@@ -362,41 +586,8 @@ func TestUpdate_Success(t *testing.T) {
 	if results[0].Action != "update" {
 		t.Errorf("expected Action=update, got %q", results[0].Action)
 	}
-}
-
-// TestUpdate_DryRun verifies that DryRun still reports changes (symlinks auto-update).
-func TestUpdate_DryRun(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	git := &gitrepotest.MockGitRepo{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	state := &statestoretest.MockStateStore{}
-
-	setupInstalledEntryForUpdate(cfg, fsMock, ".claude/agents/foo.md")
-
-	state.LoadSyncStateFn = func(cacheDir string) (domain.SyncState, error) {
-		return domain.SyncState{
-			Version: 1,
-			Markets: map[string]domain.MarketSyncState{
-				"mkt": {LastSyncedSHA: "oldhash"},
-			},
-		}, nil
-	}
-	git.DiffSinceCommitFn = func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
-		return []domain.FileDiff{
-			{Action: domain.DiffModify, From: "agents/foo.md", To: "agents/foo.md"},
-		}, nil
-	}
-
-	app := newTestApp(cfg, git, fsMock, state)
-	results, err := app.Update(service.UpdateOpts{DryRun: true})
-	if err != nil {
-		t.Fatal("unexpected error:", err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	if results[0].Action != "update" {
-		t.Errorf("expected Action=update, got %q", results[0].Action)
+	if results[0].NewVersion != "newhash" {
+		t.Errorf("expected NewVersion=newhash, got %q", results[0].NewVersion)
 	}
 }
 
@@ -412,7 +603,6 @@ func TestUpdate_NothingInstalled(t *testing.T) {
 		},
 	}
 	git := &gitrepotest.MockGitRepo{}
-	fsMock := &filesystemtest.MockFilesystem{}
 	state := &statestoretest.MockStateStore{
 		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
 			return domain.SyncState{
@@ -429,7 +619,7 @@ func TestUpdate_NothingInstalled(t *testing.T) {
 		}, nil
 	}
 
-	app := newTestApp(cfg, git, fsMock, state)
+	app := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state)
 	results, err := app.Update(service.UpdateOpts{})
 	if err != nil {
 		t.Fatal("unexpected error:", err)
@@ -441,28 +631,36 @@ func TestUpdate_NothingInstalled(t *testing.T) {
 
 // TestUpdate_DeletedEntrySkipped verifies that deleted diffs are skipped.
 func TestUpdate_DeletedEntrySkipped(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	git := &gitrepotest.MockGitRepo{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	state := &statestoretest.MockStateStore{}
-
-	setupInstalledEntryForUpdate(cfg, fsMock, ".claude/agents/foo.md")
-
-	state.LoadSyncStateFn = func(cacheDir string) (domain.SyncState, error) {
-		return domain.SyncState{
-			Version: 1,
-			Markets: map[string]domain.MarketSyncState{
-				"mkt": {LastSyncedSHA: "oldhash"},
-			},
-		}, nil
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
+			}, nil
+		},
 	}
-	git.DiffSinceCommitFn = func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
-		return []domain.FileDiff{
-			{Action: domain.DiffDelete, From: "agents/foo.md", To: ""},
-		}, nil
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{
+				Version: 1,
+				Markets: map[string]domain.MarketSyncState{
+					"mkt": {LastSyncedSHA: "oldhash"},
+				},
+			}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		DiffSinceCommitFn: func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
+			return []domain.FileDiff{
+				{Action: domain.DiffDelete, From: "agents/foo.md", To: ""},
+			}, nil
+		},
 	}
 
-	app := newTestApp(cfg, git, fsMock, state)
+	db := installedDB("mkt", "mkt@agents/foo.md", "oldhash", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	idb := idbWithData(db)
+
+	app := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state, idb)
 	results, err := app.Update(service.UpdateOpts{})
 	if err != nil {
 		t.Fatal("unexpected error:", err)
@@ -471,6 +669,125 @@ func TestUpdate_DeletedEntrySkipped(t *testing.T) {
 		t.Errorf("expected 0 results for deleted entry, got %d", len(results))
 	}
 }
+
+// TestUpdate_DriftAllKeep verifies that drift + AllKeep produces action=kept.
+func TestUpdate_DriftAllKeep(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
+			}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{
+				Version: 1,
+				Markets: map[string]domain.MarketSyncState{
+					"mkt": {LastSyncedSHA: "oldhash"},
+				},
+			}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		DiffSinceCommitFn: func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
+			return []domain.FileDiff{
+				{Action: domain.DiffModify, From: "agents/foo.md", To: "agents/foo.md"},
+			}, nil
+		},
+		// Return content so drift detection runs; os.ReadFile will fail => drift
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			return []byte("original"), nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		MD5ChecksumFn: func(content []byte) string { return "hash" },
+	}
+
+	db := installedDB("mkt", "mkt@agents/foo.md", "oldhash", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	idb := idbWithData(db)
+
+	app := newTestApp(cfg, git, fsMock, state, idb)
+	results, err := app.Update(service.UpdateOpts{AllKeep: true})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Action != "kept" {
+		t.Errorf("expected Action=kept, got %q", results[0].Action)
+	}
+	if len(results[0].DriftFiles) == 0 {
+		t.Error("expected DriftFiles to be populated")
+	}
+}
+
+// TestUpdate_DriftAllMerge verifies that drift + AllMerge overwrites and reports update.
+func TestUpdate_DriftAllMerge(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
+			}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		LoadSyncStateFn: func(cacheDir string) (domain.SyncState, error) {
+			return domain.SyncState{
+				Version: 1,
+				Markets: map[string]domain.MarketSyncState{
+					"mkt": {LastSyncedSHA: "oldhash"},
+				},
+			}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		DiffSinceCommitFn: func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
+			return []domain.FileDiff{
+				{Action: domain.DiffModify, From: "agents/foo.md", To: "agents/foo.md"},
+			}, nil
+		},
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			if commitSHA == "HEAD" {
+				return []byte("new content"), nil
+			}
+			return []byte("original"), nil
+		},
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "newhash", nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		MD5ChecksumFn: func(content []byte) string { return "hash" },
+		WriteFileFn:   func(path string, content []byte) error { return nil },
+		DeleteFileFn:  func(path string) error { return nil },
+	}
+
+	db := installedDB("mkt", "mkt@agents/foo.md", "oldhash", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	idb := idbWithData(db)
+
+	app := newTestApp(cfg, git, fsMock, state, idb)
+	results, err := app.Update(service.UpdateOpts{AllMerge: true})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Action != "update" {
+		t.Errorf("expected Action=update, got %q", results[0].Action)
+	}
+	if results[0].NewVersion != "newhash" {
+		t.Errorf("expected NewVersion=newhash, got %q", results[0].NewVersion)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Refresh error paths
+// ---------------------------------------------------------------------------
 
 // TestRefresh_ConfigLoadError verifies that a config load error is returned.
 func TestRefresh_ConfigLoadError(t *testing.T) {
@@ -777,6 +1094,10 @@ func TestRefresh_MarketNameFiltering(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Sync
+// ---------------------------------------------------------------------------
+
 // TestSync_CallsRefreshAndUpdate verifies that Sync calls Refresh then Update.
 func TestSync_CallsRefreshAndUpdate(t *testing.T) {
 	cfg := &configstoretest.MockConfigStore{}
@@ -808,7 +1129,6 @@ func TestSync_CallsRefreshAndUpdate(t *testing.T) {
 	}
 	state.SetMarketSyncDirtyFn = func(cacheDir, market string) error { return nil }
 	state.SetMarketSyncCleanFn = func(cacheDir, market, newSHA string) error { return nil }
-	// No installed entries — empty MapFS.
 
 	app := newTestApp(cfg, git, fsMock, state)
 	results, err := app.Sync(service.SyncOpts{})

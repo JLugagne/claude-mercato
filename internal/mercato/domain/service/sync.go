@@ -49,18 +49,21 @@ type SyncOpts struct {
 }
 
 type RefreshResult struct {
-	Market       string `json:"market"`
-	OldSHA       string `json:"old_sha"`
-	NewSHA       string `json:"new_sha"`
-	ChangedFiles int    `json:"changed_files"`
-	Err          error  `json:"error,omitempty"`
+	Market           string `json:"market"`
+	OldSHA           string `json:"old_sha"`
+	NewSHA           string `json:"new_sha"`
+	ChangedFiles     int    `json:"changed_files"`
+	UpdatesAvailable int    `json:"updates_available"`
+	Err              error  `json:"error,omitempty"`
 }
 
 type UpdateResult struct {
 	Ref        domain.MctRef     `json:"ref"`
+	Location   string            `json:"location,omitempty"`
 	Action     string            `json:"action"`
 	OldVersion domain.MctVersion `json:"old_version"`
 	NewVersion domain.MctVersion `json:"new_version"`
+	DriftFiles []string          `json:"drift_files,omitempty"`
 	Err        error             `json:"error,omitempty"`
 }
 

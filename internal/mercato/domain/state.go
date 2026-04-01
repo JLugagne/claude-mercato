@@ -14,8 +14,3 @@ type MarketSyncState struct {
 	Branch        string    `json:"branch"`
 	Status        string    `json:"status"`
 }
-
-type ChecksumState struct {
-	Version int                       `json:"version"`
-	Entries map[MctRef]*ChecksumEntry `json:"entries"`
-}

@@ -32,7 +32,11 @@ func newRefreshCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				if r.OldSHA == r.NewSHA {
 					cmd.Printf("  ok  %s (up to date at %s)\n", r.Market, r.NewSHA[:7])
 				} else {
-					cmd.Printf("  up  %s %s -> %s (%d files changed)\n", r.Market, r.OldSHA[:7], r.NewSHA[:7], r.ChangedFiles)
+					upd := ""
+					if r.UpdatesAvailable > 0 {
+						upd = fmt.Sprintf(", %d updates available", r.UpdatesAvailable)
+					}
+					cmd.Printf("  up  %s %s -> %s (%d files changed%s)\n", r.Market, r.OldSHA[:7], r.NewSHA[:7], r.ChangedFiles, upd)
 				}
 			}
 			return nil
@@ -78,6 +82,10 @@ func newUpdateCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			for _, r := range results {
 				if r.Err != nil {
 					cmd.PrintErrf("  x  %s: %v\n", r.Ref, r.Err)
+				} else if len(r.DriftFiles) > 0 && r.Action == "drift" {
+					cmd.Printf("  ~  %s has local changes in: %s\n", r.Ref, strings.Join(r.DriftFiles, ", "))
+				} else if r.Action == "kept" {
+					cmd.Printf("  ~  %s kept (local changes preserved)\n", r.Ref)
 				} else {
 					cmd.Printf("  %s  %s %s -> %s\n", r.Action, r.Ref, r.OldVersion, r.NewVersion)
 				}
@@ -274,6 +282,7 @@ func newRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				ref = args[0]
 			}
 			all, _ := cmd.Flags().GetBool("all")
+			allLocations, _ := cmd.Flags().GetBool("all-locations")
 			jsonOut, _ := cmd.Flags().GetBool("json")
 
 			if all {
@@ -298,7 +307,7 @@ func newRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				}
 				var results []removeResult
 				for _, e := range entries {
-					if err := svc.Entries.Remove(e.Ref); err != nil {
+					if err := svc.Entries.Remove(e.Ref, service.RemoveOpts{AllLocations: allLocations}); err != nil {
 						results = append(results, removeResult{Ref: e.Ref, Status: "error", Error: err.Error()})
 					} else {
 						results = append(results, removeResult{Ref: e.Ref, Status: "removed"})
@@ -317,7 +326,7 @@ func newRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				return nil
 			}
 
-			if err := svc.Entries.Remove(domain.MctRef(ref)); err != nil {
+			if err := svc.Entries.Remove(domain.MctRef(ref), service.RemoveOpts{AllLocations: allLocations}); err != nil {
 				return err
 			}
 			if jsonOut {
@@ -329,6 +338,7 @@ func newRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	}
 	cmd.Flags().String("ref", "", "entry ref to remove")
 	cmd.Flags().Bool("all", false, "remove all installed entries")
+	cmd.Flags().Bool("all-locations", false, "remove from all locations, not just current project")
 	cmd.Flags().Bool("yes", false, "skip confirmation prompt")
 	cmd.Flags().Bool("json", false, "JSON output")
 	return cmd

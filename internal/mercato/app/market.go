@@ -9,6 +9,7 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore"
 	fsrepo "github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/installdb"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
@@ -49,16 +50,18 @@ type App struct {
 	fs         fsrepo.Filesystem
 	cfg        configstore.ConfigStore
 	state      statestore.StateStore
+	idb        installdb.InstallDB
 	configPath string
 	cacheDir   string
 }
 
-func New(git gitrepo.GitRepo, fs fsrepo.Filesystem, cfg configstore.ConfigStore, state statestore.StateStore, configPath, cacheDir string) *App {
+func New(git gitrepo.GitRepo, fs fsrepo.Filesystem, cfg configstore.ConfigStore, state statestore.StateStore, idb installdb.InstallDB, configPath, cacheDir string) *App {
 	return &App{
 		git:        git,
 		fs:         fs,
 		cfg:        cfg,
 		state:      state,
+		idb:        idb,
 		configPath: configPath,
 		cacheDir:   cacheDir,
 	}
@@ -150,7 +153,7 @@ func (a *App) MarketInfo(name string) (service.MarketInfoResult, error) {
 		return service.MarketInfoResult{}, err
 	}
 
-	installed, err := a.scanInstalledEntries(cfg)
+	db, err := a.idb.Load(a.cacheDir)
 	if err != nil {
 		return service.MarketInfoResult{}, err
 	}
@@ -168,12 +171,10 @@ func (a *App) MarketInfo(name string) (service.MarketInfoResult, error) {
 	}
 
 	installedCount := 0
-	for ref, entry := range installed.Entries {
-		if entry == nil {
-			continue
-		}
-		if ref.Market() == name {
-			installedCount++
+	im := db.FindMarket(name)
+	if im != nil {
+		for _, pkg := range im.Packages {
+			installedCount += len(pkg.Files.Skills) + len(pkg.Files.Agents)
 		}
 	}
 
@@ -401,25 +402,30 @@ func (a *App) RemoveMarket(name string, opts service.RemoveMarketOpts) error {
 	}
 
 	if !opts.Force {
-		installed, err := a.scanInstalledEntries(cfg)
+		db, err := a.idb.Load(a.cacheDir)
 		if err != nil {
 			return err
 		}
 
-		var installedRefs []string
-		for ref, entry := range installed.Entries {
-			if entry == nil {
-				continue
+		im := db.FindMarket(name)
+		if im != nil && len(im.Packages) > 0 {
+			var installedRefs []string
+			for _, pkg := range im.Packages {
+				for _, skill := range pkg.Files.Skills {
+					repoPath := a.skillFileRepoPath(pkg.Profile, skill, "SKILL.md")
+					installedRefs = append(installedRefs, name+"@"+repoPath)
+				}
+				for _, agent := range pkg.Files.Agents {
+					repoPath := a.agentFileRepoPath(pkg.Profile, agent)
+					installedRefs = append(installedRefs, name+"@"+repoPath)
+				}
 			}
-			if ref.Market() == name {
-				installedRefs = append(installedRefs, string(ref))
-			}
-		}
 
-		if len(installedRefs) > 0 {
-			return &domain.DomainError{
-				Code:    "MARKET_HAS_INSTALLED_ENTRIES",
-				Message: fmt.Sprintf("market %q has installed entries: %s", name, strings.Join(installedRefs, ", ")),
+			if len(installedRefs) > 0 {
+				return &domain.DomainError{
+					Code:    "MARKET_HAS_INSTALLED_ENTRIES",
+					Message: fmt.Sprintf("market %q has installed entries: %s", name, strings.Join(installedRefs, ", ")),
+				}
 			}
 		}
 	}
