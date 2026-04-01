@@ -201,10 +201,7 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 		return nil, err
 	}
 
-	projectPath := filepath.Dir(filepath.Clean(cfg.LocalPath))
-	if projectPath == "." {
-		projectPath = "."
-	}
+	projectPath := projectPath(cfg.LocalPath)
 
 	// Build a set of installed refs from installdb for quick lookup.
 	installedRefs := make(map[domain.MctRef]bool)

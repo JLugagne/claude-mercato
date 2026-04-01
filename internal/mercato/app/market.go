@@ -68,6 +68,16 @@ func New(git gitrepo.GitRepo, fs fsrepo.Filesystem, cfg configstore.ConfigStore,
 }
 
 
+// projectPath returns the absolute project root derived from cfg.LocalPath.
+// LocalPath is typically ".claude/" — the project root is its parent.
+func projectPath(localPath string) string {
+	abs, err := filepath.Abs(localPath)
+	if err != nil {
+		return filepath.Dir(filepath.Clean(localPath))
+	}
+	return filepath.Dir(abs)
+}
+
 // normalizeURL strips protocol prefixes, trailing .git, and trailing slashes
 // so that "git@github.com:org/repo.git", "https://github.com/org/repo", and
 // "https://github.com/org/repo.git" all compare as equal.

@@ -142,10 +142,7 @@ func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 		}
 	}
 
-	projectPath := filepath.Dir(filepath.Clean(cfg.LocalPath))
-	if projectPath == "." {
-		projectPath = "."
-	}
+	projectPath := projectPath(cfg.LocalPath)
 
 	var statuses []domain.EntryStatus
 
@@ -353,10 +350,7 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 		return nil, err
 	}
 
-	projectPath := filepath.Dir(filepath.Clean(cfg.LocalPath))
-	if projectPath == "." {
-		projectPath = "."
-	}
+	projectPath := projectPath(cfg.LocalPath)
 
 	var results []service.UpdateResult
 

@@ -34,10 +34,7 @@ func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
 		}
 	}
 
-	projectPath := filepath.Dir(filepath.Clean(cfg.LocalPath))
-	if projectPath == "." {
-		projectPath = "."
-	}
+	projectPath := projectPath(cfg.LocalPath)
 
 	var entries []domain.Entry
 
@@ -166,10 +163,7 @@ func (a *App) GetEntry(ref domain.MctRef) (domain.Entry, error) {
 		return domain.Entry{}, err
 	}
 
-	projectPath := filepath.Dir(filepath.Clean(cfg.LocalPath))
-	if projectPath == "." {
-		projectPath = "."
-	}
+	projectPath := projectPath(cfg.LocalPath)
 
 	im := db.FindMarket(marketName)
 	if im == nil {
@@ -272,10 +266,7 @@ func (a *App) addInternal(
 	}
 
 	// Determine project path from cfg.LocalPath
-	projectPath := filepath.Dir(filepath.Clean(cfg.LocalPath))
-	if projectPath == "." {
-		projectPath = "."
-	}
+	projectPath := projectPath(cfg.LocalPath)
 
 	// Check if already installed at this location
 	pkg := db.FindPackage(marketName, profile)
@@ -444,10 +435,7 @@ func (a *App) addProfile(
 		return err
 	}
 
-	projectPath := filepath.Dir(filepath.Clean(cfg.LocalPath))
-	if projectPath == "." {
-		projectPath = "."
-	}
+	projectPath := projectPath(cfg.LocalPath)
 
 	prefix := relPath + "/"
 	installedCount := 0
@@ -602,10 +590,7 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) error {
 		return domain.ErrEntryNotInstalled
 	}
 
-	projectPath := filepath.Dir(filepath.Clean(cfg.LocalPath))
-	if projectPath == "." {
-		projectPath = "."
-	}
+	projectPath := projectPath(cfg.LocalPath)
 
 	if opts.AllLocations {
 		// Delete files from every location
@@ -679,10 +664,7 @@ func (a *App) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
 		return nil, err
 	}
 
-	projectPath := filepath.Dir(filepath.Clean(cfg.LocalPath))
-	if projectPath == "." {
-		projectPath = "."
-	}
+	projectPath := projectPath(cfg.LocalPath)
 
 	var results []service.PruneResult
 

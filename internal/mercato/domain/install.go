@@ -75,7 +75,19 @@ func (db *InstallDatabase) AddOrUpdatePackage(market, profile, version string, f
 	}
 
 	pkg.Version = version
-	pkg.Files = files
+
+	// Merge files into existing rather than replacing, so adding a skill
+	// to a profile that already has agents doesn't lose the agents.
+	for _, s := range files.Skills {
+		if !slices.Contains(pkg.Files.Skills, s) {
+			pkg.Files.Skills = append(pkg.Files.Skills, s)
+		}
+	}
+	for _, a := range files.Agents {
+		if !slices.Contains(pkg.Files.Agents, a) {
+			pkg.Files.Agents = append(pkg.Files.Agents, a)
+		}
+	}
 
 	if !slices.Contains(pkg.Locations, location) {
 		pkg.Locations = append(pkg.Locations, location)

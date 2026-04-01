@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
@@ -31,7 +32,14 @@ func newTestApp(cfg *configstoretest.MockConfigStore, git *gitrepotest.MockGitRe
 	return New(git, fs, cfg, state, idb, "/config/path", "/cache/dir")
 }
 
-// installedDB returns an installdb with one package at the "." location.
+// testProjectPath returns the absolute project path that projectPath(".claude")
+// resolves to in the test process. Matches what the app code computes.
+func testProjectPath() string {
+	abs, _ := filepath.Abs(".claude")
+	return filepath.Dir(abs)
+}
+
+// installedDB returns an installdb with one package at the test project location.
 func installedDB(market, profile, version string, files domain.InstalledFiles) domain.InstallDatabase {
 	return domain.InstallDatabase{
 		Markets: []domain.InstalledMarket{
@@ -42,7 +50,7 @@ func installedDB(market, profile, version string, files domain.InstalledFiles) d
 						Profile:   profile,
 						Version:   version,
 						Files:     files,
-						Locations: []string{"."},
+						Locations: []string{testProjectPath()},
 					},
 				},
 			},
@@ -246,10 +254,10 @@ func TestCheck_MarketFilter(t *testing.T) {
 	db := domain.InstallDatabase{
 		Markets: []domain.InstalledMarket{
 			{Market: "alpha", Packages: []domain.InstalledPackage{
-				{Profile: "alpha@agents/a.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []string{"."}},
+				{Profile: "alpha@agents/a.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []string{testProjectPath()}},
 			}},
 			{Market: "beta", Packages: []domain.InstalledPackage{
-				{Profile: "beta@agents/b.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []string{"."}},
+				{Profile: "beta@agents/b.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []string{testProjectPath()}},
 			}},
 		},
 	}
@@ -473,8 +481,8 @@ func TestRefresh_UpdatesAvailable(t *testing.T) {
 	db := domain.InstallDatabase{
 		Markets: []domain.InstalledMarket{
 			{Market: "mkt", Packages: []domain.InstalledPackage{
-				{Profile: "mkt@agents/a.md", Version: "oldhash", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []string{"."}},
-				{Profile: "mkt@agents/b.md", Version: "newhash", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []string{"."}},
+				{Profile: "mkt@agents/a.md", Version: "oldhash", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []string{testProjectPath()}},
+				{Profile: "mkt@agents/b.md", Version: "newhash", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []string{testProjectPath()}},
 			}},
 		},
 	}
