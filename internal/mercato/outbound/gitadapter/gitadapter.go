@@ -79,6 +79,19 @@ func (a *Adapter) Fetch(clonePath, branch string) (string, error) {
 		return "", fmt.Errorf("resolve remote ref: %w", err)
 	}
 
+	wt, err := repo.Worktree()
+	if err != nil {
+		return "", fmt.Errorf("worktree: %w", err)
+	}
+
+	err = wt.Checkout(&git.CheckoutOptions{
+		Hash:  ref.Hash(),
+		Force: true,
+	})
+	if err != nil {
+		return "", fmt.Errorf("checkout: %w", err)
+	}
+
 	return ref.Hash().String(), nil
 }
 
