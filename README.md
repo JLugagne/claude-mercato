@@ -149,7 +149,6 @@ mct save                     # Save current setup to .mct.json
 mct restore                  # Restore setup from .mct.json
 
 # Other
-mct diff --ref mymarket@dev/go/agents/foo.md
 mct conflicts
 mct list              # List installed profiles and their entry refs
 mct sync-state        # Print sync state
