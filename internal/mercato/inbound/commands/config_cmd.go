@@ -28,8 +28,7 @@ func newConfigSetCmd(svc Services) *cobra.Command {
   ssh_enabled    Enable/disable SSH for git operations (true/false)
   local_path     Local directory for installed entries
   conflict_policy  How to handle ref collisions (block/skip)
-  drift_policy     How to handle local modifications (prompt/force/skip)
-  difftool         External diff tool command`,
+  drift_policy     How to handle local modifications (prompt/force/skip)`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := svc.Config.SetConfigField(args[0], args[1]); err != nil {
@@ -71,8 +70,6 @@ func newConfigGetCmd(svc Services) *cobra.Command {
 					cmd.Println(cfg.ConflictPolicy)
 				case "drift_policy":
 					cmd.Println(cfg.DriftPolicy)
-				case "difftool":
-					cmd.Println(cfg.Difftool)
 				default:
 					return fmt.Errorf("unknown config key: %s", args[0])
 				}
@@ -87,9 +84,6 @@ func newConfigGetCmd(svc Services) *cobra.Command {
 			cmd.Printf("  local_path:       %s\n", cfg.LocalPath)
 			cmd.Printf("  conflict_policy:  %s\n", cfg.ConflictPolicy)
 			cmd.Printf("  drift_policy:     %s\n", cfg.DriftPolicy)
-			if cfg.Difftool != "" {
-				cmd.Printf("  difftool:         %s\n", cfg.Difftool)
-			}
 			return nil
 		},
 	}

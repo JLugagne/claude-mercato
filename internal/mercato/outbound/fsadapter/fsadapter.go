@@ -104,16 +104,3 @@ func (a *Adapter) ListDir(path string) ([]string, error) {
 	return names, nil
 }
 
-func (a *Adapter) TempFile(name string, content []byte) (string, error) {
-	f, err := os.CreateTemp("", name)
-	if err != nil {
-		return "", err
-	}
-	if _, err := f.Write(content); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return "", err
-	}
-	f.Close()
-	return f.Name(), nil
-}

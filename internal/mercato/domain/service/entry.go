@@ -14,7 +14,6 @@ type EntryCommands interface {
 	Add(ref domain.MctRef, opts AddOpts) error
 	Remove(ref domain.MctRef) error
 	Prune(opts PruneOpts) ([]PruneResult, error)
-	Diff(ref domain.MctRef) error
 	Init(opts InitOpts) error
 }
 

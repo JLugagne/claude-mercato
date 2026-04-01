@@ -709,61 +709,6 @@ func TestPrune_AllRemove(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// PrepareDiff
-// ---------------------------------------------------------------------------
-
-func TestPrepareDiff_EntryNotFound(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{
-		LoadFn: func(path string) (domain.Config, error) {
-			return domain.Config{LocalPath: ".claude"}, nil
-		},
-	}
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
-
-	_, _, _, err := a.PrepareDiff("mkt@agents/foo.md")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !isDomainErrorWithCode(err, "ENTRY_NOT_FOUND") {
-		t.Errorf("expected ENTRY_NOT_FOUND, got %v", err)
-	}
-}
-
-func TestPrepareDiff_Success(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	setupInstalledEntry(cfg, fsMock, ".claude/agents/foo.md")
-
-	registryContent := []byte("# registry content\n")
-	git := &gitrepotest.MockGitRepo{
-		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
-			return registryContent, nil
-		},
-		ReadGlobalDifftoolFn: func() (string, error) {
-			return "", nil
-		},
-	}
-
-	tmpPath := "/tmp/foo.md.12345"
-	fsMock.TempFileFn = func(name string, content []byte) (string, error) {
-		return tmpPath, nil
-	}
-
-	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
-	leftTmpPath, rightPath, _, err := a.PrepareDiff("mkt@agents/foo.md")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if leftTmpPath != tmpPath {
-		t.Errorf("expected leftTmpPath=%q, got %q", tmpPath, leftTmpPath)
-	}
-	wantRightPath := ".claude/agents/foo.md"
-	if rightPath != wantRightPath {
-		t.Errorf("expected rightPath=%q, got %q", wantRightPath, rightPath)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
@@ -1131,51 +1076,6 @@ func TestListSkillDirFiles_ReadFileAtRefError(t *testing.T) {
 	}
 	if result[0].Content != "" {
 		t.Errorf("expected empty content on read error, got %q", result[0].Content)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Diff
-// ---------------------------------------------------------------------------
-
-func TestDiff_Success(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{}
-	fsMock := &filesystemtest.MockFilesystem{}
-	setupInstalledEntry(cfg, fsMock, ".claude/agents/foo.md")
-
-	git := &gitrepotest.MockGitRepo{
-		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
-			return []byte("# content"), nil
-		},
-		ReadGlobalDifftoolFn: func() (string, error) {
-			return "", nil
-		},
-	}
-	fsMock.TempFileFn = func(name string, content []byte) (string, error) {
-		return "/tmp/foo.md.12345", nil
-	}
-
-	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
-	err := a.Diff("mkt@agents/foo.md")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestDiff_ErrorPropagation(t *testing.T) {
-	cfg := &configstoretest.MockConfigStore{
-		LoadFn: func(path string) (domain.Config, error) {
-			return domain.Config{LocalPath: ".claude"}, nil
-		},
-	}
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
-
-	err := a.Diff("mkt@agents/foo.md")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !isDomainErrorWithCode(err, "ENTRY_NOT_FOUND") {
-		t.Errorf("expected ENTRY_NOT_FOUND, got %v", err)
 	}
 }
 
@@ -1579,54 +1479,6 @@ func TestResolveSymlinkEntry_MarketDirNotInMap(t *testing.T) {
 	result := a.resolveSymlinkEntry("/some/path", dirToMarket)
 	if result != nil {
 		t.Errorf("expected nil for unknown market dir, got %+v", result)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// resolveDifftool
-// ---------------------------------------------------------------------------
-
-func TestResolveDifftool_ConfiguredTool(t *testing.T) {
-	git := &gitrepotest.MockGitRepo{}
-	result := resolveDifftool("vimdiff", git)
-	if result != "vimdiff" {
-		t.Errorf("expected 'vimdiff', got %q", result)
-	}
-}
-
-func TestResolveDifftool_GitGlobalTool(t *testing.T) {
-	git := &gitrepotest.MockGitRepo{
-		ReadGlobalDifftoolFn: func() (string, error) {
-			return "meld", nil
-		},
-	}
-	result := resolveDifftool("", git)
-	if result != "meld" {
-		t.Errorf("expected 'meld', got %q", result)
-	}
-}
-
-func TestResolveDifftool_GitGlobalToolError(t *testing.T) {
-	git := &gitrepotest.MockGitRepo{
-		ReadGlobalDifftoolFn: func() (string, error) {
-			return "", errors.New("git config error")
-		},
-	}
-	result := resolveDifftool("", git)
-	if result != "diff" {
-		t.Errorf("expected 'diff' fallback, got %q", result)
-	}
-}
-
-func TestResolveDifftool_GitGlobalToolEmpty(t *testing.T) {
-	git := &gitrepotest.MockGitRepo{
-		ReadGlobalDifftoolFn: func() (string, error) {
-			return "", nil
-		},
-	}
-	result := resolveDifftool("", git)
-	if result != "diff" {
-		t.Errorf("expected 'diff' fallback for empty string, got %q", result)
 	}
 }
 

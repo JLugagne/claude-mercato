@@ -108,8 +108,6 @@ func (c *ConfigStoreAdapter) SetConfigField(path string, key string, value strin
 		cfg.ConflictPolicy = value
 	case "drift_policy":
 		cfg.DriftPolicy = value
-	case "difftool":
-		cfg.Difftool = value
 	default:
 		return fmt.Errorf("unknown config field: %s", key)
 	}

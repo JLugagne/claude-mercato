@@ -186,30 +186,6 @@ func TestMD5Checksum(t *testing.T) {
 	}
 }
 
-func TestTempFile(t *testing.T) {
-	a := newAdapter(t)
-	content := []byte("temporary content")
-
-	path, err := a.TempFile("fsadapter-test-*", content)
-	if err != nil {
-		t.Fatalf("TempFile: %v", err)
-	}
-	t.Cleanup(func() { os.Remove(path) })
-
-	if _, err := os.Stat(path); err != nil {
-		t.Errorf("TempFile: file does not exist at %q", path)
-	}
-
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile on temp file: %v", err)
-	}
-	if string(got) != string(content) {
-		t.Errorf("temp file content mismatch: got %q, want %q", got, content)
-	}
-
-}
-
 func TestReadDir(t *testing.T) {
 	dir, err := os.MkdirTemp("", "fsadapter-test-*")
 	if err != nil {

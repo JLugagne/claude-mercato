@@ -27,11 +27,6 @@ type FetchCompleteMsg struct {
 	Err    error
 }
 
-type DiffCompleteMsg struct {
-	Ref domain.MctRef
-	Err error
-}
-
 type InstallCompleteMsg struct {
 	Ref domain.MctRef
 	Err error

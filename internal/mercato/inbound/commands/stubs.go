@@ -367,20 +367,6 @@ func newPruneCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	return cmd
 }
 
-func newDiffCmd(svc Services, opts *GlobalOpts) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "diff",
-		Short: "Open difftool for an entry",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ref, _ := cmd.Flags().GetString("ref")
-			return svc.Entries.Diff(domain.MctRef(ref))
-		},
-	}
-	cmd.Flags().String("ref", "", "entry ref")
-	cmd.MarkFlagRequired("ref")
-	return cmd
-}
-
 func newSearchCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search <query>",

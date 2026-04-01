@@ -8,7 +8,6 @@ type Config struct {
 	StaleAfter     time.Duration  `yaml:"stale_after"`
 	ConflictPolicy string         `yaml:"conflict_policy"`
 	DriftPolicy    string         `yaml:"drift_policy"`
-	Difftool       string         `yaml:"difftool"`
 	SSHEnabled     *bool          `yaml:"ssh_enabled,omitempty"`
 }
 

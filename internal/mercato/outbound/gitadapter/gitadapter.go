@@ -8,7 +8,6 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo"
 	git "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
@@ -472,11 +471,3 @@ func (a *Adapter) ValidateRemote(url string) error {
 	return err
 }
 
-func (a *Adapter) ReadGlobalDifftool() (string, error) {
-	cfg, err := config.LoadConfig(config.GlobalScope)
-	if err != nil {
-		return "", nil
-	}
-	tool := cfg.Raw.Section("diff").Option("tool")
-	return tool, nil
-}

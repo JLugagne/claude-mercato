@@ -449,54 +449,6 @@ func (a *App) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
 	return results, nil
 }
 
-func (a *App) Diff(ref domain.MctRef) error {
-	_, _, _, err := a.PrepareDiff(ref)
-	return err
-}
-
-func (a *App) PrepareDiff(ref domain.MctRef) (leftTmpPath, rightPath, tool string, err error) {
-	cfg, err := a.cfg.Load(a.configPath)
-	if err != nil {
-		return "", "", "", err
-	}
-
-	installed, err := a.scanInstalledEntries(cfg)
-	if err != nil {
-		return "", "", "", err
-	}
-
-	ce, ok := installed.Entries[ref]
-	if !ok || ce == nil {
-		return "", "", "", domain.ErrEntryNotFound
-	}
-
-	marketName, relPath, err := ref.Parse()
-	if err != nil {
-		return "", "", "", err
-	}
-
-	marketCfg := findMarketConfig(cfg, marketName)
-	if marketCfg == nil {
-		return "", "", "", domain.ErrMarketNotFound
-	}
-
-	clonePath := a.clonePath(marketName)
-	registryContent, err := a.git.ReadFileAtRef(clonePath, marketCfg.Branch, relPath, "HEAD")
-	if err != nil {
-		return "", "", "", err
-	}
-
-	filename := filepath.Base(relPath)
-	tmpPath, err := a.fs.TempFile(filename, registryContent)
-	if err != nil {
-		return "", "", "", err
-	}
-
-	resolvedTool := resolveDifftool(cfg.Difftool, a.git)
-
-	return tmpPath, ce.LocalPath, resolvedTool, nil
-}
-
 func (a *App) Init(opts service.InitOpts) error {
 	localPath := opts.LocalPath
 	if localPath == "" {
@@ -622,17 +574,6 @@ func inferEntryType(relPath string) domain.EntryType {
 		}
 	}
 	return ""
-}
-
-
-func resolveDifftool(configuredTool string, git interface{ ReadGlobalDifftool() (string, error) }) string {
-	if configuredTool != "" {
-		return configuredTool
-	}
-	if tool, err := git.ReadGlobalDifftool(); err == nil && tool != "" {
-		return tool
-	}
-	return "diff"
 }
 
 // deleteEntryFile deletes the entry file. For skills installed as

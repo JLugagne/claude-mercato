@@ -28,7 +28,6 @@ type MockFilesystem struct {
 	MkdirAllFn       func(path string) error
 	RemoveAllFn      func(path string) error
 	MD5ChecksumFn    func(content []byte) string
-	TempFileFn       func(name string, content []byte) (string, error)
 	SymlinkFn        func(target, link string) error
 	ReadlinkFn       func(path string) (string, error)
 	IsSymlinkFn      func(path string) bool
@@ -97,13 +96,6 @@ func (m *MockFilesystem) MD5Checksum(content []byte) string {
 		panic("called not defined MD5ChecksumFn")
 	}
 	return m.MD5ChecksumFn(content)
-}
-
-func (m *MockFilesystem) TempFile(name string, content []byte) (string, error) {
-	if m.TempFileFn == nil {
-		panic("called not defined TempFileFn")
-	}
-	return m.TempFileFn(name, content)
 }
 
 func (m *MockFilesystem) Symlink(target, link string) error {

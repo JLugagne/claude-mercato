@@ -213,10 +213,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadAllMarkets()
 
-	case DiffCompleteMsg:
-		m.mode = ModeNormal
-		return m, m.loadAllMarkets()
-
 	case MarketAddedMsg:
 		if msg.Err != nil {
 			m.marketPopup.errMsg = msg.Err.Error()

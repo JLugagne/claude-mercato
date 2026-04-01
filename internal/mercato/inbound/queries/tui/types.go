@@ -14,7 +14,6 @@ const (
 	ModeHelp
 	ModeCommandPalette
 	ModeLoading
-	ModeDiff
 	ModeMarketPopup
 	ModeProfileAction
 )

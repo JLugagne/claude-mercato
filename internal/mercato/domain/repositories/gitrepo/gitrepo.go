@@ -19,7 +19,6 @@ type GitRepo interface {
 	ListFiles(clonePath, branch string) ([]string, error)
 	IsValidRepo(clonePath string) bool
 	ValidateRemote(url string) error
-	ReadGlobalDifftool() (string, error)
 
 	// ReadMarketFiles opens the repo once and returns all matching files with
 	// their content and last-modified version in a single pass.

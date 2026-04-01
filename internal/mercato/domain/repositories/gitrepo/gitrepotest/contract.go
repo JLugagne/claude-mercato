@@ -17,7 +17,6 @@ type MockGitRepo struct {
 	ListFilesFn          func(clonePath, branch string) ([]string, error)
 	IsValidRepoFn        func(clonePath string) bool
 	ValidateRemoteFn     func(url string) error
-	ReadGlobalDifftoolFn func() (string, error)
 	ReadMarketFilesFn    func(clonePath, branch string) ([]gitrepo.MarketFile, error)
 	ListDirFilesFn       func(clonePath, branch, dirPrefix string) ([]string, error)
 }
@@ -83,13 +82,6 @@ func (m *MockGitRepo) ValidateRemote(url string) error {
 		panic("called not defined ValidateRemoteFn")
 	}
 	return m.ValidateRemoteFn(url)
-}
-
-func (m *MockGitRepo) ReadGlobalDifftool() (string, error) {
-	if m.ReadGlobalDifftoolFn == nil {
-		panic("called not defined ReadGlobalDifftoolFn")
-	}
-	return m.ReadGlobalDifftoolFn()
 }
 
 func (m *MockGitRepo) ReadMarketFiles(clonePath, branch string) ([]gitrepo.MarketFile, error) {

@@ -19,7 +19,6 @@ type Filesystem interface {
 	MkdirAll(path string) error
 	RemoveAll(path string) error
 	MD5Checksum(content []byte) string
-	TempFile(name string, content []byte) (string, error)
 	Symlink(target, link string) error
 	Readlink(path string) (string, error)
 	IsSymlink(path string) bool
