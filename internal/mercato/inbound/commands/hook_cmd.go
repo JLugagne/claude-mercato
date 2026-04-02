@@ -3,10 +3,10 @@ package commands
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	git "github.com/go-git/go-git/v5"
 	"github.com/spf13/cobra"
 )
 
@@ -163,11 +163,19 @@ func uninstallHookSnippet(cmd *cobra.Command, hooksDir, gitHookName, displayName
 }
 
 func gitHooksDir() (string, error) {
-	out, err := exec.Command("git", "rev-parse", "--git-dir").Output()
+	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("not a git repository")
 	}
-	return filepath.Join(strings.TrimSpace(string(out)), "hooks"), nil
+	repo, err := git.PlainOpenWithOptions(cwd, &git.PlainOpenOptions{DetectDotGit: true})
+	if err != nil {
+		return "", fmt.Errorf("not a git repository")
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		return "", fmt.Errorf("not a git repository")
+	}
+	return filepath.Join(wt.Filesystem.Root(), ".git", "hooks"), nil
 }
 
 // removeMarkedBlock removes the marker line and the line immediately following it.

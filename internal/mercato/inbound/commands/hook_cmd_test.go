@@ -2,18 +2,17 @@ package commands
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	git "github.com/go-git/go-git/v5"
 )
 
 func initGitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	cmd := exec.Command("git", "init", dir)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
+	if _, err := git.PlainInit(dir, false); err != nil {
 		t.Fatalf("git init: %v", err)
 	}
 	old, _ := os.Getwd()
@@ -93,6 +92,7 @@ func TestHookInstall_AppendsToExisting(t *testing.T) {
 	svc := mockServices()
 
 	hookFile := filepath.Join(dir, ".git", "hooks", "post-merge")
+	os.MkdirAll(filepath.Dir(hookFile), 0o755)
 	os.WriteFile(hookFile, []byte("#!/bin/sh\necho existing\n"), 0o755)
 
 	_, err := runCmd(t, svc, "hook", "install", "post-pull")
@@ -152,6 +152,7 @@ func TestHookUninstall_PreservesOtherContent(t *testing.T) {
 	svc := mockServices()
 
 	hookFile := filepath.Join(dir, ".git", "hooks", "post-merge")
+	os.MkdirAll(filepath.Dir(hookFile), 0o755)
 	os.WriteFile(hookFile, []byte("#!/bin/sh\necho existing\n"), 0o755)
 
 	runCmd(t, svc, "hook", "install", "post-pull")

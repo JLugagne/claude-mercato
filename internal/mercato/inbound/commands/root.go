@@ -6,7 +6,7 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
-const version = "1.1.5"
+const version = "1.2.0"
 
 // GlobalOpts holds flags shared across all commands
 type GlobalOpts struct {

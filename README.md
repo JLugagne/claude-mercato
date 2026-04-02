@@ -12,7 +12,7 @@ No central registry. No hosted service. No account required. Just Git.
 
 Claude agent and skill definitions are just markdown files — yet teams copy-paste them across repos, lose track of versions, and have no way to discover what's available. Bug fixes never propagate. Onboarding means a wiki page with a dozen manual steps. Everyone ends up running a slightly different version of the same prompt.
 
-`mct` fixes this by treating definitions as packages. Markets are Git repos. Definitions are packages. The CLI handles installation, versioning, updates, dependency resolution, and search — so your team stays in sync without the overhead.
+`mct` fixes this by treating definitions as packages. Markets are Git repos. Definitions are packages. The CLI handles installation, versioning, updates, dependency resolution, and search — so your team stays in sync without the overhead. It works with any Git host, public or private, and requires zero infrastructure: no registry, no server, no account. Just `mct market add` and you're up and running.
 
 ### What you get
 
@@ -439,12 +439,6 @@ This checks for valid frontmatter in all entry files, correct directory structur
 ## Creating a Market
 
 See [MARKET.md](MARKET.md) for the full specification. In short: every agent or skill file uses YAML frontmatter with a `description` field, and can optionally declare dependencies on other skills — including cross-market dependencies via a `market` URL — using the `requires_skills` field. The entry type is inferred from the path: files under `agents/` are agents, `SKILL.md` files under `skills/<n>/` are skills. When installed, `mct` injects tracking fields (`mct_ref`, `mct_version`, `mct_market`, `mct_profile`, `mct_installed_at`, `mct_checksum`) into the frontmatter for version tracking and integrity verification.
-
----
-
-## Why mct
-
-Stop copy-pasting markdown files between repos and hoping everyone is on the same version. `mct` gives your team a single command to install, update, and discover Claude agent and skill definitions — with version tracking, dependency resolution, cross-market support, and drift detection built in. It works with any Git host, public or private, and requires zero infrastructure: no registry, no server, no account. Just `mct market add` and you're up and running.
 
 ## License
 
