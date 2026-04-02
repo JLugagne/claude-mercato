@@ -71,8 +71,10 @@ var (
 )
 
 var (
-	ErrCloneExists = &DomainError{Code: "CLONE_EXISTS", Message: "clone directory exists but market is not registered"}
-	ErrSSHDisabled = &DomainError{Code: "SSH_DISABLED", Message: "SSH is disabled. To enable:\n  mct config set ssh_enabled true\nor set MCT_SSH_ENABLED=true"}
+	ErrCloneExists        = &DomainError{Code: "CLONE_EXISTS", Message: "clone directory exists but market is not registered"}
+	ErrSSHDisabled        = &DomainError{Code: "SSH_DISABLED", Message: "SSH is disabled. To enable:\n  mct config set ssh_enabled true\nor set MCT_SSH_ENABLED=true"}
+	ErrMarketIncompatible = &DomainError{Code: "MARKET_INCOMPATIBLE", Message: "repository has no profiles, agents, or skills — not a compatible market"}
+	ErrAlreadyInitialized = &DomainError{Code: "ALREADY_INITIALIZED", Message: "mct is already initialized"}
 )
 
 var (

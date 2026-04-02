@@ -1,12 +1,14 @@
 package mercato
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/app"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 	"github.com/JLugagne/claude-mercato/internal/mercato/inbound/commands"
 	"github.com/JLugagne/claude-mercato/internal/mercato/inbound/queries/tui"
 	"github.com/JLugagne/claude-mercato/internal/mercato/outbound/cfgadapter"
@@ -50,6 +52,17 @@ func NewApp(configPath, cacheDir string) *cobra.Command {
 		Config:  application,
 	}
 	rootCmd := commands.NewRootCmd(svc)
+
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if cmd.Name() == "init" || cmd.Name() == "help" || cmd.Name() == "version" {
+			return nil
+		}
+		if !cfgStore.Exists(configPath) {
+			fmt.Fprintln(cmd.ErrOrStderr(), "First run detected — initializing mct…")
+			return application.Init(service.InitOpts{LocalPath: ".claude/"})
+		}
+		return nil
+	}
 
 	rootCmd.AddCommand(newTUICmd(application))
 

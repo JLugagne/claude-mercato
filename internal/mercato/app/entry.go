@@ -741,6 +741,10 @@ func (a *App) Init(opts service.InitOpts) error {
 		localPath = "."
 	}
 
+	if a.cfg.Exists(a.configPath) {
+		return domain.ErrAlreadyInitialized
+	}
+
 	if err := a.fs.MkdirAll(a.cacheDir); err != nil {
 		return err
 	}

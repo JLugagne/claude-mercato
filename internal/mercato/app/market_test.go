@@ -260,6 +260,16 @@ func TestDetectSkillsOnly(t *testing.T) {
 			skillsPath: "src/skills",
 			want:       false,
 		},
+		{
+			name:  "skills-catalog directory with SKILL.md",
+			files: []string{"skills-catalog/lint/SKILL.md", "skills-catalog/test/SKILL.md", "README.md"},
+			want:  true,
+		},
+		{
+			name:  "skills-catalog without SKILL.md",
+			files: []string{"skills-catalog/lint/README.md"},
+			want:  false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1504,6 +1514,101 @@ func TestRenameMarket_PreservesSyncStateData(t *testing.T) {
 	}
 	if _, ok := savedState.Markets["foo"]; ok {
 		t.Error("expected 'foo' to be removed from sync state after rename")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// detectedSkillsPath
+// ---------------------------------------------------------------------------
+
+func TestDetectedSkillsPath(t *testing.T) {
+	cases := []struct {
+		name       string
+		files      []string
+		skillsPath string
+		want       string
+	}{
+		{
+			name:  "detects skills dir",
+			files: []string{"skills/lint/SKILL.md"},
+			want:  "skills",
+		},
+		{
+			name:  "detects skills-catalog dir",
+			files: []string{"skills-catalog/lint/SKILL.md"},
+			want:  "skills-catalog",
+		},
+		{
+			name:  "prefers skills over skills-catalog",
+			files: []string{"skills/lint/SKILL.md", "skills-catalog/test/SKILL.md"},
+			want:  "skills",
+		},
+		{
+			name:       "explicit skillsPath returned as-is",
+			files:      []string{"custom/lint/SKILL.md"},
+			skillsPath: "custom",
+			want:       "custom",
+		},
+		{
+			name:  "no match defaults to skills",
+			files: []string{"README.md"},
+			want:  "skills",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			git := &gitrepotest.MockGitRepo{
+				ListFilesFn: func(clonePath, branch string) ([]string, error) {
+					return tc.files, nil
+				},
+			}
+			got := detectedSkillsPath(git, "/some/path", "main", tc.skillsPath)
+			if got != tc.want {
+				t.Errorf("detectedSkillsPath() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// AddMarket — incompatible repo cleanup
+// ---------------------------------------------------------------------------
+
+func TestAddMarket_IncompatibleRepoRemovesClone(t *testing.T) {
+	var removedPath string
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		RemoveAllFn: func(path string) error {
+			removedPath = path
+			return nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ValidateRemoteFn: func(url string) error { return nil },
+		CloneFn:          func(url, clonePath string) error { return nil },
+		RemoteHEADFn:     func(clonePath, branch string) (string, error) { return "abc123", nil },
+		ListFilesFn: func(clonePath, branch string) ([]string, error) {
+			return []string{"README.md", "LICENSE"}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		SetMarketSyncCleanFn: func(cacheDir string, market string, newSHA string) error { return nil },
+	}
+
+	a := newTestApp(cfg, git, fsMock, state)
+	_, err := a.AddMarket("https://github.com/org/repo", service.AddMarketOpts{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !isDomainErrorWithCode(err, "MARKET_INCOMPATIBLE") {
+		t.Errorf("expected MARKET_INCOMPATIBLE, got %v", err)
+	}
+	if removedPath == "" {
+		t.Error("expected clone to be removed, but RemoveAll was not called")
 	}
 }
 

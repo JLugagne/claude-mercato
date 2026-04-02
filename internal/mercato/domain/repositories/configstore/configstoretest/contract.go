@@ -10,6 +10,7 @@ var _ configstore.ConfigStore = (*MockConfigStore)(nil)
 type MockConfigStore struct {
 	LoadFn              func(path string) (domain.Config, error)
 	SaveFn              func(path string, cfg domain.Config) error
+	ExistsFn            func(path string) bool
 	AddMarketFn         func(path string, market domain.MarketConfig) error
 	RemoveMarketFn      func(path string, name string) error
 	SetMarketPropertyFn func(path string, marketName string, key string, value string) error
@@ -21,6 +22,13 @@ func (m *MockConfigStore) Load(path string) (domain.Config, error) {
 		panic("called not defined LoadFn")
 	}
 	return m.LoadFn(path)
+}
+
+func (m *MockConfigStore) Exists(path string) bool {
+	if m.ExistsFn == nil {
+		return false
+	}
+	return m.ExistsFn(path)
 }
 
 func (m *MockConfigStore) Save(path string, cfg domain.Config) error {

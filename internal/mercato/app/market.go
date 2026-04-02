@@ -278,6 +278,7 @@ func (a *App) AddMarket(url string, opts service.AddMarketOpts) (service.AddMark
 	}
 
 	var skillsOnly bool
+	skillsPath := opts.SkillsPath
 
 	if !opts.NoClone {
 		sha, err := a.git.RemoteHEAD(clonePath, branch)
@@ -289,13 +290,19 @@ func (a *App) AddMarket(url string, opts service.AddMarketOpts) (service.AddMark
 			return result, err
 		}
 
-		skillsOnly = detectSkillsOnly(a.git, clonePath, branch, opts.SkillsPath)
+		skillsOnly = detectSkillsOnly(a.git, clonePath, branch, skillsPath)
 		if skillsOnly {
-			if err := pruneCloneForSkills(a.fs, clonePath, opts.SkillsPath); err != nil {
+			skillsPath = detectedSkillsPath(a.git, clonePath, branch, skillsPath)
+			if err := pruneCloneForSkills(a.fs, clonePath, skillsPath); err != nil {
 				return result, err
 			}
 		}
-		result = countMarketEntries(a.git, clonePath, branch, opts.SkillsPath, skillsOnly)
+		result = countMarketEntries(a.git, clonePath, branch, skillsPath, skillsOnly)
+
+		if !skillsOnly && result.Profiles == 0 && result.Agents == 0 && result.Skills == 0 {
+			_ = a.fs.RemoveAll(clonePath)
+			return result, domain.ErrMarketIncompatible
+		}
 	}
 
 	mc := domain.MarketConfig{
@@ -305,7 +312,7 @@ func (a *App) AddMarket(url string, opts service.AddMarketOpts) (service.AddMark
 		Trusted:    opts.Trusted,
 		ReadOnly:   opts.ReadOnly,
 		SkillsOnly: skillsOnly,
-		SkillsPath: opts.SkillsPath,
+		SkillsPath: skillsPath,
 	}
 	return result, a.cfg.AddMarket(a.configPath, mc)
 }
@@ -334,26 +341,49 @@ func pruneCloneForSkills(fs fsrepo.Filesystem, clonePath, skillsPath string) err
 }
 
 // detectSkillsOnly checks if a repo is a skills-only market by looking for
-// <skillsPath>/*/SKILL.md files. If skillsPath is empty, it defaults to "skills".
-// A skills repo has the skills folder at the root (e.g. skills/find-skills/SKILL.md).
-// An mct market has skills/ nested inside profiles (e.g. dev/go/skills/bar/SKILL.md).
+// a "skills/" or "skills-catalog/" directory containing <skill-name>/SKILL.md files.
+// If skillsPath is provided, only that path is checked.
 func detectSkillsOnly(git gitrepo.GitRepo, clonePath, branch, skillsPath string) bool {
-	if skillsPath == "" {
-		skillsPath = "skills"
+	candidates := []string{"skills", "skills-catalog"}
+	if skillsPath != "" {
+		candidates = []string{skillsPath}
 	}
 	files, err := git.ListFiles(clonePath, branch)
 	if err != nil {
 		return false
 	}
-	depth := len(strings.Split(skillsPath, "/"))
-	for _, f := range files {
-		parts := strings.Split(filepath.ToSlash(f), "/")
-		// Expect: <skillsPath segments...> / <skill-name> / SKILL.md
-		if len(parts) == depth+2 && strings.Join(parts[:depth], "/") == skillsPath && parts[len(parts)-1] == "SKILL.md" {
-			return true
+	for _, candidate := range candidates {
+		depth := len(strings.Split(candidate, "/"))
+		for _, f := range files {
+			parts := strings.Split(filepath.ToSlash(f), "/")
+			if len(parts) == depth+2 && strings.Join(parts[:depth], "/") == candidate && parts[len(parts)-1] == "SKILL.md" {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// detectedSkillsPath returns the actual skills path found in the repo
+// ("skills" or "skills-catalog"), or the explicit skillsPath if provided.
+func detectedSkillsPath(git gitrepo.GitRepo, clonePath, branch, skillsPath string) string {
+	if skillsPath != "" {
+		return skillsPath
+	}
+	files, err := git.ListFiles(clonePath, branch)
+	if err != nil {
+		return "skills"
+	}
+	for _, candidate := range []string{"skills", "skills-catalog"} {
+		depth := len(strings.Split(candidate, "/"))
+		for _, f := range files {
+			parts := strings.Split(filepath.ToSlash(f), "/")
+			if len(parts) == depth+2 && strings.Join(parts[:depth], "/") == candidate && parts[len(parts)-1] == "SKILL.md" {
+				return candidate
+			}
+		}
+	}
+	return "skills"
 }
 
 func countMarketEntries(git gitrepo.GitRepo, clonePath, branch, skillsPath string, skillsOnly bool) service.AddMarketResult {

@@ -17,6 +17,11 @@ type ConfigStoreAdapter struct{}
 
 func NewConfigStore() *ConfigStoreAdapter { return &ConfigStoreAdapter{} }
 
+func (c *ConfigStoreAdapter) Exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func (c *ConfigStoreAdapter) Load(path string) (domain.Config, error) {
 	var cfg domain.Config
 	data, err := os.ReadFile(path)

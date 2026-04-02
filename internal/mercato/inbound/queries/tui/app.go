@@ -647,7 +647,7 @@ func (m *AppModel) buildProfiles(entries []EntryItem) []ProfileItem {
 		key := e.Market + "/" + e.Category
 		if _, ok := profileMap[key]; !ok {
 			profileMap[key] = &ProfileItem{
-				Name:   e.Category,
+				Name:   profileDisplayName(e.Category),
 				Market: e.Market,
 				Desc:   e.ProfileDescription,
 				Readme: e.ReadmeContext,

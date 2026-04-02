@@ -1,9 +1,20 @@
 package tui
 
 import (
+	"strings"
+
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
+
+// profileDisplayName strips the leading directory prefix from a category
+// (e.g. "skills/lint" -> "lint", "dev/go-hexagonal" -> "go-hexagonal").
+func profileDisplayName(category string) string {
+	if idx := strings.LastIndex(category, "/"); idx >= 0 {
+		return category[idx+1:]
+	}
+	return category
+}
 
 type Mode int
 

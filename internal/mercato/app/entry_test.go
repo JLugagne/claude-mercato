@@ -994,6 +994,23 @@ func TestInit_EmptyDir(t *testing.T) {
 	}
 }
 
+func TestInit_AlreadyInitialized(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		ExistsFn: func(path string) bool { return true },
+	}
+	fsMock := &filesystemtest.MockFilesystem{}
+	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+
+	err := a.Init(service.InitOpts{LocalPath: ".claude"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var de *domain.DomainError
+	if !errors.As(err, &de) || de.Code != "ALREADY_INITIALIZED" {
+		t.Errorf("expected ALREADY_INITIALIZED, got %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // inferEntryType
 // ---------------------------------------------------------------------------
