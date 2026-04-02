@@ -17,8 +17,7 @@ type MarketCommands interface {
 	MarketQueries
 	AddMarket(url string, opts AddMarketOpts) (AddMarketResult, error)
 	RemoveMarket(name string, opts RemoveMarketOpts) error
-	RenameMarket(oldName, newName string) error
-	SetMarketProperty(name, key, value string) error
+SetMarketProperty(name, key, value string) error
 	LintMarket(fsys fs.FS, dir string) (LintResult, error)
 }
 

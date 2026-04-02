@@ -242,14 +242,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateEntriesList()
 		return m, nil
 
-	case MarketRenamedMsg:
-		if msg.Err != nil {
-			m.marketPopup.errMsg = msg.Err.Error()
-			return m, nil
-		}
-		markets, _ := m.svc.Markets.ListMarkets()
-		m.marketPopup.load(markets)
-		return m, m.loadAllMarkets()
 	}
 
 	switch m.focus {

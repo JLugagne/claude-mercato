@@ -23,8 +23,7 @@ type stubMarkets struct {
 	marketInfoFn        func(name string) (service.MarketInfoResult, error)
 	addMarketFn         func(url string, opts service.AddMarketOpts) (service.AddMarketResult, error)
 	removeMarketFn      func(name string, opts service.RemoveMarketOpts) error
-	renameMarketFn      func(oldName, newName string) error
-	setMarketPropertyFn func(name, key, value string) error
+setMarketPropertyFn func(name, key, value string) error
 	lintMarketFn        func(fsys fs.FS, dir string) (service.LintResult, error)
 }
 
@@ -59,13 +58,6 @@ func (s *stubMarkets) AddMarket(url string, opts service.AddMarketOpts) (service
 func (s *stubMarkets) RemoveMarket(name string, opts service.RemoveMarketOpts) error {
 	if s.removeMarketFn != nil {
 		return s.removeMarketFn(name, opts)
-	}
-	return nil
-}
-
-func (s *stubMarkets) RenameMarket(oldName, newName string) error {
-	if s.renameMarketFn != nil {
-		return s.renameMarketFn(oldName, newName)
 	}
 	return nil
 }
@@ -405,6 +397,24 @@ func TestMarketAdd(t *testing.T) {
 	}
 }
 
+func TestMarketAdd_NoScheme(t *testing.T) {
+	var calledURL string
+	svc := mockServices()
+	svc.Markets = &stubMarkets{
+		addMarketFn: func(url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
+			calledURL = url
+			return service.AddMarketResult{}, nil
+		},
+	}
+	_, err := runCmd(t, svc, "market", "add", "github.com/org/repo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calledURL != "https://github.com/org/repo" {
+		t.Errorf("expected https:// prefix, got: %s", calledURL)
+	}
+}
+
 func TestMarketAdd_JSON(t *testing.T) {
 	svc := mockServices()
 	svc.Markets = &stubMarkets{
@@ -465,25 +475,6 @@ func TestMarketInfo(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected output to contain %q, got: %s", want, out)
 		}
-	}
-}
-
-func TestMarketRename(t *testing.T) {
-	var calledOld, calledNew string
-	svc := mockServices()
-	svc.Markets = &stubMarkets{
-		renameMarketFn: func(oldName, newName string) error {
-			calledOld = oldName
-			calledNew = newName
-			return nil
-		},
-	}
-	_, err := runCmd(t, svc, "market", "rename", "foo", "bar")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if calledOld != "foo" || calledNew != "bar" {
-		t.Errorf("expected rename called with ('foo', 'bar'), got ('%s', '%s')", calledOld, calledNew)
 	}
 }
 

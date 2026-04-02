@@ -16,7 +16,6 @@ const (
 	MarketActionNone MarketAction = iota
 	MarketActionAdd
 	MarketActionDelete
-	MarketActionRename
 )
 
 type MarketPopup struct {
@@ -24,7 +23,7 @@ type MarketPopup struct {
 	selected map[string]bool
 	cursor   int
 	action   MarketAction
-	input    textinput.Model // for add (URL) or rename (new name)
+	input    textinput.Model // for add (URL)
 	errMsg   string
 }
 
@@ -67,7 +66,7 @@ func (m *AppModel) handleMarketPopupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	p := &m.marketPopup
 
 	// Handle sub-action input modes first
-	if p.action == MarketActionAdd || p.action == MarketActionRename {
+	if p.action == MarketActionAdd {
 		switch msg.String() {
 		case "esc":
 			p.action = MarketActionNone
@@ -82,19 +81,8 @@ func (m *AppModel) handleMarketPopupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			p.input.Blur()
 			p.input.Reset()
-			switch p.action {
-			case MarketActionAdd:
-				p.action = MarketActionNone
-				return m, m.addMarketCmd(val)
-			case MarketActionRename:
-				mk, ok := p.selectedMarket()
-				if !ok {
-					return m, nil
-				}
-				p.action = MarketActionNone
-				return m, m.renameMarketCmd(mk.Name, val)
-			}
-			return m, nil
+			p.action = MarketActionNone
+			return m, m.addMarketCmd(val)
 		}
 		var cmd tea.Cmd
 		p.input, cmd = p.input.Update(msg)
@@ -145,15 +133,6 @@ func (m *AppModel) handleMarketPopupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.removeMarketCmd(mk.Name)
-	case "n":
-		if len(p.markets) == 0 {
-			return m, nil
-		}
-		p.action = MarketActionRename
-		p.input.Placeholder = "new name"
-		p.input.Focus()
-		p.errMsg = ""
-		return m, textinput.Blink
 	case "R":
 		return m, m.refreshAllCmd()
 	}
@@ -172,13 +151,6 @@ func (m *AppModel) removeMarketCmd(name string) tea.Cmd {
 	return func() tea.Msg {
 		err := m.svc.Markets.RemoveMarket(name, service.RemoveMarketOpts{})
 		return MarketRemovedMsg{Name: name, Err: err}
-	}
-}
-
-func (m *AppModel) renameMarketCmd(oldName, newName string) tea.Cmd {
-	return func() tea.Msg {
-		err := m.svc.Markets.RenameMarket(oldName, newName)
-		return MarketRenamedMsg{OldName: oldName, NewName: newName, Err: err}
 	}
 }
 
@@ -252,11 +224,8 @@ func (m AppModel) viewMarketPopup() string {
 
 	if p.action == MarketActionAdd {
 		s += "Add market URL: " + p.input.View() + "\n"
-	} else if p.action == MarketActionRename {
-		mk, _ := p.selectedMarket()
-		s += "Rename " + bold.Render(mk.Name) + " to: " + p.input.View() + "\n"
 	} else {
-		s += muted.Render("space toggle  A select all  N select none  a add  d delete  n rename  R refresh  esc close") + "\n"
+		s += muted.Render("space toggle  A select all  N select none  a add  d delete  R refresh  esc close") + "\n"
 	}
 
 	if p.errMsg != "" {

@@ -61,11 +61,6 @@ type MarketRemovedMsg struct {
 	Err  error
 }
 
-type MarketRenamedMsg struct {
-	OldName string
-	NewName string
-	Err     error
-}
 
 type EntryContentMsg struct {
 	Ref     domain.MctRef

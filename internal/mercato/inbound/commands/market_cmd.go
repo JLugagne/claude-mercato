@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"strings"
+
 	"github.com/spf13/cobra"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
@@ -17,7 +19,6 @@ func newMarketCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 		newMarketRemoveCmd(svc, opts),
 		newMarketListCmd(svc, opts),
 		newMarketInfoCmd(svc, opts),
-		newMarketRenameCmd(svc, opts),
 		newMarketSetCmd(svc, opts),
 	)
 
@@ -39,7 +40,11 @@ func newMarketAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			if len(args) > 1 {
 				skillsPath = args[1]
 			}
-			result, err := svc.Markets.AddMarket(args[0], service.AddMarketOpts{
+			url := args[0]
+			if !strings.Contains(url, "://") {
+				url = "https://" + url
+			}
+			result, err := svc.Markets.AddMarket(url, service.AddMarketOpts{
 				Branch:     branch,
 				Trusted:    trusted,
 				ReadOnly:   readOnly,
@@ -51,7 +56,7 @@ func newMarketAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			}
 			if jsonOut {
 				return printJSON(cmd.OutOrStdout(), map[string]any{
-					"url":      args[0],
+					"url":      url,
 					"profiles": result.Profiles,
 					"agents":   result.Agents,
 					"skills":   result.Skills,
@@ -149,17 +154,6 @@ func newMarketInfoCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	}
 	cmd.Flags().Bool("json", false, "JSON output")
 	return cmd
-}
-
-func newMarketRenameCmd(svc Services, opts *GlobalOpts) *cobra.Command {
-	return &cobra.Command{
-		Use:   "rename <old> <new>",
-		Short: "Rename a market",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return svc.Markets.RenameMarket(args[0], args[1])
-		},
-	}
 }
 
 func newMarketSetCmd(svc Services, opts *GlobalOpts) *cobra.Command {

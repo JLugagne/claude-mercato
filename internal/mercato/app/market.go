@@ -473,39 +473,6 @@ func (a *App) RemoveMarket(name string, opts service.RemoveMarketOpts) error {
 	return nil
 }
 
-func (a *App) RenameMarket(oldName, newName string) error {
-	if newName == "" {
-		return domain.ErrInvalidMarketName
-	}
-
-	cfg, err := a.cfg.Load(a.configPath)
-	if err != nil {
-		return err
-	}
-
-	if findMarketConfig(cfg, oldName) == nil {
-		return domain.ErrMarketNotFound
-	}
-
-	if err := a.cfg.SetMarketProperty(a.configPath, oldName, "name", newName); err != nil {
-		return err
-	}
-
-	syncState, err := a.state.LoadSyncState(a.cacheDir)
-	if err != nil {
-		return err
-	}
-	if ms, ok := syncState.Markets[oldName]; ok {
-		syncState.Markets[newName] = ms
-		delete(syncState.Markets, oldName)
-		if err := a.state.SaveSyncState(a.cacheDir, syncState); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func (a *App) SetMarketProperty(name, key, value string) error {
 	return a.cfg.SetMarketProperty(a.configPath, name, key, value)
 }
