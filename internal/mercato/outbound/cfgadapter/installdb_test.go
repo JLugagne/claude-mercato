@@ -142,7 +142,7 @@ func TestInstallDB_LockContention(t *testing.T) {
 	if err := adapter.Lock(dir); err != nil {
 		t.Fatalf("Lock: %v", err)
 	}
-	defer adapter.Unlock(dir)
+	defer func() { _ = adapter.Unlock(dir) }()
 
 	// Same PID is alive, so a second lock should fail with ErrLockContention.
 	err := adapter.Lock(dir)
@@ -166,7 +166,7 @@ func TestInstallDB_StaleLockRecovery(t *testing.T) {
 	if err := adapter.Lock(dir); err != nil {
 		t.Fatalf("Lock after stale lock: %v", err)
 	}
-	defer adapter.Unlock(dir)
+	defer func() { _ = adapter.Unlock(dir) }()
 
 	// Verify the lock is now held by us.
 	data, err := os.ReadFile(lockPath)

@@ -171,9 +171,10 @@ func (m AppModel) computeMarketStats() map[string]marketStats {
 			profileSeen[profKey] = true
 			ms.profiles++
 		}
-		if e.Type == domain.EntryTypeAgent {
+		switch e.Type {
+		case domain.EntryTypeAgent:
 			ms.agents++
-		} else if e.Type == domain.EntryTypeSkill {
+		case domain.EntryTypeSkill:
 			ms.skills++
 		}
 		stats[e.Market] = ms

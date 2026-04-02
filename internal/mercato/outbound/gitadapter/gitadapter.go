@@ -501,7 +501,7 @@ func (a *Adapter) ValidateRemote(url string) error {
 	if err != nil {
 		return err
 	}
-	defer sess.Close()
+	defer func() { _ = sess.Close() }()
 	_, err = sess.AdvertisedReferences()
 	return err
 }

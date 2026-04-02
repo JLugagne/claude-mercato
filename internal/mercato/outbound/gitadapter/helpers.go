@@ -47,14 +47,14 @@ func resolveAuth(url string) transport.AuthMethod {
 		if conn, err := net.DialTimeout("unix", sock, 5*time.Second); err == nil {
 			ag := agent.NewClient(conn)
 			if keys, err := ag.List(); err == nil && len(keys) > 0 {
-				conn.Close()
+				_ = conn.Close()
 				auth, err := gitssh.NewSSHAgentAuth("git")
 				if err == nil {
 					auth.HostKeyCallback = hostKeyCB
 					return auth
 				}
 			}
-			conn.Close()
+			_ = conn.Close()
 		}
 	}
 
@@ -127,7 +127,7 @@ func sshConfigGet(home, host, key string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	cfg, err := sshconfig.Decode(f)
 	if err != nil {
 		return ""

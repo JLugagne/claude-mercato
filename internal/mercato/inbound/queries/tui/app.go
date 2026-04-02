@@ -476,30 +476,6 @@ func (m *AppModel) refreshAllCmd() tea.Cmd {
 	}
 }
 
-func (m *AppModel) installCmd(ref domain.MctRef) tea.Cmd {
-	return func() tea.Msg {
-		_, err := m.svc.Entries.Add(ref, service.AddOpts{})
-		return InstallCompleteMsg{Ref: ref, Err: err}
-	}
-}
-
-func (m *AppModel) updateCmd(ref domain.MctRef) tea.Cmd {
-	return func() tea.Msg {
-		results, err := m.svc.Sync.Update(service.UpdateOpts{Ref: ref})
-		if err != nil || len(results) == 0 {
-			return UpdateCompleteMsg{Ref: ref, Err: err}
-		}
-		return UpdateCompleteMsg{Ref: ref, NewVersion: results[0].NewVersion}
-	}
-}
-
-func (m *AppModel) removeCmd(ref domain.MctRef) tea.Cmd {
-	return func() tea.Msg {
-		_, err := m.svc.Entries.Remove(ref, service.RemoveOpts{})
-		return PruneCompleteMsg{Ref: ref, Action: "removed", Err: err}
-	}
-}
-
 func (m *AppModel) handleProfileActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "n":

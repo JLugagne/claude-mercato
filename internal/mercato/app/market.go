@@ -213,7 +213,6 @@ func (a *App) MarketInfo(name string) (service.MarketInfoResult, error) {
 // the clean repo URL, branch, and subpath. If the URL doesn't contain /tree/,
 // it returns the original values unchanged.
 func parseTreeURL(rawURL string) (repoURL, branch, subPath string) {
-	repoURL = rawURL
 	// Match https://host/org/repo/tree/<branch>[/<path>]
 	normalized := rawURL
 	if idx := strings.Index(normalized, "://"); idx >= 0 {

@@ -97,7 +97,7 @@ func (a *InstallDBAdapter) tryLock(lockPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, err = fmt.Fprintf(f, "%d", os.Getpid())
 	return err
 }
@@ -119,7 +119,7 @@ func (a *InstallDBAdapter) removeStaleLock(lockPath string) bool {
 		return false
 	}
 	if errors.Is(err, syscall.ESRCH) {
-		os.Remove(lockPath)
+		_ = os.Remove(lockPath)
 		return true
 	}
 	return false

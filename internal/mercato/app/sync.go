@@ -359,7 +359,7 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 	if err := a.idb.Lock(a.cacheDir); err != nil {
 		return nil, err
 	}
-	defer a.idb.Unlock(a.cacheDir)
+	defer func() { _ = a.idb.Unlock(a.cacheDir) }()
 
 	db, err := a.idb.Load(a.cacheDir)
 	if err != nil {

@@ -21,7 +21,7 @@ func TestWriteAndReadFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	a := NewAt(dir)
 	path := "hello.txt"
@@ -46,7 +46,7 @@ func TestStat_FileExists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	a := NewAt(dir)
 	if err := a.WriteFile(filepath.Join(dir, "exists.txt"), []byte("data")); err != nil {
@@ -67,7 +67,7 @@ func TestDeleteFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	a := NewAt(dir)
 	if err := a.WriteFile(filepath.Join(dir, "todelete.txt"), []byte("bye")); err != nil {
@@ -92,7 +92,7 @@ func TestStat_DirExists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	// The adapter is rooted at dir's parent, and we check dir's base name.
 	parent := filepath.Dir(dir)
@@ -121,7 +121,7 @@ func TestMkdirAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	a := newAdapter(t)
 	nested := filepath.Join(dir, "a", "b", "c")
@@ -146,7 +146,7 @@ func TestRemoveAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	a := newAdapter(t)
 	target := filepath.Join(dir, "target")
@@ -191,7 +191,7 @@ func TestReadDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	a := NewAt(dir)
 
@@ -232,7 +232,7 @@ func TestWriteFile_CreatesParentDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	a := NewAt(dir)
 	nestedAbs := filepath.Join(dir, "deep", "nested", "path", "file.txt")

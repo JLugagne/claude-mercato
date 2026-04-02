@@ -81,7 +81,7 @@ func (d profileDelegate) Render(w io.Writer, m list.Model, index int, item list.
 		}
 	}
 
-	fmt.Fprint(w, line1+"\n"+line2+"\n"+line3)
+	_, _ = fmt.Fprint(w, line1+"\n"+line2+"\n"+line3)
 }
 
 func truncateStr(s string, maxLen int) string {

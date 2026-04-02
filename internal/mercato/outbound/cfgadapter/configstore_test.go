@@ -14,7 +14,7 @@ func newConfigStore(t *testing.T) (*ConfigStoreAdapter, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return NewConfigStore(), filepath.Join(dir, "config.yaml")
 }
 

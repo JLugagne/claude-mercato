@@ -860,7 +860,7 @@ func TestExportToFile(t *testing.T) {
 		},
 	}
 	tmpFile := "/tmp/test-export-mct.json"
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	_, err := runCmd(t, svc, "export", tmpFile)
 	if err != nil {
@@ -1302,11 +1302,11 @@ func TestImportCmd_BasicSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 	if _, err := tmpFile.WriteString(export); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	svc := mockServices()
 	svc.Config = &stubConfig{
@@ -1522,9 +1522,9 @@ func TestImportCmd_InvalidJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString("not json at all")
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString("not json at all")
+	_ = tmpFile.Close()
 
 	svc := mockServices()
 	svc.Config = &stubConfig{
@@ -1547,9 +1547,9 @@ func TestImportCmd_DryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Write(data)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.Write(data)
+	_ = tmpFile.Close()
 
 	svc := mockServices()
 	svc.Config = &stubConfig{
@@ -1575,9 +1575,9 @@ func TestImportCmd_SkipExistingMarket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Write(data)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.Write(data)
+	_ = tmpFile.Close()
 
 	svc := mockServices()
 	svc.Config = &stubConfig{
@@ -1609,9 +1609,9 @@ func TestImportCmd_JSONOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Write(data)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.Write(data)
+	_ = tmpFile.Close()
 
 	var addCalled bool
 	svc := mockServices()

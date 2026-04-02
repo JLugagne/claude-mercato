@@ -74,7 +74,7 @@ func NewApp(configPath, cacheDir string) *cobra.Command {
 			return nil
 		}
 		if !cfgStore.Exists(configPath) {
-			fmt.Fprintln(cmd.ErrOrStderr(), "First run detected — initializing mct…")
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "First run detected — initializing mct…")
 			return application.Init(service.InitOpts{LocalPath: ".claude/"})
 		}
 		return nil

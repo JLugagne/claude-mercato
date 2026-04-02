@@ -224,7 +224,7 @@ func (a *App) Add(ref domain.MctRef, opts service.AddOpts) (service.AddResult, e
 	if err := a.idb.Lock(a.cacheDir); err != nil {
 		return service.AddResult{}, err
 	}
-	defer a.idb.Unlock(a.cacheDir)
+	defer func() { _ = a.idb.Unlock(a.cacheDir) }()
 
 	// Load installdb
 	db, err := a.idb.Load(a.cacheDir)
@@ -698,7 +698,7 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.Remove
 	if err := a.idb.Lock(a.cacheDir); err != nil {
 		return service.RemoveResult{}, err
 	}
-	defer a.idb.Unlock(a.cacheDir)
+	defer func() { _ = a.idb.Unlock(a.cacheDir) }()
 
 	// Load installdb
 	db, err := a.idb.Load(a.cacheDir)
@@ -800,7 +800,7 @@ func (a *App) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
 	if err := a.idb.Lock(a.cacheDir); err != nil {
 		return nil, err
 	}
-	defer a.idb.Unlock(a.cacheDir)
+	defer func() { _ = a.idb.Unlock(a.cacheDir) }()
 
 	// Load installdb
 	db, err := a.idb.Load(a.cacheDir)

@@ -16,7 +16,7 @@ func initGitRepo(t *testing.T) string {
 		t.Fatalf("git init: %v", err)
 	}
 	old, _ := os.Getwd()
-	t.Cleanup(func() { os.Chdir(old) })
+	t.Cleanup(func() { _ = os.Chdir(old) })
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestHookInstall_AlreadyInstalled(t *testing.T) {
 	initGitRepo(t)
 	svc := mockServices()
 
-	runCmd(t, svc, "hook", "install", "post-pull")
+	_, _ = runCmd(t, svc, "hook", "install", "post-pull")
 	out, err := runCmd(t, svc, "hook", "install", "post-pull")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -92,8 +92,8 @@ func TestHookInstall_AppendsToExisting(t *testing.T) {
 	svc := mockServices()
 
 	hookFile := filepath.Join(dir, ".git", "hooks", "post-merge")
-	os.MkdirAll(filepath.Dir(hookFile), 0o755)
-	os.WriteFile(hookFile, []byte("#!/bin/sh\necho existing\n"), 0o755)
+	_ = os.MkdirAll(filepath.Dir(hookFile), 0o755)
+	_ = os.WriteFile(hookFile, []byte("#!/bin/sh\necho existing\n"), 0o755)
 
 	_, err := runCmd(t, svc, "hook", "install", "post-pull")
 	if err != nil {
@@ -124,7 +124,7 @@ func TestHookUninstall_PostPull(t *testing.T) {
 	initGitRepo(t)
 	svc := mockServices()
 
-	runCmd(t, svc, "hook", "install", "post-pull")
+	_, _ = runCmd(t, svc, "hook", "install", "post-pull")
 	out, err := runCmd(t, svc, "hook", "uninstall", "post-pull")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -152,10 +152,10 @@ func TestHookUninstall_PreservesOtherContent(t *testing.T) {
 	svc := mockServices()
 
 	hookFile := filepath.Join(dir, ".git", "hooks", "post-merge")
-	os.MkdirAll(filepath.Dir(hookFile), 0o755)
-	os.WriteFile(hookFile, []byte("#!/bin/sh\necho existing\n"), 0o755)
+	_ = os.MkdirAll(filepath.Dir(hookFile), 0o755)
+	_ = os.WriteFile(hookFile, []byte("#!/bin/sh\necho existing\n"), 0o755)
 
-	runCmd(t, svc, "hook", "install", "post-pull")
+	_, _ = runCmd(t, svc, "hook", "install", "post-pull")
 	out, err := runCmd(t, svc, "hook", "uninstall", "post-pull")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

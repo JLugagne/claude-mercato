@@ -223,7 +223,7 @@ func newAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				}
 				cmd.Printf("  ?  Skill dependency requires market %s. Add it? [y/N] ", marketURL)
 				var answer string
-				fmt.Fscan(cmd.InOrStdin(), &answer)
+				_, _ = fmt.Fscan(cmd.InOrStdin(), &answer)
 				return answer == "y" || answer == "Y"
 			}
 			result, err := svc.Entries.Add(ref, service.AddOpts{
@@ -315,7 +315,7 @@ func newRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				if !yes {
 					cmd.Printf("  Remove %d installed entries? [y/N] ", len(entries))
 					var answer string
-					fmt.Fscan(cmd.InOrStdin(), &answer)
+					_, _ = fmt.Fscan(cmd.InOrStdin(), &answer)
 					if answer != "y" && answer != "Y" {
 						cmd.Println("  aborted")
 						return nil

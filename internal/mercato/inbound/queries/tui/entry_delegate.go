@@ -46,7 +46,7 @@ func (d entryDelegate) renderEntry(w io.Writer, m list.Model, index int, ei Entr
 	line := cursor + typeStyle.Render(typeLabel) + " " + nameStyle.Render(name)
 	line = ansi.Truncate(line, m.Width(), "")
 
-	fmt.Fprint(w, line)
+	_, _ = fmt.Fprint(w, line)
 }
 
 func (d entryDelegate) renderSkillFile(w io.Writer, m list.Model, index int, sf SkillFileItem) {
@@ -73,5 +73,5 @@ func (d entryDelegate) renderSkillFile(w io.Writer, m list.Model, index int, sf 
 	}
 	line = ansi.Truncate(line, m.Width(), "")
 
-	fmt.Fprint(w, line)
+	_, _ = fmt.Fprint(w, line)
 }
