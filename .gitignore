@@ -1,4 +1,6 @@
-/.claude
+.claude/*
+.claude/skills/*
+!.claude/skills/doc-*/
 /.refactor
 /.plan
 /mct
