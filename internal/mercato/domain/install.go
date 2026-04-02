@@ -15,10 +15,11 @@ type InstalledMarket struct {
 
 // InstalledPackage tracks a single installed profile/skill with its locations.
 type InstalledPackage struct {
-	Profile   string         `json:"profile"`
-	Version   string         `json:"version"`
-	Files     InstalledFiles `json:"files"`
-	Locations []string       `json:"locations"`
+	Profile       string            `json:"profile"`
+	Version       string            `json:"version"`
+	Files         InstalledFiles    `json:"files"`
+	Locations     []string          `json:"locations"`
+	ToolChecksums map[string]string `json:"tool_checksums,omitempty"`
 }
 
 // InstalledFiles lists the leaf names of installed skills and agents.

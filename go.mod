@@ -1,6 +1,6 @@
 module github.com/JLugagne/claude-mercato
 
-go 1.26.1
+go 1.25.0
 
 require (
 	github.com/JLugagne/bm25 v1.0.0

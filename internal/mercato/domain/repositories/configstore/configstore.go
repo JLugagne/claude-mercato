@@ -10,4 +10,5 @@ type ConfigStore interface {
 	RemoveMarket(path string, name string) error
 	SetMarketProperty(path string, marketName string, key string, value string) error
 	SetConfigField(path string, key string, value string) error
+	LoadProjectConfig(projectDir string) (domain.ProjectConfig, error)
 }

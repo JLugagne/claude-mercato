@@ -224,7 +224,7 @@ func newImportCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 						continue
 					}
 
-					err := svc.Entries.Add(entry.Ref, service.AddOpts{})
+					_, err := svc.Entries.Add(entry.Ref, service.AddOpts{})
 					if errors.Is(err, domain.ErrEntryAlreadyInstalled) {
 						// already on disk (e.g. auto-installed as a dep by a previous entry)
 					} else if err != nil {

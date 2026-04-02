@@ -14,7 +14,8 @@ type MockConfigStore struct {
 	AddMarketFn         func(path string, market domain.MarketConfig) error
 	RemoveMarketFn      func(path string, name string) error
 	SetMarketPropertyFn func(path string, marketName string, key string, value string) error
-	SetConfigFieldFn    func(path string, key string, value string) error
+	SetConfigFieldFn       func(path string, key string, value string) error
+	LoadProjectConfigFn    func(projectDir string) (domain.ProjectConfig, error)
 }
 
 func (m *MockConfigStore) Load(path string) (domain.Config, error) {
@@ -64,4 +65,11 @@ func (m *MockConfigStore) SetConfigField(path string, key string, value string) 
 		panic("called not defined SetConfigFieldFn")
 	}
 	return m.SetConfigFieldFn(path, key, value)
+}
+
+func (m *MockConfigStore) LoadProjectConfig(projectDir string) (domain.ProjectConfig, error) {
+	if m.LoadProjectConfigFn == nil {
+		return domain.ProjectConfig{}, nil
+	}
+	return m.LoadProjectConfigFn(projectDir)
 }

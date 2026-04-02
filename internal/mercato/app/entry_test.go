@@ -224,7 +224,7 @@ func TestAdd_Success(t *testing.T) {
 
 	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
 
-	err := a.Add("mkt@agents/foo.md", service.AddOpts{})
+	_, err := a.Add("mkt@agents/foo.md", service.AddOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestAdd_AlreadyInstalled(t *testing.T) {
 
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
 
-	err := a.Add("mkt@agents/foo.md", service.AddOpts{})
+	_, err := a.Add("mkt@agents/foo.md", service.AddOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -299,7 +299,7 @@ func TestAdd_DryRun(t *testing.T) {
 
 	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
 
-	err := a.Add("mkt@agents/foo.md", service.AddOpts{DryRun: true})
+	_, err := a.Add("mkt@agents/foo.md", service.AddOpts{DryRun: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestAdd_MarketNotFound(t *testing.T) {
 
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
 
-	err := a.Add("unknown@agents/foo.md", service.AddOpts{})
+	_, err := a.Add("unknown@agents/foo.md", service.AddOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -351,7 +351,7 @@ func TestAdd_MctFieldsInRepo(t *testing.T) {
 
 	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
 
-	err := a.Add("mkt@agents/foo.md", service.AddOpts{})
+	_, err := a.Add("mkt@agents/foo.md", service.AddOpts{})
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestAdd_WithDependency(t *testing.T) {
 
 	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
 
-	err := a.Add("mkt@agents/foo.md", service.AddOpts{})
+	_, err := a.Add("mkt@agents/foo.md", service.AddOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -449,7 +449,7 @@ func TestAdd_ProfileExpand_Success(t *testing.T) {
 
 	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
 
-	err := a.Add("mkt@dev/go", service.AddOpts{})
+	_, err := a.Add("mkt@dev/go", service.AddOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -485,7 +485,7 @@ func TestAdd_ProfileExpand_DryRun(t *testing.T) {
 
 	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
 
-	err := a.Add("mkt@dev/go", service.AddOpts{DryRun: true})
+	_, err := a.Add("mkt@dev/go", service.AddOpts{DryRun: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -535,7 +535,7 @@ func TestAdd_ProfileExpand_AllAlreadyInstalled(t *testing.T) {
 
 	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
 
-	err := a.Add("mkt@dev/go", service.AddOpts{})
+	_, err := a.Add("mkt@dev/go", service.AddOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -602,7 +602,7 @@ func TestAdd_ProfileExpand_PartialInstall(t *testing.T) {
 
 	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
 
-	err := a.Add("mkt@dev/go", service.AddOpts{})
+	_, err := a.Add("mkt@dev/go", service.AddOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -620,7 +620,7 @@ func TestAdd_ProfileExpand_MarketNotFound(t *testing.T) {
 
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
 
-	err := a.Add("unknown@dev/go", service.AddOpts{})
+	_, err := a.Add("unknown@dev/go", service.AddOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -676,7 +676,7 @@ func TestRemove_Success(t *testing.T) {
 
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
 
-	err := a.Remove("mkt@agents/foo.md", service.RemoveOpts{})
+	_, err := a.Remove("mkt@agents/foo.md", service.RemoveOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -725,7 +725,7 @@ func TestRemove_LastLocation_PackageRemoved(t *testing.T) {
 
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
 
-	err := a.Remove("mkt@agents/foo.md", service.RemoveOpts{})
+	_, err := a.Remove("mkt@agents/foo.md", service.RemoveOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -745,7 +745,7 @@ func TestRemove_NotInstalled(t *testing.T) {
 
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
 
-	err := a.Remove("mkt@agents/foo.md", service.RemoveOpts{})
+	_, err := a.Remove("mkt@agents/foo.md", service.RemoveOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -787,7 +787,7 @@ func TestRemove_NotInstalledAtCurrentLocation(t *testing.T) {
 
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
 
-	err := a.Remove("mkt@agents/foo.md", service.RemoveOpts{})
+	_, err := a.Remove("mkt@agents/foo.md", service.RemoveOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -1168,7 +1168,7 @@ func TestAdd_SkillDirRef(t *testing.T) {
 	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
 
 	// Pass skill directory ref without /SKILL.md — should be normalized
-	err := a.Add("mkt@skills/go-arch", service.AddOpts{})
+	_, err := a.Add("mkt@skills/go-arch", service.AddOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1226,7 +1226,7 @@ func TestRemove_SkillDirRef(t *testing.T) {
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{}, idb)
 
 	// Pass skill directory ref without /SKILL.md — should be normalized
-	err := a.Remove("mkt@skills/go-arch", service.RemoveOpts{})
+	_, err := a.Remove("mkt@skills/go-arch", service.RemoveOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1541,7 +1541,7 @@ func TestInit_DefaultLocalPath(t *testing.T) {
 func TestAdd_InvalidRefFormat(t *testing.T) {
 	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
 
-	err := a.Add("invalid-no-at-sign", service.AddOpts{})
+	_, err := a.Add("invalid-no-at-sign", service.AddOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -1555,7 +1555,7 @@ func TestAdd_ConfigLoadFailure(t *testing.T) {
 	}
 	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
 
-	err := a.Add("mkt@agents/foo.md", service.AddOpts{})
+	_, err := a.Add("mkt@agents/foo.md", service.AddOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -1574,7 +1574,7 @@ func TestAdd_ReadFileAtRefFailure(t *testing.T) {
 	}
 	a := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
 
-	err := a.Add("mkt@agents/foo.md", service.AddOpts{})
+	_, err := a.Add("mkt@agents/foo.md", service.AddOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -1598,7 +1598,7 @@ func TestAdd_WriteFileFailure(t *testing.T) {
 	}
 	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
 
-	err := a.Add("mkt@agents/foo.md", service.AddOpts{})
+	_, err := a.Add("mkt@agents/foo.md", service.AddOpts{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

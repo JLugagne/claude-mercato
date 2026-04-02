@@ -10,10 +10,22 @@ type EntryQueries interface {
 	Conflicts() ([]domain.Conflict, error)
 }
 
+// AddResult contains the outcome of an Add operation, including per-tool
+// write results and any warnings (e.g. skipped tools).
+type AddResult struct {
+	ToolWrites map[string]string `json:"tool_writes,omitempty"` // tool -> output path
+	Warnings   []string          `json:"warnings,omitempty"`
+}
+
+// RemoveResult contains the outcome of a Remove operation.
+type RemoveResult struct {
+	ToolsRemoved []string `json:"tools_removed,omitempty"`
+}
+
 type EntryCommands interface {
 	EntryQueries
-	Add(ref domain.MctRef, opts AddOpts) error
-	Remove(ref domain.MctRef, opts RemoveOpts) error
+	Add(ref domain.MctRef, opts AddOpts) (AddResult, error)
+	Remove(ref domain.MctRef, opts RemoveOpts) (RemoveResult, error)
 	Prune(opts PruneOpts) ([]PruneResult, error)
 	Init(opts InitOpts) error
 }

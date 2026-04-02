@@ -11,20 +11,44 @@ import (
 func (a *App) LintMarket(fsys fs.FS, dir string) (service.LintResult, error) {
 	var result service.LintResult
 
-	type agentDeps struct {
-		agentRel string
-		deps     []domain.SkillDep
+	walkResult, err := walkMarketEntries(fsys, dir, &result)
+	if err != nil {
+		return result, err
 	}
-	type profileData struct {
-		agents    []string
-		skills    []string
-		hasReadme bool
-		hasTags   bool
+
+	validateProfiles(walkResult, &result)
+	validateDeps(walkResult, &result)
+
+	return result, nil
+}
+
+// lintWalkResult holds the intermediate state from walking a market directory.
+type lintWalkResult struct {
+	profiles     map[string]*lintProfileData
+	profileOrder []string
+	knownPaths   map[string]struct{}
+	agentDeps    []lintAgentDeps
+}
+
+type lintProfileData struct {
+	agents    []string
+	skills    []string
+	hasReadme bool
+	hasTags   bool
+}
+
+type lintAgentDeps struct {
+	agentRel string
+	deps     []domain.SkillDep
+}
+
+// walkMarketEntries walks the market filesystem and collects profile, agent,
+// skill, and dependency data. Frontmatter parse errors are appended to result.
+func walkMarketEntries(fsys fs.FS, dir string, result *service.LintResult) (lintWalkResult, error) {
+	w := lintWalkResult{
+		profiles:   make(map[string]*lintProfileData),
+		knownPaths: make(map[string]struct{}),
 	}
-	profiles := make(map[string]*profileData)
-	var profileOrder []string
-	knownPaths := make(map[string]struct{}) // all valid entry rel paths
-	var agentDepsList []agentDeps
 
 	err := fs.WalkDir(fsys, dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -45,15 +69,10 @@ func (a *App) LintMarket(fsys fs.FS, dir string) (service.LintResult, error) {
 		}
 		profile := parts[0] + "/" + parts[1]
 
-		// Profile-level README: exactly profile/subdir/README.md (3 parts, no deeper)
+		// Profile-level README
 		if len(parts) == 3 && strings.EqualFold(parts[2], "README.md") {
-			if _, ok := profiles[profile]; !ok {
-				profiles[profile] = &profileData{}
-				profileOrder = append(profileOrder, profile)
-			}
-			pd := profiles[profile]
+			pd := w.ensureProfile(profile)
 			pd.hasReadme = true
-
 			content, readErr := fs.ReadFile(fsys, path)
 			if readErr == nil {
 				if rfm, parseErr := domain.ParseReadmeFrontmatter(content); parseErr == nil {
@@ -63,7 +82,6 @@ func (a *App) LintMarket(fsys fs.FS, dir string) (service.LintResult, error) {
 			return nil
 		}
 
-		// Must be at least 3 parts: profile/subdir/file.md
 		if len(parts) < 3 {
 			return nil
 		}
@@ -74,11 +92,7 @@ func (a *App) LintMarket(fsys fs.FS, dir string) (service.LintResult, error) {
 		}
 		fm, parseErr := domain.ParseFrontmatter(content)
 		if parseErr != nil {
-			if _, ok := profiles[profile]; !ok {
-				profiles[profile] = &profileData{}
-				profileOrder = append(profileOrder, profile)
-			}
-			profiles[profile].agents = append(profiles[profile].agents, rel)
+			w.ensureProfile(profile).agents = append(w.ensureProfile(profile).agents, rel)
 			result.Issues = append(result.Issues, service.LintIssue{
 				Profile:  profile,
 				Severity: "error",
@@ -87,21 +101,17 @@ func (a *App) LintMarket(fsys fs.FS, dir string) (service.LintResult, error) {
 			return nil
 		}
 
-		if _, ok := profiles[profile]; !ok {
-			profiles[profile] = &profileData{}
-			profileOrder = append(profileOrder, profile)
-		}
-		pd := profiles[profile]
+		pd := w.ensureProfile(profile)
 		switch inferEntryType(rel) {
 		case domain.EntryTypeAgent:
 			pd.agents = append(pd.agents, rel)
-			knownPaths[rel] = struct{}{}
+			w.knownPaths[rel] = struct{}{}
 			if len(fm.RequiresSkills) > 0 {
-				agentDepsList = append(agentDepsList, agentDeps{agentRel: rel, deps: fm.RequiresSkills})
+				w.agentDeps = append(w.agentDeps, lintAgentDeps{agentRel: rel, deps: fm.RequiresSkills})
 			}
 		case domain.EntryTypeSkill:
 			pd.skills = append(pd.skills, rel)
-			knownPaths[rel] = struct{}{}
+			w.knownPaths[rel] = struct{}{}
 		default:
 			result.Issues = append(result.Issues, service.LintIssue{
 				Profile:  profile,
@@ -112,13 +122,24 @@ func (a *App) LintMarket(fsys fs.FS, dir string) (service.LintResult, error) {
 
 		return nil
 	})
-	if err != nil {
-		return result, err
-	}
 
-	result.Profiles = len(profileOrder)
-	for _, profile := range profileOrder {
-		pd := profiles[profile]
+	return w, err
+}
+
+func (w *lintWalkResult) ensureProfile(profile string) *lintProfileData {
+	if _, ok := w.profiles[profile]; !ok {
+		w.profiles[profile] = &lintProfileData{}
+		w.profileOrder = append(w.profileOrder, profile)
+	}
+	return w.profiles[profile]
+}
+
+// validateProfiles checks each profile for missing READMEs, missing tags,
+// and empty profiles.
+func validateProfiles(w lintWalkResult, result *service.LintResult) {
+	result.Profiles = len(w.profileOrder)
+	for _, profile := range w.profileOrder {
+		pd := w.profiles[profile]
 		result.Agents += len(pd.agents)
 		result.Skills += len(pd.skills)
 
@@ -144,21 +165,21 @@ func (a *App) LintMarket(fsys fs.FS, dir string) (service.LintResult, error) {
 			})
 		}
 	}
+}
 
-	for _, ad := range agentDepsList {
+// validateDeps checks that all requires_skills references point to known paths.
+func validateDeps(w lintWalkResult, result *service.LintResult) {
+	for _, ad := range w.agentDeps {
 		parts := strings.SplitN(ad.agentRel, "/", 3)
 		profile := parts[0] + "/" + parts[1]
 		for _, dep := range ad.deps {
-			depPath := dep.File
-			if _, ok := knownPaths[depPath]; !ok {
+			if _, ok := w.knownPaths[dep.File]; !ok {
 				result.Issues = append(result.Issues, service.LintIssue{
 					Profile:  profile,
 					Severity: "error",
-					Message:  ad.agentRel + ": requires_skills references missing file: " + depPath,
+					Message:  ad.agentRel + ": requires_skills references missing file: " + dep.File,
 				})
 			}
 		}
 	}
-
-	return result, nil
 }

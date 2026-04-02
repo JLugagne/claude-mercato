@@ -478,7 +478,7 @@ func (m *AppModel) refreshAllCmd() tea.Cmd {
 
 func (m *AppModel) installCmd(ref domain.MctRef) tea.Cmd {
 	return func() tea.Msg {
-		err := m.svc.Entries.Add(ref, service.AddOpts{})
+		_, err := m.svc.Entries.Add(ref, service.AddOpts{})
 		return InstallCompleteMsg{Ref: ref, Err: err}
 	}
 }
@@ -495,7 +495,7 @@ func (m *AppModel) updateCmd(ref domain.MctRef) tea.Cmd {
 
 func (m *AppModel) removeCmd(ref domain.MctRef) tea.Cmd {
 	return func() tea.Msg {
-		err := m.svc.Entries.Remove(ref, service.RemoveOpts{})
+		_, err := m.svc.Entries.Remove(ref, service.RemoveOpts{})
 		return PruneCompleteMsg{Ref: ref, Action: "removed", Err: err}
 	}
 }
@@ -530,7 +530,7 @@ func (m *AppModel) profileInstallCmd(p ProfileItem) tea.Cmd {
 			if e.Installed {
 				continue
 			}
-			if err := m.svc.Entries.Add(e.Ref, service.AddOpts{}); err != nil {
+			if _, err := m.svc.Entries.Add(e.Ref, service.AddOpts{}); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -545,7 +545,7 @@ func (m *AppModel) profileRemoveCmd(p ProfileItem) tea.Cmd {
 			if !e.Installed {
 				continue
 			}
-			if err := m.svc.Entries.Remove(e.Ref, service.RemoveOpts{}); err != nil {
+			if _, err := m.svc.Entries.Remove(e.Ref, service.RemoveOpts{}); err != nil {
 				errs = append(errs, err)
 			}
 		}

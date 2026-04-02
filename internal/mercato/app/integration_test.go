@@ -214,7 +214,7 @@ func TestIntegration_AddAgent(t *testing.T) {
 	application, projectDir, _ := setupIntegration(t, marketFiles())
 
 	ref := domain.MctRef(marketName + "@dev/go/agents/code-review.md")
-	if err := application.Add(ref, service.AddOpts{}); err != nil {
+	if _, err := application.Add(ref, service.AddOpts{}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -261,7 +261,7 @@ func TestIntegration_AddSkillDir(t *testing.T) {
 	application, projectDir, _ := setupIntegration(t, marketFiles())
 
 	ref := domain.MctRef(marketName + "@dev/go/skills/go-arch")
-	if err := application.Add(ref, service.AddOpts{}); err != nil {
+	if _, err := application.Add(ref, service.AddOpts{}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -309,7 +309,7 @@ func TestIntegration_AddProfile(t *testing.T) {
 	application, projectDir, _ := setupIntegration(t, marketFiles())
 
 	ref := domain.MctRef(marketName + "@dev/go")
-	if err := application.Add(ref, service.AddOpts{}); err != nil {
+	if _, err := application.Add(ref, service.AddOpts{}); err != nil {
 		t.Fatalf("Add profile: %v", err)
 	}
 
@@ -352,7 +352,7 @@ func TestIntegration_RemoveAgent(t *testing.T) {
 	application, projectDir, _ := setupIntegration(t, marketFiles())
 
 	ref := domain.MctRef(marketName + "@dev/go/agents/code-review.md")
-	if err := application.Add(ref, service.AddOpts{}); err != nil {
+	if _, err := application.Add(ref, service.AddOpts{}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -361,7 +361,7 @@ func TestIntegration_RemoveAgent(t *testing.T) {
 		t.Fatalf("file should exist before remove: %v", err)
 	}
 
-	if err := application.Remove(ref, service.RemoveOpts{}); err != nil {
+	if _, err := application.Remove(ref, service.RemoveOpts{}); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 
@@ -395,7 +395,7 @@ func TestIntegration_CheckClean(t *testing.T) {
 	application, _, _ := setupIntegration(t, marketFiles())
 
 	ref := domain.MctRef(marketName + "@dev/go/agents/code-review.md")
-	if err := application.Add(ref, service.AddOpts{}); err != nil {
+	if _, err := application.Add(ref, service.AddOpts{}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -419,7 +419,7 @@ func TestIntegration_CheckDrift(t *testing.T) {
 	application, projectDir, _ := setupIntegration(t, marketFiles())
 
 	ref := domain.MctRef(marketName + "@dev/go/agents/code-review.md")
-	if err := application.Add(ref, service.AddOpts{}); err != nil {
+	if _, err := application.Add(ref, service.AddOpts{}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -453,7 +453,7 @@ func TestIntegration_SyncAndUpdate(t *testing.T) {
 	application, projectDir, sourceDir := setupIntegration(t, marketFiles())
 
 	ref := domain.MctRef(marketName + "@dev/go/agents/code-review.md")
-	if err := application.Add(ref, service.AddOpts{}); err != nil {
+	if _, err := application.Add(ref, service.AddOpts{}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -515,7 +515,7 @@ func TestIntegration_SyncAndUpdate(t *testing.T) {
 	application2, projectDir2, sourceDir2 := setupIntegration(t, marketFiles())
 
 	ref2 := domain.MctRef(marketName + "@dev/go/agents/code-review.md")
-	if err := application2.Add(ref2, service.AddOpts{}); err != nil {
+	if _, err := application2.Add(ref2, service.AddOpts{}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -636,10 +636,10 @@ func TestIntegration_MultiLocation(t *testing.T) {
 
 	// Add the same agent to both projects.
 	ref := domain.MctRef(marketName + "@dev/go/agents/code-review.md")
-	if err := app1.Add(ref, service.AddOpts{}); err != nil {
+	if _, err := app1.Add(ref, service.AddOpts{}); err != nil {
 		t.Fatalf("Add to project 1: %v", err)
 	}
-	if err := app2.Add(ref, service.AddOpts{}); err != nil {
+	if _, err := app2.Add(ref, service.AddOpts{}); err != nil {
 		t.Fatalf("Add to project 2: %v", err)
 	}
 
@@ -672,7 +672,7 @@ func TestIntegration_MultiLocation(t *testing.T) {
 	}
 
 	// Remove from project 1.
-	if err := app1.Remove(ref, service.RemoveOpts{}); err != nil {
+	if _, err := app1.Remove(ref, service.RemoveOpts{}); err != nil {
 		t.Fatalf("Remove from project 1: %v", err)
 	}
 

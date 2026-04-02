@@ -8,6 +8,7 @@ import (
 type Config struct {
 	Markets        []MarketConfig `yaml:"markets"`
 	LocalPath      string         `yaml:"local_path"`
+	Tools          map[string]bool `yaml:"tools"`
 	StaleAfter     time.Duration  `yaml:"stale_after"`
 	ConflictPolicy string         `yaml:"conflict_policy"`
 	DriftPolicy    string         `yaml:"drift_policy"`

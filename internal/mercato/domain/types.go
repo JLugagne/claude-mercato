@@ -129,9 +129,10 @@ func (s EntryState) MarshalJSON() ([]byte, error) {
 }
 
 type EntryStatus struct {
-	Ref        MctRef     `json:"ref"`
-	State      EntryState `json:"state"`
-	NewVersion MctVersion `json:"new_version,omitempty"`
+	Ref        MctRef                `json:"ref"`
+	State      EntryState            `json:"state"`
+	NewVersion MctVersion            `json:"new_version,omitempty"`
+	ToolStates map[string]EntryState `json:"tool_states,omitempty"`
 }
 
 type Conflict struct {

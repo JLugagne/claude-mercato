@@ -180,7 +180,15 @@ func newCheckCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			}
 			for _, s := range statuses {
 				ind := indicators[s.State]
-				cmd.Printf("  %s  %s\n", ind, s.Ref)
+				if len(s.ToolStates) > 0 {
+					var toolParts []string
+					for tool, state := range s.ToolStates {
+						toolParts = append(toolParts, fmt.Sprintf("%s:%s", tool, state))
+					}
+					cmd.Printf("  %s  %s  %s\n", ind, s.Ref, strings.Join(toolParts, "  "))
+				} else {
+					cmd.Printf("  %s  %s\n", ind, s.Ref)
+				}
 			}
 			return nil
 		},
@@ -218,7 +226,7 @@ func newAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				fmt.Fscan(cmd.InOrStdin(), &answer)
 				return answer == "y" || answer == "Y"
 			}
-			err := svc.Entries.Add(ref, service.AddOpts{
+			result, err := svc.Entries.Add(ref, service.AddOpts{
 				NoDeps:         noDeps,
 				DryRun:         dryRun,
 				AcceptBreaking: acceptBreaking,
@@ -228,9 +236,22 @@ func newAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				return err
 			}
 			if jsonOut {
-				return printJSON(cmd.OutOrStdout(), map[string]any{"ref": ref, "status": "installed"})
+				out := map[string]any{"ref": ref, "status": "installed"}
+				if len(result.ToolWrites) > 0 {
+					out["tool_writes"] = result.ToolWrites
+				}
+				if len(result.Warnings) > 0 {
+					out["warnings"] = result.Warnings
+				}
+				return printJSON(cmd.OutOrStdout(), out)
 			}
 			cmd.Printf("  ok  installed %s\n", ref)
+			for tool, path := range result.ToolWrites {
+				cmd.Printf("  ok  %s  %s\n", tool, path)
+			}
+			for _, w := range result.Warnings {
+				cmd.Printf("  --  %s\n", w)
+			}
 			return nil
 		},
 	}
@@ -300,17 +321,19 @@ func newRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 						return nil
 					}
 				}
-				type removeResult struct {
-					Ref    domain.MctRef `json:"ref"`
-					Status string        `json:"status"`
-					Error  string        `json:"error,omitempty"`
+				type removeResultItem struct {
+					Ref          domain.MctRef `json:"ref"`
+					Status       string        `json:"status"`
+					Error        string        `json:"error,omitempty"`
+					ToolsRemoved []string      `json:"tools_removed,omitempty"`
 				}
-				var results []removeResult
+				var results []removeResultItem
 				for _, e := range entries {
-					if err := svc.Entries.Remove(e.Ref, service.RemoveOpts{AllLocations: allLocations}); err != nil {
-						results = append(results, removeResult{Ref: e.Ref, Status: "error", Error: err.Error()})
+					rr, err := svc.Entries.Remove(e.Ref, service.RemoveOpts{AllLocations: allLocations})
+					if err != nil {
+						results = append(results, removeResultItem{Ref: e.Ref, Status: "error", Error: err.Error()})
 					} else {
-						results = append(results, removeResult{Ref: e.Ref, Status: "removed"})
+						results = append(results, removeResultItem{Ref: e.Ref, Status: "removed", ToolsRemoved: rr.ToolsRemoved})
 					}
 				}
 				if jsonOut {
@@ -320,19 +343,34 @@ func newRemoveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 					if r.Error != "" {
 						cmd.PrintErrf("  x  %s: %s\n", r.Ref, r.Error)
 					} else {
-						cmd.Printf("  ok  removed %s\n", r.Ref)
+						tools := strings.Join(r.ToolsRemoved, ", ")
+						if tools != "" {
+							cmd.Printf("  ok  removed %s [%s]\n", r.Ref, tools)
+						} else {
+							cmd.Printf("  ok  removed %s\n", r.Ref)
+						}
 					}
 				}
 				return nil
 			}
 
-			if err := svc.Entries.Remove(domain.MctRef(ref), service.RemoveOpts{AllLocations: allLocations}); err != nil {
+			rr, err := svc.Entries.Remove(domain.MctRef(ref), service.RemoveOpts{AllLocations: allLocations})
+			if err != nil {
 				return err
 			}
 			if jsonOut {
-				return printJSON(cmd.OutOrStdout(), map[string]any{"ref": ref, "status": "removed"})
+				out := map[string]any{"ref": ref, "status": "removed"}
+				if len(rr.ToolsRemoved) > 0 {
+					out["tools_removed"] = rr.ToolsRemoved
+				}
+				return printJSON(cmd.OutOrStdout(), out)
 			}
-			cmd.Printf("  ok  removed %s\n", ref)
+			tools := strings.Join(rr.ToolsRemoved, ", ")
+			if tools != "" {
+				cmd.Printf("  ok  removed %s [%s]\n", ref, tools)
+			} else {
+				cmd.Printf("  ok  removed %s\n", ref)
+			}
 			return nil
 		},
 	}
@@ -489,12 +527,25 @@ func newListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				return err
 			}
 
+			// Determine enabled tools from config
+			var enabledTools []string
+			cfg, cfgErr := svc.Config.GetConfig()
+			if cfgErr == nil {
+				enabledTools = append(enabledTools, "claude") // always present
+				for tool, enabled := range cfg.Tools {
+					if enabled && tool != "claude" {
+						enabledTools = append(enabledTools, tool)
+					}
+				}
+			}
+
 			type profileKey struct{ market, profile string }
 			type profileInfo struct {
 				Market  string          `json:"market"`
 				Profile string          `json:"profile"`
 				Agents  int             `json:"agents"`
 				Skills  int             `json:"skills"`
+				Tools   []string        `json:"tools,omitempty"`
 				Refs    []domain.MctRef `json:"refs,omitempty"`
 			}
 			seen := make(map[profileKey]*profileInfo)
@@ -508,7 +559,7 @@ func newListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				}
 				key := profileKey{e.Market, profile}
 				if _, ok := seen[key]; !ok {
-					seen[key] = &profileInfo{Market: e.Market, Profile: profile}
+					seen[key] = &profileInfo{Market: e.Market, Profile: profile, Tools: enabledTools}
 					order = append(order, key)
 				}
 				if e.Type == domain.EntryTypeAgent {
@@ -528,7 +579,11 @@ func newListCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			}
 			for _, k := range order {
 				p := seen[k]
-				cmd.Printf("  %s@%s  (%d agents, %d skills)\n", p.Market, p.Profile, p.Agents, p.Skills)
+				toolLabel := ""
+				if len(p.Tools) > 0 {
+					toolLabel = fmt.Sprintf("  [%s]", strings.Join(p.Tools, ", "))
+				}
+				cmd.Printf("  %s@%s  (%d agents, %d skills)%s\n", p.Market, p.Profile, p.Agents, p.Skills, toolLabel)
 				for _, e := range p.Refs {
 					cmd.Printf("    %s\n", e)
 				}

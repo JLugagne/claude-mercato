@@ -201,6 +201,72 @@ func TestSetMarketProperty(t *testing.T) {
 	}
 }
 
+func TestLoadProjectConfig_WithTools(t *testing.T) {
+	cs := NewConfigStore()
+	dir := t.TempDir()
+	content := "tools:\n  claude: true\n  cursor: false\n"
+	if err := os.WriteFile(filepath.Join(dir, ".mct.yml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	pc, err := cs.LoadProjectConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig: %v", err)
+	}
+	if pc.Tools == nil {
+		t.Fatal("Tools is nil, want non-nil")
+	}
+	if !pc.Tools["claude"] {
+		t.Error("claude = false, want true")
+	}
+	if pc.Tools["cursor"] {
+		t.Error("cursor = true, want false")
+	}
+}
+
+func TestLoadProjectConfig_Missing(t *testing.T) {
+	cs := NewConfigStore()
+	dir := t.TempDir()
+
+	pc, err := cs.LoadProjectConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig: %v", err)
+	}
+	if pc.Tools != nil {
+		t.Errorf("Tools = %v, want nil", pc.Tools)
+	}
+}
+
+func TestLoadProjectConfig_Corrupt(t *testing.T) {
+	cs := NewConfigStore()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".mct.yml"), []byte(":::bad yaml"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := cs.LoadProjectConfig(dir)
+	if err == nil {
+		t.Fatal("expected error for corrupt YAML, got nil")
+	}
+}
+
+func TestLoadProjectConfig_NullTools(t *testing.T) {
+	cs := NewConfigStore()
+	dir := t.TempDir()
+	content := "tools: null\n"
+	if err := os.WriteFile(filepath.Join(dir, ".mct.yml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	pc, err := cs.LoadProjectConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig: %v", err)
+	}
+	if pc.Tools != nil {
+		t.Errorf("Tools = %v, want nil for 'tools: null'", pc.Tools)
+	}
+}
+
 func TestSetConfigField(t *testing.T) {
 	cs, path := newConfigStore(t)
 	if err := cs.Save(path, domain.Config{}); err != nil {

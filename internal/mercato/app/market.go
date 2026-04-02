@@ -46,17 +46,19 @@ func marketDirName(name string) string {
 }
 
 type App struct {
-	git        gitrepo.GitRepo
-	fs         fsrepo.Filesystem
-	cfg        configstore.ConfigStore
-	state      statestore.StateStore
-	idb        installdb.InstallDB
-	configPath string
-	cacheDir   string
+	git          gitrepo.GitRepo
+	fs           fsrepo.Filesystem
+	cfg          configstore.ConfigStore
+	state        statestore.StateStore
+	idb          installdb.InstallDB
+	configPath   string
+	cacheDir     string
+	transformers domain.TransformerRegistry
+	toolMappings configstore.ToolMappingStore
 }
 
-func New(git gitrepo.GitRepo, fs fsrepo.Filesystem, cfg configstore.ConfigStore, state statestore.StateStore, idb installdb.InstallDB, configPath, cacheDir string) *App {
-	return &App{
+func New(git gitrepo.GitRepo, fs fsrepo.Filesystem, cfg configstore.ConfigStore, state statestore.StateStore, idb installdb.InstallDB, configPath, cacheDir string, opts ...AppOption) *App {
+	a := &App{
 		git:        git,
 		fs:         fs,
 		cfg:        cfg,
@@ -65,6 +67,26 @@ func New(git gitrepo.GitRepo, fs fsrepo.Filesystem, cfg configstore.ConfigStore,
 		configPath: configPath,
 		cacheDir:   cacheDir,
 	}
+	for _, opt := range opts {
+		opt(a)
+	}
+	if a.transformers == nil {
+		a.transformers = domain.TransformerRegistry{}
+	}
+	return a
+}
+
+// AppOption configures optional App dependencies.
+type AppOption func(*App)
+
+// WithTransformers sets the transformer registry for multi-tool support.
+func WithTransformers(reg domain.TransformerRegistry) AppOption {
+	return func(a *App) { a.transformers = reg }
+}
+
+// WithToolMappings sets the tool mapping store for multi-tool support.
+func WithToolMappings(store configstore.ToolMappingStore) AppOption {
+	return func(a *App) { a.toolMappings = store }
 }
 
 

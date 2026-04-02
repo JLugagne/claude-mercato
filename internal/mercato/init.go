@@ -8,7 +8,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/app"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/claude-mercato/internal/mercato/domain/transform"
 	"github.com/JLugagne/claude-mercato/internal/mercato/inbound/commands"
 	"github.com/JLugagne/claude-mercato/internal/mercato/inbound/queries/tui"
 	"github.com/JLugagne/claude-mercato/internal/mercato/outbound/cfgadapter"
@@ -41,7 +43,21 @@ func NewApp(configPath, cacheDir string) *cobra.Command {
 	stateStore := cfgadapter.NewStateStore()
 
 	installDB := cfgadapter.NewInstallDB()
-	application := app.New(gitRepo, fs, cfgStore, stateStore, installDB, configPath, cacheDir)
+
+	registry := domain.TransformerRegistry{
+		"claude":   &transform.ClaudeTransformer{},
+		"cursor":   &transform.CursorTransformer{},
+		"windsurf": &transform.WindsurfTransformer{},
+		"codex":    &transform.CodexTransformer{},
+		"gemini":   &transform.GeminiTransformer{},
+		"opencode": &transform.OpenCodeTransformer{},
+	}
+	toolMappingsStore := cfgadapter.NewToolMappingStore()
+
+	application := app.New(gitRepo, fs, cfgStore, stateStore, installDB, configPath, cacheDir,
+		app.WithTransformers(registry),
+		app.WithToolMappings(toolMappingsStore),
+	)
 
 	svc := commands.Services{
 		Markets: application,

@@ -204,36 +204,38 @@ func (a *App) GetEntry(ref domain.MctRef) (domain.Entry, error) {
 	return domain.Entry{}, domain.ErrEntryNotFound
 }
 
-func (a *App) Add(ref domain.MctRef, opts service.AddOpts) error {
+func (a *App) Add(ref domain.MctRef, opts service.AddOpts) (service.AddResult, error) {
 	marketName, relPath, err := ref.Parse()
 	if err != nil {
-		return err
+		return service.AddResult{}, err
 	}
 
 	cfg, err := a.cfg.Load(a.configPath)
 	if err != nil {
-		return err
+		return service.AddResult{}, err
 	}
 
 	mc := findMarketConfig(cfg, marketName)
 	if mc == nil {
-		return domain.ErrMarketNotFound
+		return service.AddResult{}, domain.ErrMarketNotFound
 	}
 
 	// Lock installdb
 	if err := a.idb.Lock(a.cacheDir); err != nil {
-		return err
+		return service.AddResult{}, err
 	}
 	defer a.idb.Unlock(a.cacheDir)
 
 	// Load installdb
 	db, err := a.idb.Load(a.cacheDir)
 	if err != nil {
-		return err
+		return service.AddResult{}, err
 	}
 
 	visited := make(map[domain.MctRef]bool)
-	return a.addInternal(ref, marketName, relPath, cfg, mc, &db, visited, opts)
+	var result service.AddResult
+	err = a.addInternal(ref, marketName, relPath, cfg, mc, &db, visited, opts, &result)
+	return result, err
 }
 
 func (a *App) addInternal(
@@ -244,6 +246,7 @@ func (a *App) addInternal(
 	db *domain.InstallDatabase,
 	visited map[domain.MctRef]bool,
 	opts service.AddOpts,
+	result *service.AddResult,
 ) error {
 	// Normalize skill directory refs: skills/foo → skills/foo/SKILL.md
 	if isSkillDirRef(relPath) {
@@ -259,7 +262,7 @@ func (a *App) addInternal(
 
 	if isProfileRef(relPath) {
 		opts.Profile = relPath
-		return a.addProfile(marketName, relPath, mc, cfg, db, visited, opts)
+		return a.addProfile(marketName, relPath, mc, cfg, db, visited, opts, result)
 	}
 
 	profile := opts.Profile
@@ -267,7 +270,6 @@ func (a *App) addInternal(
 		profile = refProfile(ref)
 	}
 
-	// Determine project path from cfg.LocalPath
 	projectPath := projectPath(cfg.LocalPath)
 
 	// Check if already installed at this location
@@ -287,7 +289,6 @@ func (a *App) addInternal(
 
 	clonePath := a.clonePath(marketName)
 
-	// Verify the file exists in the market
 	content, err := a.git.ReadFileAtRef(clonePath, mc.Branch, relPath, "HEAD")
 	if err != nil {
 		return err
@@ -302,124 +303,177 @@ func (a *App) addInternal(
 		return nil
 	}
 
-	// Resolve local install path
 	localPath, err := a.resolveLocalPath(cfg, relPath)
 	if err != nil {
 		return err
 	}
 
-	// Build InstalledFiles
-	var files domain.InstalledFiles
-	entryType := inferEntryType(relPath)
-
-	if entryType == domain.EntryTypeSkill && isDirBasedSkill(relPath) {
-		// Directory-based skill (e.g. skills/foo/SKILL.md): enumerate all files
-		// in the skill directory and copy them.
-		skillDirPath := filepath.Dir(relPath)
-		dirFiles, err := a.git.ListDirFiles(clonePath, mc.Branch, skillDirPath)
-		if err != nil {
-			return err
-		}
-		for _, f := range dirFiles {
-			fileContent, err := a.git.ReadFileAtRef(clonePath, mc.Branch, f, "HEAD")
-			if err != nil {
-				return err
-			}
-			// localPath is <cfg.LocalPath>/skills/<skillname>, so each file goes under it
-			fileName := filepath.Base(f)
-			fileDest := filepath.Join(localPath, fileName)
-			if err := a.fs.WriteFile(fileDest, fileContent); err != nil {
-				return err
-			}
-		}
-		skillName := filepath.Base(skillDirPath)
-		files.Skills = append(files.Skills, skillName)
-	} else if entryType == domain.EntryTypeSkill {
-		// Flat skill file (e.g. skills/bar.md): copy the single file.
-		if err := a.fs.WriteFile(localPath, content); err != nil {
-			return err
-		}
-		stem := strings.TrimSuffix(filepath.Base(relPath), ".md")
-		files.Skills = append(files.Skills, stem)
-	} else {
-		// For agents: write the .md file directly
-		if err := a.fs.WriteFile(localPath, content); err != nil {
-			return err
-		}
-		files.Agents = append(files.Agents, filepath.Base(relPath))
+	// Install files locally and get tool-target write results
+	files, err := a.installEntryFiles(clonePath, mc.Branch, relPath, localPath, content)
+	if err != nil {
+		return err
 	}
 
-	// Get current HEAD SHA for version
 	headSHA, err := a.git.RemoteHEAD(clonePath, mc.Branch)
 	if err != nil {
 		return err
 	}
 
+	// Write to additional tool targets (non-Claude)
+	entryType := inferEntryType(relPath)
+	entryForTransform := domain.Entry{
+		Ref:      ref,
+		Market:   marketName,
+		RelPath:  relPath,
+		Filename: filepath.Base(relPath),
+		Type:     entryType,
+		Profile:  profile,
+	}
+	twr := a.writeToToolTargets(entryForTransform, content, projectPath)
+
+	// Populate AddResult with tool write info
+	if result != nil {
+		mergeAddResult(result, twr)
+	}
+
 	// Update installdb
 	db.AddOrUpdatePackage(marketName, profile, headSHA, files, projectPath)
 
-	// Save installdb
+	// Store tool checksums
+	if len(twr.Checksums) > 0 {
+		pkg := db.FindPackage(marketName, profile)
+		if pkg != nil {
+			a.mergeToolChecksums(pkg, twr.Checksums)
+		}
+	}
+
 	if err := a.idb.Save(a.cacheDir, *db); err != nil {
 		return err
 	}
 
 	// Resolve dependencies with cycle detection
 	if !opts.NoDeps && len(fm.RequiresSkills) > 0 {
-		for _, dep := range fm.RequiresSkills {
-			depMarket := marketName
-			if dep.Market != "" {
-				depMarketName, nameErr := marketNameFromURL(dep.Market)
-				if nameErr != nil {
-					return nameErr
-				}
-				depMarket = depMarketName
+		return a.resolveDependencies(fm.RequiresSkills, marketName, cfg, db, visited, opts, result)
+	}
 
-				depMc := findMarketConfig(cfg, depMarket)
-				if depMc == nil {
-					if opts.ConfirmMarket == nil || !opts.ConfirmMarket(dep.Market) {
-						return &domain.DomainError{
-							Code:    "MARKET_NOT_REGISTERED",
-							Message: fmt.Sprintf("skill dependency requires market %q which is not registered", dep.Market),
-						}
-					}
-					if _, addErr := a.AddMarket(dep.Market, service.AddMarketOpts{}); addErr != nil {
-						return addErr
-					}
-					// Reload config to pick up the new market
-					newCfg, err := a.cfg.Load(a.configPath)
-					if err != nil {
-						return err
-					}
-					cfg = newCfg
-				}
-			}
+	return nil
+}
 
-			depFile := dep.File
-			if !strings.HasSuffix(depFile, ".md") {
-				depFile = strings.TrimSuffix(depFile, "/") + "/SKILL.md"
+// installEntryFiles writes skill or agent files to the local .claude/ directory
+// and returns the InstalledFiles record.
+func (a *App) installEntryFiles(clonePath, branch, relPath, localPath string, content []byte) (domain.InstalledFiles, error) {
+	var files domain.InstalledFiles
+	entryType := inferEntryType(relPath)
+
+	if entryType == domain.EntryTypeSkill && isDirBasedSkill(relPath) {
+		skillDirPath := filepath.Dir(relPath)
+		dirFiles, err := a.git.ListDirFiles(clonePath, branch, skillDirPath)
+		if err != nil {
+			return files, err
+		}
+		for _, f := range dirFiles {
+			fileContent, err := a.git.ReadFileAtRef(clonePath, branch, f, "HEAD")
+			if err != nil {
+				return files, err
 			}
-			skillRef := domain.MctRef(depMarket + "@" + depFile)
+			fileDest := filepath.Join(localPath, filepath.Base(f))
+			if err := a.fs.WriteFile(fileDest, fileContent); err != nil {
+				return files, err
+			}
+		}
+		files.Skills = append(files.Skills, filepath.Base(skillDirPath))
+	} else if entryType == domain.EntryTypeSkill {
+		if err := a.fs.WriteFile(localPath, content); err != nil {
+			return files, err
+		}
+		stem := strings.TrimSuffix(filepath.Base(relPath), ".md")
+		files.Skills = append(files.Skills, stem)
+	} else {
+		if err := a.fs.WriteFile(localPath, content); err != nil {
+			return files, err
+		}
+		files.Agents = append(files.Agents, filepath.Base(relPath))
+	}
+
+	return files, nil
+}
+
+// mergeAddResult populates an AddResult with tool write paths and warnings.
+func mergeAddResult(result *service.AddResult, twr toolWriteResult) {
+	if len(twr.ToolWrites) > 0 {
+		if result.ToolWrites == nil {
+			result.ToolWrites = make(map[string]string)
+		}
+		for k, v := range twr.ToolWrites {
+			result.ToolWrites[k] = v
+		}
+	}
+	result.Warnings = append(result.Warnings, twr.Warnings...)
+}
+
+// resolveDependencies installs all required skills for an entry, registering
+// cross-market dependencies as needed.
+func (a *App) resolveDependencies(
+	deps []domain.SkillDep,
+	marketName string,
+	cfg domain.Config,
+	db *domain.InstallDatabase,
+	visited map[domain.MctRef]bool,
+	opts service.AddOpts,
+	result *service.AddResult,
+) error {
+	for _, dep := range deps {
+		depMarket := marketName
+		if dep.Market != "" {
+			depMarketName, nameErr := marketNameFromURL(dep.Market)
+			if nameErr != nil {
+				return nameErr
+			}
+			depMarket = depMarketName
 
 			depMc := findMarketConfig(cfg, depMarket)
 			if depMc == nil {
-				continue
-			}
-
-			_, depRelPath, err := skillRef.Parse()
-			if err != nil {
-				return err
-			}
-
-			depOpts := service.AddOpts{
-				NoDeps:        true,
-				ConfirmMarket: opts.ConfirmMarket,
-			}
-			if err := a.addInternal(skillRef, depMarket, depRelPath, cfg, depMc, db, visited, depOpts); err != nil {
-				return err
+				if opts.ConfirmMarket == nil || !opts.ConfirmMarket(dep.Market) {
+					return &domain.DomainError{
+						Code:    "MARKET_NOT_REGISTERED",
+						Message: fmt.Sprintf("skill dependency requires market %q which is not registered", dep.Market),
+					}
+				}
+				if _, addErr := a.AddMarket(dep.Market, service.AddMarketOpts{}); addErr != nil {
+					return addErr
+				}
+				newCfg, err := a.cfg.Load(a.configPath)
+				if err != nil {
+					return err
+				}
+				cfg = newCfg
 			}
 		}
-	}
 
+		depFile := dep.File
+		if !strings.HasSuffix(depFile, ".md") {
+			depFile = strings.TrimSuffix(depFile, "/") + "/SKILL.md"
+		}
+		skillRef := domain.MctRef(depMarket + "@" + depFile)
+
+		depMc := findMarketConfig(cfg, depMarket)
+		if depMc == nil {
+			continue
+		}
+
+		_, depRelPath, err := skillRef.Parse()
+		if err != nil {
+			return err
+		}
+
+		depOpts := service.AddOpts{
+			NoDeps:        true,
+			ConfirmMarket: opts.ConfirmMarket,
+		}
+		if err := a.addInternal(skillRef, depMarket, depRelPath, cfg, depMc, db, visited, depOpts, result); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -430,6 +484,7 @@ func (a *App) addProfile(
 	db *domain.InstallDatabase,
 	visited map[domain.MctRef]bool,
 	opts service.AddOpts,
+	result *service.AddResult,
 ) error {
 	clonePath := a.clonePath(marketName)
 	mfiles, err := a.git.ReadMarketFiles(clonePath, mc.Branch)
@@ -476,7 +531,7 @@ func (a *App) addProfile(
 		if err != nil {
 			return err
 		}
-		if err := a.addInternal(fileRef, marketName, fileRelPath, cfg, mc, db, visited, opts); err != nil {
+		if err := a.addInternal(fileRef, marketName, fileRelPath, cfg, mc, db, visited, opts, result); err != nil {
 			return err
 		}
 		installedCount++
@@ -556,11 +611,11 @@ func isProfileRef(relPath string) bool {
 	return true
 }
 
-func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) error {
+func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.RemoveResult, error) {
 	// Normalize skill directory refs: skills/foo → skills/foo/SKILL.md
 	marketName, relPath, err := ref.Parse()
 	if err != nil {
-		return err
+		return service.RemoveResult{}, err
 	}
 	if isSkillDirRef(relPath) {
 		relPath = relPath + "/SKILL.md"
@@ -569,19 +624,19 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) error {
 
 	cfg, err := a.cfg.Load(a.configPath)
 	if err != nil {
-		return err
+		return service.RemoveResult{}, err
 	}
 
 	// Lock installdb
 	if err := a.idb.Lock(a.cacheDir); err != nil {
-		return err
+		return service.RemoveResult{}, err
 	}
 	defer a.idb.Unlock(a.cacheDir)
 
 	// Load installdb
 	db, err := a.idb.Load(a.cacheDir)
 	if err != nil {
-		return err
+		return service.RemoveResult{}, err
 	}
 
 	profile := refProfile(ref)
@@ -589,18 +644,34 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) error {
 	// Find the package in installdb
 	pkg := db.FindPackage(marketName, profile)
 	if pkg == nil {
-		return domain.ErrEntryNotInstalled
+		return service.RemoveResult{}, domain.ErrEntryNotInstalled
 	}
 
 	projectPath := projectPath(cfg.LocalPath)
+
+	// Build an entry for tool removal
+	entryForRemove := domain.Entry{
+		Ref:      ref,
+		Market:   marketName,
+		RelPath:  relPath,
+		Filename: filepath.Base(relPath),
+		Type:     inferEntryType(relPath),
+		Profile:  profile,
+	}
+
+	var removeResult service.RemoveResult
+	// Always include "claude" as a removed tool (the main .claude/ files)
+	removeResult.ToolsRemoved = append(removeResult.ToolsRemoved, "claude")
 
 	if opts.AllLocations {
 		// Delete files from every location
 		for _, loc := range pkg.Locations {
 			localPath := filepath.Join(loc, filepath.Base(cfg.LocalPath))
 			if err := a.deleteInstalledFiles(localPath, pkg.Files); err != nil {
-				return err
+				return service.RemoveResult{}, err
 			}
+			tr := a.removeFromToolTargets(entryForRemove, loc)
+			removeResult.ToolsRemoved = append(removeResult.ToolsRemoved, tr.Removed...)
 		}
 		// Remove all locations (remove the package entirely)
 		locs := make([]string, len(pkg.Locations))
@@ -618,20 +689,24 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) error {
 			}
 		}
 		if !atLocation {
-			return domain.ErrEntryNotInstalled
+			return service.RemoveResult{}, domain.ErrEntryNotInstalled
 		}
 
 		// Delete files from current project
 		if err := a.deleteInstalledFiles(cfg.LocalPath, pkg.Files); err != nil {
-			return err
+			return service.RemoveResult{}, err
 		}
+
+		// Remove tool-specific files
+		tr := a.removeFromToolTargets(entryForRemove, projectPath)
+		removeResult.ToolsRemoved = append(removeResult.ToolsRemoved, tr.Removed...)
 
 		// Update installdb
 		db.RemoveLocation(marketName, profile, projectPath)
 	}
 
 	// Save installdb
-	return a.idb.Save(a.cacheDir, db)
+	return removeResult, a.idb.Save(a.cacheDir, db)
 }
 
 func (a *App) deleteInstalledFiles(localPath string, files domain.InstalledFiles) error {
@@ -747,8 +822,15 @@ func (a *App) Init(opts service.InitOpts) error {
 		return domain.ErrAlreadyInitialized
 	}
 
+	// Ensure cache and config directories exist.
 	if err := a.fs.MkdirAll(a.cacheDir); err != nil {
 		return err
+	}
+	configDir := filepath.Dir(a.configPath)
+	if configDir != "" && configDir != "." {
+		if err := a.fs.MkdirAll(configDir); err != nil {
+			return err
+		}
 	}
 
 	markets := opts.Markets
@@ -762,6 +844,7 @@ func (a *App) Init(opts service.InitOpts) error {
 
 	cfg := domain.Config{
 		LocalPath: localPath,
+		Tools:     map[string]bool{"claude": true},
 		Markets:   []domain.MarketConfig{},
 	}
 
@@ -808,6 +891,17 @@ func (a *App) Init(opts service.InitOpts) error {
 
 	if err := a.cfg.Save(a.configPath, cfg); err != nil {
 		return err
+	}
+
+	// Write default tool-mappings.yml if it doesn't already exist.
+	if a.toolMappings != nil {
+		mappingsPath := filepath.Join(configDir, "tool-mappings.yml")
+		if !a.toolMappings.ToolMappingsExist(mappingsPath) {
+			defaults := a.toolMappings.DefaultToolMappings()
+			if err := a.toolMappings.SaveToolMappings(mappingsPath, defaults); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil

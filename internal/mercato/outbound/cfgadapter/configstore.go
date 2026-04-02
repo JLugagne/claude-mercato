@@ -1,9 +1,11 @@
 package cfgadapter
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -42,6 +44,9 @@ func (c *ConfigStoreAdapter) Load(path string) (domain.Config, error) {
 	}
 	if cfg.StaleAfter == 0 {
 		cfg.StaleAfter = 7 * 24 * 60 * 60 * 1e9
+	}
+	if len(cfg.Tools) == 0 {
+		cfg.Tools = map[string]bool{"claude": true}
 	}
 	for i := range cfg.Markets {
 		if cfg.Markets[i].Branch == "" {
@@ -92,20 +97,44 @@ func (c *ConfigStoreAdapter) SetConfigField(path string, key string, value strin
 	if err != nil {
 		return err
 	}
-	switch key {
-	case "ssh_enabled":
+	switch {
+	case key == "ssh_enabled":
 		v := value == "true" || value == "1"
 		cfg.SSHEnabled = &v
-	case "local_path":
+	case key == "local_path":
 		cfg.LocalPath = value
-	case "conflict_policy":
+	case key == "conflict_policy":
 		cfg.ConflictPolicy = value
-	case "drift_policy":
+	case key == "drift_policy":
 		cfg.DriftPolicy = value
+	case strings.HasPrefix(key, "tools."):
+		toolName := strings.TrimPrefix(key, "tools.")
+		if toolName == "" {
+			return fmt.Errorf("missing tool name in key: %s", key)
+		}
+		if cfg.Tools == nil {
+			cfg.Tools = make(map[string]bool)
+		}
+		cfg.Tools[toolName] = value == "true" || value == "1"
 	default:
 		return fmt.Errorf("unknown config field: %s", key)
 	}
 	return c.Save(path, cfg)
+}
+
+func (c *ConfigStoreAdapter) LoadProjectConfig(projectDir string) (domain.ProjectConfig, error) {
+	var pc domain.ProjectConfig
+	data, err := os.ReadFile(filepath.Join(projectDir, ".mct.yml"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return pc, nil
+		}
+		return pc, fmt.Errorf("load project config: %w", err)
+	}
+	if err := yaml.Unmarshal(data, &pc); err != nil {
+		return pc, fmt.Errorf("parse project config: %w", err)
+	}
+	return pc, nil
 }
 
 func (c *ConfigStoreAdapter) SetMarketProperty(path string, marketName string, key string, value string) error {

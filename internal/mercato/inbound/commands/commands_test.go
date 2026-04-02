@@ -128,8 +128,8 @@ type stubEntries struct {
 	getEntryFn         func(ref domain.MctRef) (domain.Entry, error)
 	readEntryContentFn func(market, relPath string) ([]byte, error)
 	conflictsFn        func() ([]domain.Conflict, error)
-	addFn              func(ref domain.MctRef, opts service.AddOpts) error
-	removeFn           func(ref domain.MctRef) error
+	addFn              func(ref domain.MctRef, opts service.AddOpts) (service.AddResult, error)
+	removeFn           func(ref domain.MctRef) (service.RemoveResult, error)
 	pruneFn            func(opts service.PruneOpts) ([]service.PruneResult, error)
 	diffFn             func(ref domain.MctRef) error
 	initFn             func(opts service.InitOpts) error
@@ -167,18 +167,18 @@ func (s *stubEntries) Conflicts() ([]domain.Conflict, error) {
 	return nil, nil
 }
 
-func (s *stubEntries) Add(ref domain.MctRef, opts service.AddOpts) error {
+func (s *stubEntries) Add(ref domain.MctRef, opts service.AddOpts) (service.AddResult, error) {
 	if s.addFn != nil {
 		return s.addFn(ref, opts)
 	}
-	return nil
+	return service.AddResult{}, nil
 }
 
-func (s *stubEntries) Remove(ref domain.MctRef, opts service.RemoveOpts) error {
+func (s *stubEntries) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.RemoveResult, error) {
 	if s.removeFn != nil {
 		return s.removeFn(ref)
 	}
-	return nil
+	return service.RemoveResult{}, nil
 }
 
 func (s *stubEntries) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
@@ -567,8 +567,8 @@ func TestCheck_Text(t *testing.T) {
 func TestAdd_Text(t *testing.T) {
 	svc := mockServices()
 	svc.Entries = &stubEntries{
-		addFn: func(ref domain.MctRef, opts service.AddOpts) error {
-			return nil
+		addFn: func(ref domain.MctRef, opts service.AddOpts) (service.AddResult, error) {
+			return service.AddResult{}, nil
 		},
 	}
 	out, err := runCmd(t, svc, "add", "mkt@agents/foo.md")
@@ -586,8 +586,8 @@ func TestAdd_Text(t *testing.T) {
 func TestAdd_JSON(t *testing.T) {
 	svc := mockServices()
 	svc.Entries = &stubEntries{
-		addFn: func(ref domain.MctRef, opts service.AddOpts) error {
-			return nil
+		addFn: func(ref domain.MctRef, opts service.AddOpts) (service.AddResult, error) {
+			return service.AddResult{}, nil
 		},
 	}
 	out, err := runCmd(t, svc, "add", "mkt@agents/foo.md", "--json")
@@ -607,8 +607,8 @@ func TestAdd_JSON(t *testing.T) {
 func TestRemove_Text(t *testing.T) {
 	svc := mockServices()
 	svc.Entries = &stubEntries{
-		removeFn: func(ref domain.MctRef) error {
-			return nil
+		removeFn: func(ref domain.MctRef) (service.RemoveResult, error) {
+			return service.RemoveResult{}, nil
 		},
 	}
 	out, err := runCmd(t, svc, "remove", "--ref", "mkt@agents/foo.md")
@@ -1157,9 +1157,9 @@ func TestRemoveCmd_Success(t *testing.T) {
 	var calledRef domain.MctRef
 	svc := mockServices()
 	svc.Entries = &stubEntries{
-		removeFn: func(ref domain.MctRef) error {
+		removeFn: func(ref domain.MctRef) (service.RemoveResult, error) {
 			calledRef = ref
-			return nil
+			return service.RemoveResult{}, nil
 		},
 	}
 	out, err := runCmd(t, svc, "remove", "--ref", "mkt@agents/foo.md")
@@ -1177,8 +1177,8 @@ func TestRemoveCmd_Success(t *testing.T) {
 func TestRemoveCmd_Error(t *testing.T) {
 	svc := mockServices()
 	svc.Entries = &stubEntries{
-		removeFn: func(ref domain.MctRef) error {
-			return &domain.DomainError{Code: "ERR", Message: "remove failed"}
+		removeFn: func(ref domain.MctRef) (service.RemoveResult, error) {
+			return service.RemoveResult{}, &domain.DomainError{Code: "ERR", Message: "remove failed"}
 		},
 	}
 	_, err := runCmd(t, svc, "remove", "--ref", "mkt@agents/foo.md")
@@ -1417,9 +1417,9 @@ func TestRemoveCmd_AllWithYes(t *testing.T) {
 				{Ref: "mkt@agents/b.md"},
 			}, nil
 		},
-		removeFn: func(ref domain.MctRef) error {
+		removeFn: func(ref domain.MctRef) (service.RemoveResult, error) {
 			removed = append(removed, ref)
-			return nil
+			return service.RemoveResult{}, nil
 		},
 	}
 	out, err := runCmd(t, svc, "remove", "--all", "--yes")
@@ -1441,9 +1441,9 @@ func TestRemoveCmd_AllWithConfirmYes(t *testing.T) {
 		listFn: func(opts service.ListOpts) ([]domain.Entry, error) {
 			return []domain.Entry{{Ref: "mkt@agents/c.md"}}, nil
 		},
-		removeFn: func(ref domain.MctRef) error {
+		removeFn: func(ref domain.MctRef) (service.RemoveResult, error) {
 			removed = append(removed, ref)
-			return nil
+			return service.RemoveResult{}, nil
 		},
 	}
 	_, err := runCmdWithStdin(t, svc, "y\n", "remove", "--all")
@@ -1462,9 +1462,9 @@ func TestRemoveCmd_AllWithConfirmNo(t *testing.T) {
 		listFn: func(opts service.ListOpts) ([]domain.Entry, error) {
 			return []domain.Entry{{Ref: "mkt@agents/d.md"}}, nil
 		},
-		removeFn: func(ref domain.MctRef) error {
+		removeFn: func(ref domain.MctRef) (service.RemoveResult, error) {
 			removed = append(removed, ref)
-			return nil
+			return service.RemoveResult{}, nil
 		},
 	}
 	out, err := runCmdWithStdin(t, svc, "n\n", "remove", "--all")
@@ -1485,7 +1485,7 @@ func TestRemoveCmd_AllJSON(t *testing.T) {
 		listFn: func(opts service.ListOpts) ([]domain.Entry, error) {
 			return []domain.Entry{{Ref: "mkt@agents/e.md"}}, nil
 		},
-		removeFn: func(ref domain.MctRef) error { return nil },
+		removeFn: func(ref domain.MctRef) (service.RemoveResult, error) { return service.RemoveResult{}, nil },
 	}
 	out, err := runCmd(t, svc, "remove", "--all", "--yes", "--json")
 	if err != nil {
@@ -1500,8 +1500,8 @@ func TestRemoveCmd_AllError(t *testing.T) {
 		listFn: func(opts service.ListOpts) ([]domain.Entry, error) {
 			return []domain.Entry{{Ref: "mkt@agents/f.md"}}, nil
 		},
-		removeFn: func(ref domain.MctRef) error {
-			return &domain.DomainError{Code: "ERR", Message: "disk error"}
+		removeFn: func(ref domain.MctRef) (service.RemoveResult, error) {
+			return service.RemoveResult{}, &domain.DomainError{Code: "ERR", Message: "disk error"}
 		},
 	}
 	out, err := runCmd(t, svc, "remove", "--all", "--yes")
