@@ -218,7 +218,7 @@ func TestIntegration_AddAgent(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	// Verify file was copied.
+	// Verify agent file was copied.
 	installedPath := filepath.Join(projectDir, ".claude", "agents", "code-review.md")
 	got, err := os.ReadFile(installedPath)
 	if err != nil {
@@ -227,6 +227,16 @@ func TestIntegration_AddAgent(t *testing.T) {
 	want := "---\ndescription: \"Go code reviewer\"\n---\nReview Go code for best practices.\n"
 	if string(got) != want {
 		t.Errorf("content mismatch:\ngot:  %q\nwant: %q", string(got), want)
+	}
+
+	// Verify sibling skills from same profile were also installed.
+	skillPath := filepath.Join(projectDir, ".claude", "skills", "go-arch", "SKILL.md")
+	if _, err := os.Stat(skillPath); err != nil {
+		t.Errorf("expected sibling skill go-arch/SKILL.md to be installed: %v", err)
+	}
+	promptPath := filepath.Join(projectDir, ".claude", "skills", "go-arch", "prompt.md")
+	if _, err := os.Stat(promptPath); err != nil {
+		t.Errorf("expected sibling skill support file prompt.md to be installed: %v", err)
 	}
 
 	// Verify installdb.
@@ -708,5 +718,135 @@ func TestIntegration_MultiLocation(t *testing.T) {
 	}
 	if !hasProject2 {
 		t.Error("project 2 should still be in installdb locations")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Agent install → sibling skill auto-install
+// ---------------------------------------------------------------------------
+
+// multiSkillMarketFiles returns a market with an agent and multiple skills
+// in the same profile, plus skills in a different profile.
+func multiSkillMarketFiles() map[string]string {
+	return map[string]string{
+		"dev/go/agents/reviewer.md":            "---\ndescription: \"Go reviewer\"\n---\nReview Go code.\n",
+		"dev/go/skills/arch/SKILL.md":          "---\ndescription: \"Go architect\"\n---\nArchitect Go.\n",
+		"dev/go/skills/arch/prompt.md":          "You are a Go architect.\n",
+		"dev/go/skills/testing/SKILL.md":        "---\ndescription: \"Go tester\"\n---\nTest Go.\n",
+		"dev/go/skills/testing/helpers.md":      "Test helpers.\n",
+		"dev/go/README.md":                      "---\ntags:\n  - go\n---\nGo dev profile.\n",
+		"dev/python/agents/py-review.md":        "---\ndescription: \"Python reviewer\"\n---\nReview Python code.\n",
+		"dev/python/skills/pytest/SKILL.md":     "---\ndescription: \"pytest skill\"\n---\npytest.\n",
+	}
+}
+
+func TestIntegration_AddAgent_InstallsSiblingSkills(t *testing.T) {
+	application, projectDir, _ := setupIntegration(t, multiSkillMarketFiles())
+
+	ref := domain.MctRef(marketName + "@dev/go/agents/reviewer.md")
+	if _, err := application.Add(ref, service.AddOpts{}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Agent should be installed.
+	agentPath := filepath.Join(projectDir, ".claude", "agents", "reviewer.md")
+	if _, err := os.Stat(agentPath); err != nil {
+		t.Errorf("expected agent to be installed: %v", err)
+	}
+
+	// Both skills from dev/go profile should be installed.
+	for _, path := range []string{
+		filepath.Join(projectDir, ".claude", "skills", "arch", "SKILL.md"),
+		filepath.Join(projectDir, ".claude", "skills", "arch", "prompt.md"),
+		filepath.Join(projectDir, ".claude", "skills", "testing", "SKILL.md"),
+		filepath.Join(projectDir, ".claude", "skills", "testing", "helpers.md"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected sibling skill file %s to be installed: %v", filepath.Base(path), err)
+		}
+	}
+
+	// Skills from dev/python profile must NOT be installed.
+	pySkillPath := filepath.Join(projectDir, ".claude", "skills", "pytest", "SKILL.md")
+	if _, err := os.Stat(pySkillPath); err == nil {
+		t.Error("skills from different profile (dev/python) should not be installed")
+	}
+}
+
+func TestIntegration_AddAgent_FlatMarket_NoSiblingSkills(t *testing.T) {
+	// Flat market layout: agents/foo.md, skills/bar/SKILL.md — no profile prefix.
+	flatFiles := map[string]string{
+		"agents/reviewer.md":       "---\ndescription: \"reviewer\"\n---\nReview code.\n",
+		"skills/testing/SKILL.md":  "---\ndescription: \"testing\"\n---\nTest code.\n",
+	}
+	application, projectDir, _ := setupIntegration(t, flatFiles)
+
+	ref := domain.MctRef(marketName + "@agents/reviewer.md")
+	if _, err := application.Add(ref, service.AddOpts{}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Agent should be installed.
+	agentPath := filepath.Join(projectDir, ".claude", "agents", "reviewer.md")
+	if _, err := os.Stat(agentPath); err != nil {
+		t.Errorf("expected agent to be installed: %v", err)
+	}
+
+	// Skills should NOT be installed — flat layout has no profile to expand.
+	skillPath := filepath.Join(projectDir, ".claude", "skills", "testing", "SKILL.md")
+	if _, err := os.Stat(skillPath); err == nil {
+		t.Error("skills should not be auto-installed in flat market layout")
+	}
+}
+
+func TestIntegration_AddAgent_SiblingSkillsIdempotent(t *testing.T) {
+	application, projectDir, _ := setupIntegration(t, multiSkillMarketFiles())
+
+	ref := domain.MctRef(marketName + "@dev/go/agents/reviewer.md")
+
+	// First install.
+	if _, err := application.Add(ref, service.AddOpts{}); err != nil {
+		t.Fatalf("first Add: %v", err)
+	}
+
+	// Second install should return already-installed (not fail).
+	_, err := application.Add(ref, service.AddOpts{})
+	if err != domain.ErrEntryAlreadyInstalled {
+		t.Fatalf("expected ErrEntryAlreadyInstalled on re-add, got: %v", err)
+	}
+
+	// Skills should still be there.
+	skillPath := filepath.Join(projectDir, ".claude", "skills", "arch", "SKILL.md")
+	if _, err := os.Stat(skillPath); err != nil {
+		t.Errorf("expected skill to still exist: %v", err)
+	}
+}
+
+func TestIntegration_AddAgent_SiblingSkillsWithDeps(t *testing.T) {
+	// Agent declares a dependency, and profile also has undeclared sibling skills.
+	// Both should be installed.
+	files := map[string]string{
+		"dev/go/agents/reviewer.md": "---\ndescription: \"Go reviewer\"\nrequires_skills:\n  - file: dev/go/skills/arch/SKILL.md\n---\nReview Go.\n",
+		"dev/go/skills/arch/SKILL.md":    "---\ndescription: \"Go architect\"\n---\nArchitect.\n",
+		"dev/go/skills/testing/SKILL.md": "---\ndescription: \"Go tester\"\n---\nTest.\n",
+		"dev/go/README.md":               "---\ntags:\n  - go\n---\nGo.\n",
+	}
+	application, projectDir, _ := setupIntegration(t, files)
+
+	ref := domain.MctRef(marketName + "@dev/go/agents/reviewer.md")
+	if _, err := application.Add(ref, service.AddOpts{}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Declared dependency should be installed.
+	archPath := filepath.Join(projectDir, ".claude", "skills", "arch", "SKILL.md")
+	if _, err := os.Stat(archPath); err != nil {
+		t.Errorf("expected declared dep skill to be installed: %v", err)
+	}
+
+	// Undeclared sibling skill should also be installed.
+	testingPath := filepath.Join(projectDir, ".claude", "skills", "testing", "SKILL.md")
+	if _, err := os.Stat(testingPath); err != nil {
+		t.Errorf("expected undeclared sibling skill to be installed: %v", err)
 	}
 }

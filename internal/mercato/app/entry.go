@@ -353,7 +353,17 @@ func (a *App) addInternal(
 
 	// Resolve dependencies with cycle detection
 	if !opts.NoDeps && len(fm.RequiresSkills) > 0 {
-		return a.resolveDependencies(fm.RequiresSkills, marketName, cfg, db, visited, opts, result)
+		if err := a.resolveDependencies(fm.RequiresSkills, marketName, cfg, db, visited, opts, result); err != nil {
+			return err
+		}
+	}
+
+	// When installing an agent from a hierarchical market (profile-based layout),
+	// also install all sibling skills from the same profile.
+	if !opts.NoDeps && entryType == domain.EntryTypeAgent && isProfileRef(profile) {
+		if err := a.installProfileSkills(marketName, profile, mc, cfg, db, visited, opts, result); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -474,6 +484,63 @@ func (a *App) resolveDependencies(
 			return err
 		}
 	}
+	return nil
+}
+
+// installProfileSkills enumerates all skill entries in the given profile
+// and installs any that are not already installed. This ensures that when an
+// agent is installed, all sibling skills from the same profile are included.
+func (a *App) installProfileSkills(
+	marketName, profile string,
+	mc *domain.MarketConfig,
+	cfg domain.Config,
+	db *domain.InstallDatabase,
+	visited map[domain.MctRef]bool,
+	opts service.AddOpts,
+	result *service.AddResult,
+) error {
+	if profile == "" {
+		return nil
+	}
+
+	clonePath := a.clonePath(marketName)
+	mfiles, err := a.git.ReadMarketFiles(clonePath, mc.Branch)
+	if err != nil {
+		return err
+	}
+
+	prefix := profile + "/"
+	for _, mf := range mfiles {
+		if !strings.HasPrefix(mf.Path, prefix) {
+			continue
+		}
+		if inferEntryType(mf.Path) != domain.EntryTypeSkill {
+			continue
+		}
+		if isReadme(mf.Path) {
+			continue
+		}
+
+		fileRef := domain.MctRef(marketName + "@" + mf.Path)
+		_, fileRelPath, err := fileRef.Parse()
+		if err != nil {
+			return err
+		}
+
+		skillOpts := service.AddOpts{
+			Profile:       profile,
+			NoDeps:        true,
+			ConfirmMarket: opts.ConfirmMarket,
+			DryRun:        opts.DryRun,
+		}
+		if err := a.addInternal(fileRef, marketName, fileRelPath, cfg, mc, db, visited, skillOpts, result); err != nil {
+			if err == domain.ErrEntryAlreadyInstalled {
+				continue
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 
