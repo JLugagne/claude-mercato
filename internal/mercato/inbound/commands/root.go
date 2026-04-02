@@ -6,7 +6,7 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
-const version = "1.2.0"
+const version = "1.3.1"
 
 // GlobalOpts holds flags shared across all commands
 type GlobalOpts struct {
@@ -84,4 +84,3 @@ func NewRootCmd(svc Services) *cobra.Command {
 
 	return root
 }
-
