@@ -3,7 +3,7 @@ module github.com/JLugagne/claude-mercato
 go 1.25.0
 
 require (
-	github.com/JLugagne/bm25 v1.0.0
+	github.com/JLugagne/bm25 v1.0.2
 	github.com/JLugagne/snowball v1.0.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/charmbracelet/bubbles v1.0.0

@@ -1,7 +1,7 @@
 dario.cat/mergo v1.0.2 h1:85+piFYR1tMbRrLcDwR18y4UKJ3aH1Tbzi24VRW1TK8=
 dario.cat/mergo v1.0.2/go.mod h1:E/hbnu0NxMFBjpMIE34DRGLWqDy0g5FuKDhCb31ngxA=
-github.com/JLugagne/bm25 v1.0.0 h1:DypYlUD7oiSZ8bGTpjo7kJHA90EUpg8pQ4Wmf8pqy60=
-github.com/JLugagne/bm25 v1.0.0/go.mod h1:mjwbGprZIlehEXRjjUQGY3pnHmHjzArMem8DvDsmf+o=
+github.com/JLugagne/bm25 v1.0.2 h1:gcFDnITjCjgz3GnMkqm+G+yF1VWne75yNNzWqbAS/hk=
+github.com/JLugagne/bm25 v1.0.2/go.mod h1:bmgxETfBAVxwyrRo6LwF03kLi6w/nDovJuZg4nYhWCg=
 github.com/JLugagne/snowball v1.0.0 h1:oFCzWcHWaQfdw2r+ujKPpVtxz1Gd9N1JGEY8Xk6OAHQ=
 github.com/JLugagne/snowball v1.0.0/go.mod h1:uSNYdIHKI3mfmIJY6V2DDVo8685c0KKmDw9UOYeeAgY=
 github.com/Microsoft/go-winio v0.5.2/go.mod h1:WpS1mjBmmwHBEWmogvA2mj8546UReBk4v8QkMxJ6pZY=
