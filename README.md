@@ -17,6 +17,7 @@ Claude agent and skill definitions are just markdown files — yet teams copy-pa
 ### What you get
 
 - **Install & remove** definitions with a single command, including automatic dependency resolution — even across repositories
+- **Multi-tool support** — automatically transform and install definitions for Cursor, Windsurf, Codex, Gemini CLI, and OpenCode alongside Claude Code
 - **Sync** upstream changes to every project, with drift detection that respects your local edits
 - **Search** across all registered markets with full-text BM25 ranking, Snowball stemming, and fuzzy matching (Levenshtein distance ≤ 2)
 - **Git hooks** for automated sync — auto-restore after pull and auto-save before push
@@ -43,7 +44,7 @@ cd your-project
 mct init
 ```
 
-This creates the configuration at `~/.config/mct/config.yml` and sets up the local `.claude/` directory where definitions will live.
+This creates the configuration at `~/.config/mct/config.yml`, the cache directory at `~/.cache/mct/`, and a default tool mappings file at `~/.config/mct/tool-mappings.yml`. The default enabled tool is Claude Code.
 
 ### 3. Add a market
 
@@ -273,12 +274,107 @@ mct config set ssh_enabled true       # Enable SSH for git operations
 mct config set local_path .claude/    # Where definitions are installed locally
 mct config set conflict_policy block  # How to handle ref collisions (block/skip)
 mct config set drift_policy prompt    # How to handle local modifications (prompt/force/skip)
+mct config set tools.cursor true      # Enable Cursor output
+mct config set tools.windsurf true    # Enable Windsurf output
 
 mct config get                        # Show all current values
 mct config get --json                 # Machine-readable output
 ```
 
 Configuration can also be set via environment variables (e.g. `MCT_SSH_ENABLED=true`), which take precedence over the config file.
+
+---
+
+## Multi-Tool Support
+
+`mct` can automatically transform and install definitions for multiple AI coding tools — not just Claude Code. When you install, update, or sync a definition, `mct` writes native-format files for every enabled tool, so your team's agents and skills work everywhere.
+
+### Supported tools
+
+| Tool | Agents | Skills | Output format |
+|------|--------|--------|---------------|
+| **Claude Code** | Yes | Yes | `.claude/agents/*.md`, `.claude/skills/*/SKILL.md` |
+| **Cursor** | — | Yes | `.cursor/rules/*.mdc` (YAML frontmatter with `alwaysApply`, `description`) |
+| **Windsurf** | — | Yes | `.windsurf/rules/*.md` (YAML frontmatter with `trigger`, `description`) |
+| **Codex** | — | Yes | `.codex/skills/*.md` (plain markdown, frontmatter stripped) |
+| **Gemini CLI** | — | Yes | `.gemini/rules/*.md` (plain markdown, all frontmatter stripped) |
+| **OpenCode** | Yes | Yes | `.opencode/agents/*.md`, `.opencode/rules/*.md` (full YAML frontmatter with model/tool mapping) |
+
+Tools that don't support agents (Cursor, Windsurf, Codex, Gemini) will skip agent definitions with a warning. When a model mapping is unavailable, the model field is stripped and a warning is printed.
+
+### Enable tools
+
+Tools are opt-in via the `tools` section in `~/.config/mct/config.yml`:
+
+```bash
+# Enable Cursor alongside Claude
+mct config set tools.cursor true
+
+# Enable all tools
+mct config set tools.windsurf true
+mct config set tools.codex true
+mct config set tools.gemini true
+mct config set tools.opencode true
+
+# Disable a tool
+mct config set tools.cursor false
+```
+
+After enabling a tool, any subsequent `mct add`, `mct update`, or `mct sync` will write native files for that tool — provided its dot-directory (e.g. `.cursor/`) exists in the project.
+
+### Per-project overrides
+
+Create a `.mct.yml` file in your project root to override global tool settings for a specific project:
+
+```yaml
+tools:
+  claude: true
+  cursor: true
+  windsurf: false
+```
+
+When present, the project config completely replaces the global tools map for that project.
+
+### Tool mappings
+
+Model and tool name mappings between Claude and other tools are stored in `~/.config/mct/tool-mappings.yml`. This file is created by `mct init` with sensible defaults and is fully user-editable — `mct` will never overwrite it.
+
+```yaml
+models:
+  opencode:
+    opus: anthropic/claude-opus-4-20250514
+    sonnet: anthropic/claude-sonnet-4-20250514
+    haiku: anthropic/claude-haiku-4-5-20251001
+tools:
+  opencode:
+    Read: read
+    Edit: edit
+    Write: write
+    Bash: bash
+    Glob: glob
+    Grep: grep
+```
+
+### Per-tool drift detection
+
+`mct check` reports drift independently per tool. If you edit the Cursor rule but leave the Claude file intact, only the Cursor entry shows as drifted:
+
+```bash
+mct check
+# mymarket@dev/go/skills/foo/SKILL.md  clean
+#   cursor: drift
+#   windsurf: clean
+```
+
+### How it works
+
+When `mct` installs a definition, it:
+1. Writes the Claude Code file as usual (`.claude/`)
+2. For each enabled tool, transforms the content to native format using a pure-logic transformer
+3. Writes the transformed file to the tool's directory (e.g. `.cursor/rules/`)
+4. Records an independent xxhash checksum per tool in the install database
+
+The same flow runs on `mct update` and `mct sync`. On `mct remove`, tool-specific files are cleaned up alongside the Claude files.
 
 ---
 
