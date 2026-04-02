@@ -1,11 +1,13 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/JLugagne/claude-mercato/assets"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
@@ -749,28 +751,53 @@ func (a *App) Init(opts service.InitOpts) error {
 		return err
 	}
 
+	markets := opts.Markets
+	if markets == nil {
+		defaults, err := loadDefaultSkillMarkets()
+		if err != nil {
+			return err
+		}
+		markets = defaults
+	}
+
 	cfg := domain.Config{
 		LocalPath: localPath,
 		Markets:   []domain.MarketConfig{},
 	}
 
-	for _, url := range opts.Markets {
+	for _, url := range markets {
 		name, err := marketNameFromURL(url)
 		if err != nil {
 			return err
 		}
 		clonePath := filepath.Join(a.cacheDir, marketDirName(name))
-		if err := a.git.Clone(url, clonePath); err != nil {
+		if _, statErr := os.Stat(clonePath); statErr == nil {
+			// Clone already exists (e.g. previous failed init), just fetch.
+			branch, brErr := a.git.DefaultBranch(clonePath)
+			if brErr != nil {
+				return brErr
+			}
+			if _, fetchErr := a.git.Fetch(clonePath, branch); fetchErr != nil {
+				return fetchErr
+			}
+		} else {
+			if err := a.git.Clone(url, clonePath); err != nil {
+				return err
+			}
+		}
+
+		branch, err := a.git.DefaultBranch(clonePath)
+		if err != nil {
 			return err
 		}
 		mc := domain.MarketConfig{
 			Name:   name,
 			URL:    url,
-			Branch: "main",
+			Branch: branch,
 		}
 		cfg.Markets = append(cfg.Markets, mc)
 
-		sha, err := a.git.RemoteHEAD(clonePath, "main")
+		sha, err := a.git.RemoteHEAD(clonePath, branch)
 		if err != nil {
 			return err
 		}
@@ -784,6 +811,27 @@ func (a *App) Init(opts service.InitOpts) error {
 	}
 
 	return nil
+}
+
+type defaultMarket struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+func loadDefaultSkillMarkets() ([]string, error) {
+	data, err := assets.FS.ReadFile("skills.json")
+	if err != nil {
+		return nil, fmt.Errorf("reading embedded skills.json: %w", err)
+	}
+	var markets []defaultMarket
+	if err := json.Unmarshal(data, &markets); err != nil {
+		return nil, fmt.Errorf("parsing embedded skills.json: %w", err)
+	}
+	urls := make([]string, len(markets))
+	for i, m := range markets {
+		urls[i] = m.URL
+	}
+	return urls, nil
 }
 
 func (a *App) resolveLocalPath(cfg domain.Config, relPath string) (string, error) {

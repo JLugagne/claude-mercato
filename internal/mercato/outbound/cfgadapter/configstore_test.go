@@ -18,15 +18,28 @@ func newConfigStore(t *testing.T) (*ConfigStoreAdapter, string) {
 	return NewConfigStore(), filepath.Join(dir, "config.yaml")
 }
 
-func TestLoadConfig_Empty(t *testing.T) {
+func TestLoadConfig_NonExistent(t *testing.T) {
 	cs, path := newConfigStore(t)
+
+	_, err := cs.Load(path)
+	if err == nil {
+		t.Fatal("expected error for nonexistent file, got nil")
+	}
+}
+
+func TestLoadConfig_EmptyDefaults(t *testing.T) {
+	cs, path := newConfigStore(t)
+
+	// Save an empty config, then load to verify defaults are applied.
+	if err := cs.Save(path, domain.Config{}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
 
 	cfg, err := cs.Load(path)
 	if err != nil {
-		t.Fatalf("Load on nonexistent file: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 
-	// Default values should be applied
 	if cfg.LocalPath != ".claude/" {
 		t.Errorf("default LocalPath = %q, want %q", cfg.LocalPath, ".claude/")
 	}
@@ -81,6 +94,9 @@ func TestSaveAndLoadConfig(t *testing.T) {
 
 func TestAddMarket(t *testing.T) {
 	cs, path := newConfigStore(t)
+	if err := cs.Save(path, domain.Config{}); err != nil {
+		t.Fatalf("Save seed config: %v", err)
+	}
 
 	market := domain.MarketConfig{Name: "mymarket", URL: "https://example.com/market.git", Branch: "main"}
 	if err := cs.AddMarket(path, market); err != nil {
@@ -106,6 +122,9 @@ func TestAddMarket(t *testing.T) {
 
 func TestRemoveMarket(t *testing.T) {
 	cs, path := newConfigStore(t)
+	if err := cs.Save(path, domain.Config{}); err != nil {
+		t.Fatalf("Save seed config: %v", err)
+	}
 
 	market := domain.MarketConfig{Name: "removeme", URL: "https://example.com/rm.git", Branch: "main"}
 	if err := cs.AddMarket(path, market); err != nil {
@@ -130,6 +149,9 @@ func TestRemoveMarket(t *testing.T) {
 
 func TestSetMarketProperty(t *testing.T) {
 	cs, path := newConfigStore(t)
+	if err := cs.Save(path, domain.Config{}); err != nil {
+		t.Fatalf("Save seed config: %v", err)
+	}
 
 	market := domain.MarketConfig{Name: "testmkt", URL: "https://example.com/test.git", Branch: "main"}
 	if err := cs.AddMarket(path, market); err != nil {
@@ -181,6 +203,9 @@ func TestSetMarketProperty(t *testing.T) {
 
 func TestSetConfigField(t *testing.T) {
 	cs, path := newConfigStore(t)
+	if err := cs.Save(path, domain.Config{}); err != nil {
+		t.Fatalf("Save seed config: %v", err)
+	}
 
 	// Set local_path
 	if err := cs.SetConfigField(path, "local_path", "/custom"); err != nil {

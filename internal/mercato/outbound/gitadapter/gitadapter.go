@@ -57,6 +57,21 @@ func (a *Adapter) Clone(url, clonePath string) error {
 	return err
 }
 
+func (a *Adapter) DefaultBranch(clonePath string) (string, error) {
+	repo, err := git.PlainOpen(clonePath)
+	if err != nil {
+		return "", fmt.Errorf("open repo: %w", err)
+	}
+	ref, err := repo.Reference(plumbing.HEAD, false)
+	if err != nil {
+		return "", fmt.Errorf("resolve HEAD: %w", err)
+	}
+	if ref.Type() == plumbing.SymbolicReference {
+		return ref.Target().Short(), nil
+	}
+	return "main", nil
+}
+
 func (a *Adapter) Fetch(clonePath, branch string) (string, error) {
 	repo, err := git.PlainOpen(clonePath)
 	if err != nil {

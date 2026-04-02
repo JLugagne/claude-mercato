@@ -978,7 +978,19 @@ func TestInit_EmptyDir(t *testing.T) {
 		},
 	}
 
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+	gitMock := &gitrepotest.MockGitRepo{
+		CloneFn: func(url, path string) error { return nil },
+		RemoteHEADFn: func(path, branch string) (string, error) {
+			return "abc123", nil
+		},
+	}
+	stateMock := &statestoretest.MockStateStore{
+		SetMarketSyncCleanFn: func(cacheDir, name, sha string) error {
+			return nil
+		},
+	}
+
+	a := newTestApp(cfg, gitMock, fsMock, stateMock)
 	err := a.Init(service.InitOpts{LocalPath: ".claude"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -991,6 +1003,9 @@ func TestInit_EmptyDir(t *testing.T) {
 	}
 	if savedCfg.LocalPath != ".claude" {
 		t.Errorf("expected LocalPath=.claude, got %q", savedCfg.LocalPath)
+	}
+	if len(savedCfg.Markets) == 0 {
+		t.Error("expected default markets to be populated")
 	}
 }
 
@@ -1442,7 +1457,18 @@ func TestInit_ConfigSaveFailure(t *testing.T) {
 			return errors.New("save failed")
 		},
 	}
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+	gitMock := &gitrepotest.MockGitRepo{
+		CloneFn: func(url, path string) error { return nil },
+		RemoteHEADFn: func(path, branch string) (string, error) {
+			return "abc123", nil
+		},
+	}
+	stateMock := &statestoretest.MockStateStore{
+		SetMarketSyncCleanFn: func(cacheDir, name, sha string) error {
+			return nil
+		},
+	}
+	a := newTestApp(cfg, gitMock, fsMock, stateMock)
 
 	err := a.Init(service.InitOpts{LocalPath: ".claude"})
 	if err == nil {
@@ -1486,7 +1512,18 @@ func TestInit_DefaultLocalPath(t *testing.T) {
 			return nil
 		},
 	}
-	a := newTestApp(cfg, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
+	gitMock := &gitrepotest.MockGitRepo{
+		CloneFn: func(url, path string) error { return nil },
+		RemoteHEADFn: func(path, branch string) (string, error) {
+			return "abc123", nil
+		},
+	}
+	stateMock := &statestoretest.MockStateStore{
+		SetMarketSyncCleanFn: func(cacheDir, name, sha string) error {
+			return nil
+		},
+	}
+	a := newTestApp(cfg, gitMock, fsMock, stateMock)
 
 	err := a.Init(service.InitOpts{})
 	if err != nil {

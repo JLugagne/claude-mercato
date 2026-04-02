@@ -26,18 +26,7 @@ func (c *ConfigStoreAdapter) Load(path string) (domain.Config, error) {
 	var cfg domain.Config
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			cfg = domain.Config{}
-			if saveErr := c.Save(path, cfg); saveErr != nil {
-				return cfg, fmt.Errorf("create default config: %w", saveErr)
-			}
-			data, err = os.ReadFile(path)
-			if err != nil {
-				return cfg, fmt.Errorf("load config: %w", err)
-			}
-		} else {
-			return cfg, fmt.Errorf("load config: %w", err)
-		}
+		return cfg, fmt.Errorf("load config: %w", err)
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)

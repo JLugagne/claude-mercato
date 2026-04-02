@@ -11,6 +11,7 @@ type MarketFile struct {
 
 type GitRepo interface {
 	Clone(url, clonePath string) error
+	DefaultBranch(clonePath string) (string, error)
 	Fetch(clonePath, branch string) (newHeadSHA string, err error)
 	DiffSinceCommit(clonePath, branch, oldSHA string) ([]domain.FileDiff, error)
 	ReadFileAtRef(clonePath, branch, filePath, commitSHA string) ([]byte, error)

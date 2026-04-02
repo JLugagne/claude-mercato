@@ -9,6 +9,7 @@ var _ gitrepo.GitRepo = (*MockGitRepo)(nil)
 
 type MockGitRepo struct {
 	CloneFn              func(url, clonePath string) error
+	DefaultBranchFn      func(clonePath string) (string, error)
 	FetchFn              func(clonePath, branch string) (string, error)
 	DiffSinceCommitFn    func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error)
 	ReadFileAtRefFn      func(clonePath, branch, filePath, commitSHA string) ([]byte, error)
@@ -26,6 +27,13 @@ func (m *MockGitRepo) Clone(url, clonePath string) error {
 		panic("called not defined CloneFn")
 	}
 	return m.CloneFn(url, clonePath)
+}
+
+func (m *MockGitRepo) DefaultBranch(clonePath string) (string, error) {
+	if m.DefaultBranchFn == nil {
+		return "main", nil
+	}
+	return m.DefaultBranchFn(clonePath)
 }
 
 func (m *MockGitRepo) Fetch(clonePath, branch string) (string, error) {
