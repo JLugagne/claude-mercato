@@ -170,7 +170,7 @@ func newCheckCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			}
 			indicators := map[domain.EntryState]string{
 				domain.StateClean:           "ok",
-				domain.StateUpdateAvailable: "up",
+				domain.StateUpdateAvailable: "upd",
 				domain.StateDrift:           "~",
 				domain.StateUpdateAndDrift:  "!",
 				domain.StateDeleted:         "x",

@@ -122,15 +122,24 @@ func (a *Adapter) Fetch(clonePath, branch string) (string, error) {
 		return "", fmt.Errorf("worktree: %w", err)
 	}
 
+	newHash := ref.Hash()
+
 	err = wt.Checkout(&git.CheckoutOptions{
-		Hash:  ref.Hash(),
+		Hash:  newHash,
 		Force: true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("checkout: %w", err)
 	}
 
-	return ref.Hash().String(), nil
+	// Explicitly advance refs/heads/<branch> to the fetched SHA. A detached-HEAD
+	// checkout does not update the local branch ref, so RemoteHEAD() would fall
+	// back to the stale ref and report no update available.
+	_ = repo.Storer.SetReference(
+		plumbing.NewHashReference(plumbing.NewBranchReferenceName(branch), newHash),
+	)
+
+	return newHash.String(), nil
 }
 
 func (a *Adapter) DiffSinceCommit(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {

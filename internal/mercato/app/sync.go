@@ -350,11 +350,6 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 		return nil, err
 	}
 
-	syncState, err := a.state.LoadSyncState(a.cacheDir)
-	if err != nil {
-		return nil, err
-	}
-
 	// Lock installdb
 	if err := a.idb.Lock(a.cacheDir); err != nil {
 		return nil, err
@@ -377,44 +372,45 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 
 		clonePath := a.clonePath(mc.Name)
 
-		lastSyncedSHA := ""
-		if ms, ok := syncState.Markets[mc.Name]; ok {
-			lastSyncedSHA = ms.LastSyncedSHA
-		}
-
-		if lastSyncedSHA == "" {
-			continue
-		}
-
-		diffs, err := a.git.DiffSinceCommit(clonePath, mc.Branch, lastSyncedSHA)
-		if err != nil {
-			continue
-		}
-
 		im := db.FindMarket(mc.Name)
 		if im == nil {
 			continue
 		}
 
-		affected := a.findAffectedPackages(im, diffs, mc)
-
-		// Apply ref filter if specified
+		// Resolve ref filter once per market
+		var refRelPath string
 		if opts.Ref != "" {
-			refMarket, refRelPath, refErr := opts.Ref.Parse()
+			refMarket, rp, refErr := opts.Ref.Parse()
 			if refErr != nil || refMarket != mc.Name {
 				continue
 			}
-			filtered := make(map[int]*domain.InstalledPackage)
-			for pi, pkg := range affected {
-				if fileInPackage(refRelPath, pkg.Files) {
-					filtered[pi] = pkg
-				}
-			}
-			affected = filtered
+			refRelPath = rp
 		}
 
-		// Process each affected package
-		for pi, pkg := range affected {
+		// Process each package independently, diffing from its installed version
+		// to the current HEAD so that Update works correctly after Refresh.
+		for pi := range im.Packages {
+			pkg := &im.Packages[pi]
+
+			if pkg.Version == "" {
+				continue
+			}
+
+			// Apply ref filter: skip packages that don't contain the target file
+			if refRelPath != "" && !fileInPackage(refRelPath, pkg.Files) {
+				continue
+			}
+
+			diffs, err := a.git.DiffSinceCommit(clonePath, mc.Branch, pkg.Version)
+			if err != nil {
+				continue
+			}
+
+			affected := a.findAffectedPackages(im, diffs, mc)
+			if _, ok := affected[pi]; !ok {
+				continue
+			}
+
 			for _, location := range pkg.Locations {
 				if location != projectPath {
 					continue
