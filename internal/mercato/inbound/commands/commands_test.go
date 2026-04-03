@@ -415,6 +415,36 @@ func TestMarketAdd_NoScheme(t *testing.T) {
 	}
 }
 
+func TestMarketAdd_SSHUrl(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{"scp-style", "git@gitlab.intdw.org:common/ai-rules.git"},
+		{"scp-github", "git@github.com:org/repo.git"},
+		{"ssh-scheme", "ssh://git@github.com/org/repo.git"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calledURL string
+			svc := mockServices()
+			svc.Markets = &stubMarkets{
+				addMarketFn: func(url string, opts service.AddMarketOpts) (service.AddMarketResult, error) {
+					calledURL = url
+					return service.AddMarketResult{}, nil
+				},
+			}
+			_, err := runCmd(t, svc, "market", "add", tc.url)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if calledURL != tc.url {
+				t.Errorf("expected URL to be passed through unchanged %q, got: %q", tc.url, calledURL)
+			}
+		})
+	}
+}
+
 func TestMarketAdd_JSON(t *testing.T) {
 	svc := mockServices()
 	svc.Markets = &stubMarkets{

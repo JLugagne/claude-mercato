@@ -41,7 +41,7 @@ func newMarketAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				skillsPath = args[1]
 			}
 			url := args[0]
-			if !strings.Contains(url, "://") {
+			if !strings.Contains(url, "://") && !strings.Contains(url, "@") {
 				url = "https://" + url
 			}
 			result, err := svc.Markets.AddMarket(url, service.AddMarketOpts{
