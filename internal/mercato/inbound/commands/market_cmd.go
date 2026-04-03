@@ -66,7 +66,7 @@ func newMarketAddCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("branch", "main", "branch to track")
+	cmd.Flags().String("branch", "", "branch to track (auto-detected if omitted)")
 	cmd.Flags().Bool("trusted", false, "skip breaking change confirmation")
 	cmd.Flags().Bool("read-only", false, "index only, never install")
 	cmd.Flags().Bool("no-clone", false, "register without cloning")

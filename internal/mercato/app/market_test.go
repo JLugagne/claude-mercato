@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"testing"
@@ -180,6 +181,44 @@ func TestGetMarket_NotFound(t *testing.T) {
 // ---------------------------------------------------------------------------
 // AddMarket
 // ---------------------------------------------------------------------------
+
+func TestAddMarket_AutoDetectsDefaultBranch(t *testing.T) {
+	var savedBranch string
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, nil
+		},
+		AddMarketFn: func(path string, market domain.MarketConfig) error {
+			savedBranch = market.Branch
+			return nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{}
+	git := &gitrepotest.MockGitRepo{
+		ValidateRemoteFn: func(url string) error { return nil },
+		CloneFn:          func(url, clonePath string) error { return nil },
+		DefaultBranchFn:  func(clonePath string) (string, error) { return "master", nil },
+		RemoteHEADFn:     func(clonePath, branch string) (string, error) { return "abc123", nil },
+		ListFilesFn: func(clonePath, branch string) ([]string, error) {
+			return []string{
+				"category/profile/agents/foo.md",
+				"category/profile/skills/bar.md",
+			}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		SetMarketSyncCleanFn: func(cacheDir string, market string, newSHA string) error { return nil },
+	}
+
+	a := newTestApp(cfg, git, fsMock, state)
+	_, err := a.AddMarket("https://github.com/org/repo", service.AddMarketOpts{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if savedBranch != "master" {
+		t.Errorf("expected branch=master, got %q", savedBranch)
+	}
+}
 
 func TestAddMarket_Success(t *testing.T) {
 	cfg := &configstoretest.MockConfigStore{
@@ -1341,6 +1380,82 @@ func TestAddMarket_IncompatibleRepoRemovesClone(t *testing.T) {
 	}
 	if removedPath == "" {
 		t.Error("expected clone to be removed, but RemoveAll was not called")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// AddMarket — cleanup clone on post-clone failures
+// ---------------------------------------------------------------------------
+
+func TestAddMarket_CleansUpCloneOnRemoteHEADFailure(t *testing.T) {
+	var removedPath string
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		RemoveAllFn: func(path string) error {
+			removedPath = path
+			return nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ValidateRemoteFn: func(url string) error { return nil },
+		CloneFn:          func(url, clonePath string) error { return nil },
+		DefaultBranchFn:  func(clonePath string) (string, error) { return "main", nil },
+		RemoteHEADFn:     func(clonePath, branch string) (string, error) { return "", fmt.Errorf("reference not found") },
+	}
+	state := &statestoretest.MockStateStore{}
+
+	a := newTestApp(cfg, git, fsMock, state)
+	_, err := a.AddMarket("https://github.com/org/repo", service.AddMarketOpts{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if removedPath == "" {
+		t.Error("expected clone to be removed after RemoteHEAD failure, but RemoveAll was not called")
+	}
+}
+
+func TestAddMarket_CleansUpCloneOnConfigSaveFailure(t *testing.T) {
+	var removedPath string
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{}, nil
+		},
+		AddMarketFn: func(path string, market domain.MarketConfig) error {
+			return fmt.Errorf("disk full")
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		RemoveAllFn: func(path string) error {
+			removedPath = path
+			return nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		ValidateRemoteFn: func(url string) error { return nil },
+		CloneFn:          func(url, clonePath string) error { return nil },
+		RemoteHEADFn:     func(clonePath, branch string) (string, error) { return "abc123", nil },
+		ListFilesFn: func(clonePath, branch string) ([]string, error) {
+			return []string{
+				"category/profile/agents/foo.md",
+				"category/profile/skills/bar.md",
+			}, nil
+		},
+	}
+	state := &statestoretest.MockStateStore{
+		SetMarketSyncCleanFn: func(cacheDir string, market string, newSHA string) error { return nil },
+	}
+
+	a := newTestApp(cfg, git, fsMock, state)
+	_, err := a.AddMarket("https://github.com/org/repo", service.AddMarketOpts{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if removedPath == "" {
+		t.Error("expected clone to be removed after config save failure, but RemoveAll was not called")
 	}
 }
 

@@ -283,6 +283,7 @@ func (a *App) AddMarket(url string, opts service.AddMarketOpts) (service.AddMark
 		return result, domain.ErrCloneExists
 	}
 
+	cloned := false
 	if !opts.NoClone {
 		if err := a.git.ValidateRemote(url); err != nil {
 			return result, domain.ErrMarketUnreachable.Wrap(err)
@@ -291,23 +292,39 @@ func (a *App) AddMarket(url string, opts service.AddMarketOpts) (service.AddMark
 		if err := a.git.Clone(url, clonePath); err != nil {
 			return result, err
 		}
+		cloned = true
+	}
+
+	// cleanupClone removes the clone directory if we created it and something fails.
+	cleanupClone := func() {
+		if cloned {
+			_ = a.fs.RemoveAll(clonePath)
+		}
 	}
 
 	branch := opts.Branch
-	if branch == "" {
-		branch = "main"
-	}
 
 	var skillsOnly bool
 	skillsPath := opts.SkillsPath
 
 	if !opts.NoClone {
+		if branch == "" {
+			detected, err := a.git.DefaultBranch(clonePath)
+			if err != nil {
+				branch = "main"
+			} else {
+				branch = detected
+			}
+		}
+
 		sha, err := a.git.RemoteHEAD(clonePath, branch)
 		if err != nil {
+			cleanupClone()
 			return result, err
 		}
 
 		if err := a.state.SetMarketSyncClean(a.cacheDir, name, sha); err != nil {
+			cleanupClone()
 			return result, err
 		}
 
@@ -315,15 +332,20 @@ func (a *App) AddMarket(url string, opts service.AddMarketOpts) (service.AddMark
 		if skillsOnly {
 			skillsPath = detectedSkillsPath(a.git, clonePath, branch, skillsPath)
 			if err := pruneCloneForSkills(a.fs, clonePath, skillsPath); err != nil {
+				cleanupClone()
 				return result, err
 			}
 		}
 		result = countMarketEntries(a.git, clonePath, branch, skillsPath, skillsOnly)
 
 		if !skillsOnly && result.Profiles == 0 && result.Agents == 0 && result.Skills == 0 {
-			_ = a.fs.RemoveAll(clonePath)
+			cleanupClone()
 			return result, domain.ErrMarketIncompatible
 		}
+	}
+
+	if branch == "" {
+		branch = "main"
 	}
 
 	mc := domain.MarketConfig{
@@ -335,7 +357,11 @@ func (a *App) AddMarket(url string, opts service.AddMarketOpts) (service.AddMark
 		SkillsOnly: skillsOnly,
 		SkillsPath: skillsPath,
 	}
-	return result, a.cfg.AddMarket(a.configPath, mc)
+	if err := a.cfg.AddMarket(a.configPath, mc); err != nil {
+		cleanupClone()
+		return result, err
+	}
+	return result, nil
 }
 
 // pruneCloneForSkills removes everything from the clone directory except

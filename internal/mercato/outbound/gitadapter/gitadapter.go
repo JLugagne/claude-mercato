@@ -57,11 +57,27 @@ func (a *Adapter) Clone(url, clonePath string) error {
 	return err
 }
 
+// resolveBranchRef resolves a branch reference, trying the remote tracking ref
+// first (refs/remotes/origin/<branch>) and falling back to the local branch ref
+// (refs/heads/<branch>). go-git shallow clones may not always create remote
+// tracking refs.
+func resolveBranchRef(repo *git.Repository, branch string) (*plumbing.Reference, error) {
+	ref, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branch), true)
+	if err != nil {
+		ref, err = repo.Reference(plumbing.NewBranchReferenceName(branch), true)
+		if err != nil {
+			return nil, fmt.Errorf("resolve ref for branch %q: %w", branch, err)
+		}
+	}
+	return ref, nil
+}
+
 func (a *Adapter) DefaultBranch(clonePath string) (string, error) {
 	repo, err := git.PlainOpen(clonePath)
 	if err != nil {
 		return "", fmt.Errorf("open repo: %w", err)
 	}
+
 	ref, err := repo.Reference(plumbing.HEAD, false)
 	if err != nil {
 		return "", fmt.Errorf("resolve HEAD: %w", err)
@@ -96,9 +112,9 @@ func (a *Adapter) Fetch(clonePath, branch string) (string, error) {
 		return "", fmt.Errorf("fetch: %w", err)
 	}
 
-	ref, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branch), true)
+	ref, err := resolveBranchRef(repo, branch)
 	if err != nil {
-		return "", fmt.Errorf("resolve remote ref: %w", err)
+		return "", err
 	}
 
 	wt, err := repo.Worktree()
@@ -129,9 +145,9 @@ func (a *Adapter) DiffSinceCommit(clonePath, branch, oldSHA string) ([]domain.Fi
 		return nil, fmt.Errorf("resolve old commit: %w", err)
 	}
 
-	remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branch), true)
+	remoteRef, err := resolveBranchRef(repo, branch)
 	if err != nil {
-		return nil, fmt.Errorf("resolve remote ref: %w", err)
+		return nil, err
 	}
 
 	newCommit, err := repo.CommitObject(remoteRef.Hash())
@@ -200,9 +216,9 @@ func (a *Adapter) ReadFileAtRef(clonePath, branch, filePath, commitSHA string) (
 
 	var hash plumbing.Hash
 	if commitSHA == "HEAD" || commitSHA == "" {
-		ref, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branch), true)
+		ref, err := resolveBranchRef(repo, branch)
 		if err != nil {
-			return nil, fmt.Errorf("resolve remote ref: %w", err)
+			return nil, err
 		}
 		hash = ref.Hash()
 	} else {
@@ -263,9 +279,9 @@ func (a *Adapter) RemoteHEAD(clonePath, branch string) (string, error) {
 		return "", fmt.Errorf("open repo: %w", err)
 	}
 
-	ref, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branch), true)
+	ref, err := resolveBranchRef(repo, branch)
 	if err != nil {
-		return "", fmt.Errorf("resolve remote ref: %w", err)
+		return "", err
 	}
 
 	return ref.Hash().String(), nil
@@ -277,9 +293,9 @@ func (a *Adapter) ListFiles(clonePath, branch string) ([]string, error) {
 		return nil, fmt.Errorf("open repo: %w", err)
 	}
 
-	ref, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branch), true)
+	ref, err := resolveBranchRef(repo, branch)
 	if err != nil {
-		return nil, fmt.Errorf("resolve remote ref: %w", err)
+		return nil, err
 	}
 
 	commit, err := repo.CommitObject(ref.Hash())
@@ -312,9 +328,9 @@ func (a *Adapter) ReadMarketFiles(clonePath, branch string) ([]gitrepo.MarketFil
 		return nil, fmt.Errorf("open repo: %w", err)
 	}
 
-	ref, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branch), true)
+	ref, err := resolveBranchRef(repo, branch)
 	if err != nil {
-		return nil, fmt.Errorf("resolve remote ref: %w", err)
+		return nil, err
 	}
 
 	commit, err := repo.CommitObject(ref.Hash())
@@ -368,9 +384,9 @@ func (a *Adapter) ListDirFiles(clonePath, branch, dirPrefix string) ([]string, e
 		return nil, fmt.Errorf("open repo: %w", err)
 	}
 
-	ref, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branch), true)
+	ref, err := resolveBranchRef(repo, branch)
 	if err != nil {
-		return nil, fmt.Errorf("resolve remote ref: %w", err)
+		return nil, err
 	}
 
 	commit, err := repo.CommitObject(ref.Hash())
