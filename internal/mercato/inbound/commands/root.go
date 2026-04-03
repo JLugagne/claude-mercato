@@ -6,7 +6,8 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
-const version = "1.3.1"
+// Version is the current mct version.
+const Version = "1.3.1"
 
 // GlobalOpts holds flags shared across all commands
 type GlobalOpts struct {
@@ -39,7 +40,7 @@ func NewRootCmd(svc Services) *cobra.Command {
 		Long:          "claude-mercato — manage Claude agent and skill definitions across Git-based markets",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Version:       version,
+		Version:       Version,
 	}
 
 	// Global flags
@@ -73,6 +74,7 @@ func NewRootCmd(svc Services) *cobra.Command {
 		newImportCmd(svc, opts),
 		newLintCmd(svc, opts),
 		newHookCmd(svc, opts),
+		newDistUpgradeCmd(opts),
 	)
 
 	// Aliases

@@ -49,9 +49,10 @@ type AppModel struct {
 	profileAction       string // "install" or "remove"
 	profileActionTarget ProfileItem
 
-	loading      bool
-	loadingPhase string
-	statusMsg    string
+	loading        bool
+	loadingPhase   string
+	statusMsg      string
+	updateNotice   string // set when a new mct version is available
 }
 
 func NewAppModel(svc TUIServices) AppModel {
@@ -832,6 +833,10 @@ func (m AppModel) viewStatusBar() string {
 	if m.statusMsg != "" {
 		return StyleStatusBar.Width(m.width).Render(m.statusMsg)
 	}
+	if m.updateNotice != "" {
+		notice := lipgloss.NewStyle().Foreground(ColorUpdate).Render(m.updateNotice)
+		return StyleStatusBar.Width(m.width).Render(notice)
+	}
 	hints := "/ search  i install  x remove  m markets  r refresh  ? help  q quit"
 	return StyleStatusBar.Width(m.width).Render(hints)
 }
@@ -965,8 +970,12 @@ func renderMarkdown(md string, width int) string {
 	return strings.TrimSpace(out)
 }
 
-func RunTUI(svc TUIServices) error {
-	p := tea.NewProgram(NewAppModel(svc), tea.WithAltScreen())
+func RunTUI(svc TUIServices, updateAvailable bool, latestVersion string) error {
+	m := NewAppModel(svc)
+	if updateAvailable {
+		m.updateNotice = fmt.Sprintf("Update available: %s (run `mct dist-upgrade`)", latestVersion)
+	}
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
