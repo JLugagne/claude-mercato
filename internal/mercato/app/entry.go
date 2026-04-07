@@ -325,7 +325,6 @@ func (a *App) addInternal(
 	}
 
 	// Write to additional tool targets (non-Claude)
-	entryType := inferEntryType(relPath)
 	entryForTransform := domain.Entry{
 		Ref:      ref,
 		Market:   marketName,
