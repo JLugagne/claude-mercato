@@ -100,6 +100,11 @@ First-class support for private repositories via system SSH agents and `~/.ssh/c
 | **Claude Code** | Yes | Yes | `.claude/agents/*.md`, `.claude/skills/*/SKILL.md` |
 | **Cursor** | — | Yes | `.cursor/rules/*.mdc` (Native YAML frontmatter) |
 | **Windsurf** | — | Yes | `.windsurf/rules/*.md` (Native YAML frontmatter) |
+| **GitHub Copilot** | — | Yes | `.github/copilot-instructions.md` |
+| **Supermaven** | — | Yes | `.supermavenrules` |
+| **PearAI** | — | Yes | `.peairules` |
+| **Roo Code** | — | Yes | `.roocode.rules` |
+| **Continue** | — | Yes | `.continue/rules/*.md` |
 | **Codex** | — | Yes | `.codex/skills/*.md` (Plain Markdown) |
 | **Gemini CLI** | — | Yes | `.gemini/rules/*.md` (Stripped Frontmatter) |
 | **OpenCode** | Yes | Yes | Full YAML frontmatter with model/tool mapping |

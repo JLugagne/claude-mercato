@@ -46,12 +46,17 @@ func NewApp(configPath, cacheDir string) *cobra.Command {
 	installDB := cfgadapter.NewInstallDB()
 
 	registry := domain.TransformerRegistry{
-		"claude":   &transform.ClaudeTransformer{},
-		"cursor":   &transform.CursorTransformer{},
-		"windsurf": &transform.WindsurfTransformer{},
-		"codex":    &transform.CodexTransformer{},
-		"gemini":   &transform.GeminiTransformer{},
-		"opencode": &transform.OpenCodeTransformer{},
+		"claude":      &transform.ClaudeTransformer{},
+		"cursor":      &transform.CursorTransformer{},
+		"windsurf":    &transform.WindsurfTransformer{},
+		"codex":       &transform.CodexTransformer{},
+		"gemini":      &transform.GeminiTransformer{},
+		"opencode":    &transform.OpenCodeTransformer{},
+		"copilot":     &transform.CopilotTransformer{},
+		"supermaven":  &transform.SupermavenTransformer{},
+		"pearai":      &transform.PearAITransformer{},
+		"roocode":     &transform.RooCodeTransformer{},
+		"continue":    &transform.ContinueTransformer{},
 	}
 	toolMappingsStore := cfgadapter.NewToolMappingStore()
 

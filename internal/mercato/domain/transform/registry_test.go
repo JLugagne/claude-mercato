@@ -6,17 +6,22 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 )
 
-func TestTransformerRegistry_AllSixRegistered(t *testing.T) {
+func TestTransformerRegistry_AllRegistered(t *testing.T) {
 	registry := domain.TransformerRegistry{
-		"claude":   &ClaudeTransformer{},
-		"cursor":   &CursorTransformer{},
-		"windsurf": &WindsurfTransformer{},
-		"codex":    &CodexTransformer{},
-		"gemini":   &GeminiTransformer{},
-		"opencode": &OpenCodeTransformer{},
+		"claude":      &ClaudeTransformer{},
+		"cursor":      &CursorTransformer{},
+		"windsurf":    &WindsurfTransformer{},
+		"codex":       &CodexTransformer{},
+		"gemini":      &GeminiTransformer{},
+		"opencode":    &OpenCodeTransformer{},
+		"copilot":     &CopilotTransformer{},
+		"supermaven":  &SupermavenTransformer{},
+		"pearai":      &PearAITransformer{},
+		"roocode":     &RooCodeTransformer{},
+		"continue":    &ContinueTransformer{},
 	}
 
-	expected := []string{"claude", "cursor", "windsurf", "codex", "gemini", "opencode"}
+	expected := []string{"claude", "cursor", "windsurf", "codex", "gemini", "opencode", "copilot", "supermaven", "pearai", "roocode", "continue"}
 	for _, name := range expected {
 		tr, ok := registry.Get(name)
 		if !ok {
@@ -28,7 +33,7 @@ func TestTransformerRegistry_AllSixRegistered(t *testing.T) {
 		}
 	}
 
-	if len(registry) != 6 {
-		t.Errorf("expected 6 transformers in registry, got %d", len(registry))
+	if len(registry) != 11 {
+		t.Errorf("expected 11 transformers in registry, got %d", len(registry))
 	}
 }
