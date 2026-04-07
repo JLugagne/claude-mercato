@@ -80,8 +80,6 @@ func validateSkillDepPath(path string) error {
 	return nil
 }
 
-var reRequiresSkills = regexp.MustCompile(`(?ms)^requires_skills:.*?(?:^\w|$)`)
-
 func ExtractFrontmatterBytes(content []byte) ([]byte, error) {
 	s := string(content)
 	if !strings.HasPrefix(s, "---") {
