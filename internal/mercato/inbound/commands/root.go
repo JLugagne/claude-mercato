@@ -7,7 +7,7 @@ import (
 )
 
 // Version is the current mct version.
-const Version = "1.3.4"
+const Version = "1.3.5"
 
 // GlobalOpts holds flags shared across all commands
 type GlobalOpts struct {
