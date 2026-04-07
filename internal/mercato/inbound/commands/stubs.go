@@ -267,9 +267,11 @@ func newRestoreCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Use = "restore"
 	cmd.Short = "Restore setup from .mct.json (alias for import .mct.json)"
 	cmd.Args = cobra.NoArgs
+	cmd.Flags().StringP("file", "f", ".mct.json", "file to restore from")
 	importRunE := cmd.RunE
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		return importRunE(cmd, []string{".mct.json"})
+		file, _ := cmd.Flags().GetString("file")
+		return importRunE(cmd, []string{file})
 	}
 	return cmd
 }
@@ -279,9 +281,11 @@ func newSaveCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Use = "save"
 	cmd.Short = "Save current setup to .mct.json (alias for export .mct.json)"
 	cmd.Args = cobra.NoArgs
+	cmd.Flags().StringP("file", "f", ".mct.json", "file to save to")
 	exportRunE := cmd.RunE
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		return exportRunE(cmd, []string{".mct.json"})
+		file, _ := cmd.Flags().GetString("file")
+		return exportRunE(cmd, []string{file})
 	}
 	return cmd
 }
