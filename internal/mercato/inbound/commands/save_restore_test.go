@@ -14,11 +14,12 @@ import (
 func TestSaveRestore_FileFlag(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "mct-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	oldWd, _ := os.Getwd()
-	os.Chdir(tempDir)
-	defer os.Chdir(oldWd)
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+	defer func() { _ = os.Chdir(oldWd) }()
 
 	// Stub services
 	svc := mockServices()
