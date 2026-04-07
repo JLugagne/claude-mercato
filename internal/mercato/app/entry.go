@@ -299,6 +299,11 @@ func (a *App) addInternal(
 		return domain.ErrInvalidFrontmatter.Wrap(err)
 	}
 
+	entryType := inferEntryType(relPath)
+	if entryType == domain.EntryTypeAgent {
+		content = domain.StripRequiresSkills(content)
+	}
+
 	if opts.DryRun {
 		return nil
 	}

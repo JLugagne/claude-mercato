@@ -80,6 +80,8 @@ func validateSkillDepPath(path string) error {
 	return nil
 }
 
+var reRequiresSkills = regexp.MustCompile(`(?ms)^requires_skills:.*?(?:^\w|$)`)
+
 func ExtractFrontmatterBytes(content []byte) ([]byte, error) {
 	s := string(content)
 	if !strings.HasPrefix(s, "---") {
@@ -92,6 +94,21 @@ func ExtractFrontmatterBytes(content []byte) ([]byte, error) {
 	raw := s[3 : end+3]
 	raw = strings.TrimPrefix(raw, "\n")
 	return []byte(raw), nil
+}
+
+func StripRequiresSkills(content []byte) []byte {
+	fmBytes, err := ExtractFrontmatterBytes(content)
+	if err != nil {
+		return content
+	}
+
+	// Match requires_skills block and everything until the next top-level key or end of frontmatter
+	re := regexp.MustCompile(`(?ms)^requires_skills:.*?(?:\n\w|$)`)
+	newFM := re.ReplaceAll(fmBytes, []byte(""))
+	newFM = bytes.TrimSpace(newFM)
+
+	// Replace old frontmatter with new one in the original content
+	return bytes.Replace(content, fmBytes, newFM, 1)
 }
 
 func InjectMctFields(content []byte, ref MctRef, version MctVersion, market string, checksum string, profile string) ([]byte, error) {

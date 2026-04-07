@@ -333,3 +333,51 @@ func TestValidateSkillDepPath(t *testing.T) {
 		})
 	}
 }
+
+// --- TestStripRequiresSkills ---
+
+func TestStripRequiresSkills(t *testing.T) {
+	t.Run("strips requires_skills at the end of frontmatter", func(t *testing.T) {
+		content := makeFrontmatter("description: test\nrequires_skills:\n  - file: skills/foo.md")
+		got := StripRequiresSkills(content)
+		if strings.Contains(string(got), "requires_skills") {
+			t.Errorf("requires_skills should be stripped, got:\n%s", string(got))
+		}
+		if !strings.Contains(string(got), "description: test") {
+			t.Errorf("description should be preserved, got:\n%s", string(got))
+		}
+	})
+
+	t.Run("strips requires_skills in the middle of frontmatter", func(t *testing.T) {
+		content := makeFrontmatter("description: test\nrequires_skills:\n  - file: skills/foo.md\nauthor: alice")
+		got := StripRequiresSkills(content)
+		if strings.Contains(string(got), "requires_skills") {
+			t.Errorf("requires_skills should be stripped, got:\n%s", string(got))
+		}
+		if !strings.Contains(string(got), "description: test") {
+			t.Errorf("description should be preserved, got:\n%s", string(got))
+		}
+		if !strings.Contains(string(got), "author: alice") {
+			t.Errorf("author should be preserved, got:\n%s", string(got))
+		}
+	})
+
+	t.Run("strips requires_skills at the beginning of frontmatter", func(t *testing.T) {
+		content := makeFrontmatter("requires_skills:\n  - file: skills/foo.md\ndescription: test")
+		got := StripRequiresSkills(content)
+		if strings.Contains(string(got), "requires_skills") {
+			t.Errorf("requires_skills should be stripped, got:\n%s", string(got))
+		}
+		if !strings.Contains(string(got), "description: test") {
+			t.Errorf("description should be preserved, got:\n%s", string(got))
+		}
+	})
+
+	t.Run("no frontmatter returns original content", func(t *testing.T) {
+		content := []byte("# No frontmatter\n")
+		got := StripRequiresSkills(content)
+		if string(got) != string(content) {
+			t.Errorf("expected original content, got:\n%s", string(got))
+		}
+	})
+}
