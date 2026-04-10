@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
@@ -44,13 +46,17 @@ type AppModel struct {
 	skillDirFiles        []domain.SkillDirFile
 	skillDirMarket       string // market of the currently loaded skill dir files
 
-	marketPopup MarketPopup
+	marketPopup    MarketPopup
+	cachedMktStats map[string]marketStats
+	detailGen      *atomic.Int64 // generation counter to skip stale detail renders
+	contentGen     *atomic.Int64 // generation counter to skip stale content renders
 
 	profileAction       string // "install" or "remove"
 	profileActionTarget ProfileItem
 
 	loading        bool
 	loadingPhase   string
+	searching      bool
 	statusMsg      string
 	updateNotice   string // set when a new mct version is available
 }
@@ -98,6 +104,8 @@ func NewAppModel(svc TUIServices) AppModel {
 		cmdInput:     ci,
 		spinner:      sp,
 		marketPopup:  newMarketPopup(),
+		detailGen:    &atomic.Int64{},
+		contentGen:   &atomic.Int64{},
 		loading:      true,
 		loadingPhase: "Loading markets...",
 	}
@@ -116,8 +124,14 @@ func (m AppModel) loadAllMarkets() tea.Cmd {
 		if err != nil {
 			return IndexReadyMsg{Elapsed: 0}
 		}
+		return IndexReadyMsg{Results: results, Elapsed: 0}
+	}
+}
+
+func (m AppModel) loadStatuses() tea.Cmd {
+	return func() tea.Msg {
 		statuses, _ := m.svc.Sync.Check(service.CheckOpts{})
-		return IndexReadyMsg{Results: results, Statuses: statuses, Elapsed: 0}
+		return StatusesReadyMsg{Statuses: statuses}
 	}
 }
 
@@ -142,15 +156,15 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case IndexReadyMsg:
 		m.loading = false
 		m.mode = ModeNormal
-		m.statusByRef = make(map[domain.MctRef]domain.EntryState)
-		for _, s := range msg.Statuses {
-			m.statusByRef[s.Ref] = s.State
+		if m.statusByRef == nil {
+			m.statusByRef = make(map[domain.MctRef]domain.EntryState)
 		}
 		m.allEntries = make([]EntryItem, len(msg.Results))
 		for i, r := range msg.Results {
 			m.allEntries[i] = EntryItem{Entry: r.Entry}
 		}
 		m.filteredEntries = m.allEntries
+		m.recomputeMarketStats()
 		m.skillsOnlyMarkets = make(map[string]bool)
 		if markets, err := m.svc.Markets.ListMarkets(); err == nil {
 			for _, mk := range markets {
@@ -164,7 +178,30 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateEntriesList()
 		return m, tea.Batch(m.updateDetailContent(), m.maybeLoadSkillDirFiles())
 
+	case StatusesReadyMsg:
+		m.loading = false
+		if m.statusByRef == nil {
+			m.statusByRef = make(map[domain.MctRef]domain.EntryState)
+		}
+		for _, s := range msg.Statuses {
+			m.statusByRef[s.Ref] = s.State
+		}
+		var updates int
+		for _, s := range msg.Statuses {
+			if s.State == domain.StateUpdateAvailable || s.State == domain.StateUpdateAndDrift {
+				updates++
+			}
+		}
+		if updates > 0 {
+			m.statusMsg = fmt.Sprintf("%d update(s) available", updates)
+		} else {
+			m.statusMsg = "All entries up to date"
+		}
+		m.updateProfilesList()
+		return m, nil
+
 	case SearchResultMsg:
+		m.searching = false
 		m.filteredEntries = make([]EntryItem, len(msg.Results))
 		for i, r := range msg.Results {
 			m.filteredEntries[i] = EntryItem{Entry: r.Entry}
@@ -338,6 +375,10 @@ func (m *AppModel) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case "c":
+		m.loading = true
+		m.loadingPhase = "Checking for updates..."
+		return m, m.loadStatuses()
 	case "r":
 		return m, m.refreshCmd()
 	case "R":
@@ -404,10 +445,15 @@ func (m *AppModel) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *AppModel) loadEntryContent() tea.Cmd {
 	w := m.contentView.Width
+	gen := m.contentGen.Add(1)
+	genPtr := m.contentGen
 	switch v := m.entriesList.SelectedItem().(type) {
 	case EntryItem:
 		entry := v.Entry
 		return func() tea.Msg {
+			if genPtr.Load() != gen {
+				return nil // stale request, skip rendering
+			}
 			content, err := m.svc.Entries.ReadEntryContent(entry.Market, entry.RelPath)
 			if err != nil {
 				return EntryContentMsg{Ref: entry.Ref, Err: err}
@@ -424,6 +470,9 @@ func (m *AppModel) loadEntryContent() tea.Cmd {
 			}
 		}
 		return func() tea.Msg {
+			if genPtr.Load() != gen {
+				return nil // stale request, skip rendering
+			}
 			rendered := renderMarkdown(stripFrontmatter(content), w)
 			return EntryContentMsg{Ref: ref, Content: rendered}
 		}
@@ -452,8 +501,10 @@ func (m *AppModel) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.searchQuery = m.searchInput.Value()
 
 	if m.searchQuery != "" {
+		m.searching = true
 		return m, tea.Batch(cmd, m.searchCmd(m.searchQuery))
 	}
+	m.searching = false
 	m.filteredEntries = m.allEntries
 	m.updateProfilesList()
 	m.updateEntriesList()
@@ -577,7 +628,12 @@ func (m *AppModel) updateDetailContent() tea.Cmd {
 		return nil
 	}
 	w := m.detailView.Width
+	gen := m.detailGen.Add(1)
+	genPtr := m.detailGen
 	return func() tea.Msg {
+		if genPtr.Load() != gen {
+			return nil // stale request, skip rendering
+		}
 		return DetailContentMsg{Content: m.buildDetailContent(item, w)}
 	}
 }
@@ -830,6 +886,9 @@ func (m AppModel) buildDetailContent(item ProfileItem, w int) string {
 
 
 func (m AppModel) viewStatusBar() string {
+	if m.searching {
+		return StyleStatusBar.Width(m.width).Render(m.spinner.View() + " Searching...")
+	}
 	if m.statusMsg != "" {
 		return StyleStatusBar.Width(m.width).Render(m.statusMsg)
 	}
@@ -837,7 +896,7 @@ func (m AppModel) viewStatusBar() string {
 		notice := lipgloss.NewStyle().Foreground(ColorUpdate).Render(m.updateNotice)
 		return StyleStatusBar.Width(m.width).Render(notice)
 	}
-	hints := "/ search  i install  x remove  m markets  r refresh  ? help  q quit"
+	hints := "/ search  c check  i install  x remove  m markets  r refresh  ? help  q quit"
 	return StyleStatusBar.Width(m.width).Render(hints)
 }
 
@@ -922,6 +981,7 @@ func (m AppModel) viewHelp() string {
   Actions
   i          Install profile
   x          Remove profile
+  c          Check for updates
   r/R        Refresh market / all
   m          Markets popup
   /          Search mode
@@ -945,12 +1005,29 @@ func stripFrontmatter(s string) string {
 	return strings.TrimSpace(s)
 }
 
-var mdRenderers = make(map[int]*glamour.TermRenderer)
+type mdCacheKey struct {
+	width int
+	md    string
+}
+
+var (
+	mdRenderers  = make(map[int]*glamour.TermRenderer)
+	mdRenderCache = make(map[mdCacheKey]string)
+	mdRendererMu sync.Mutex
+)
 
 func renderMarkdown(md string, width int) string {
 	if width < 1 {
 		width = 40
 	}
+	mdRendererMu.Lock()
+	defer mdRendererMu.Unlock()
+
+	key := mdCacheKey{width: width, md: md}
+	if cached, ok := mdRenderCache[key]; ok {
+		return cached
+	}
+
 	r, ok := mdRenderers[width]
 	if !ok {
 		var err error
@@ -967,7 +1044,9 @@ func renderMarkdown(md string, width int) string {
 	if err != nil {
 		return md
 	}
-	return strings.TrimSpace(out)
+	result := strings.TrimSpace(out)
+	mdRenderCache[key] = result
+	return result
 }
 
 func RunTUI(svc TUIServices, updateAvailable bool, latestVersion string) error {

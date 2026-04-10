@@ -160,7 +160,7 @@ type marketStats struct {
 	skills   int
 }
 
-func (m AppModel) computeMarketStats() map[string]marketStats {
+func (m *AppModel) recomputeMarketStats() {
 	stats := make(map[string]marketStats)
 	profileSeen := make(map[string]bool)
 	for _, ei := range m.allEntries {
@@ -179,7 +179,7 @@ func (m AppModel) computeMarketStats() map[string]marketStats {
 		}
 		stats[e.Market] = ms
 	}
-	return stats
+	m.cachedMktStats = stats
 }
 
 func (m AppModel) viewMarketPopup() string {
@@ -194,7 +194,7 @@ func (m AppModel) viewMarketPopup() string {
 	muted := lipgloss.NewStyle().Foreground(ColorMuted)
 	selected := lipgloss.NewStyle().Foreground(ColorSelected)
 
-	stats := m.computeMarketStats()
+	stats := m.cachedMktStats
 
 	var s string
 	s += bold.Render("Markets") + "\n\n"

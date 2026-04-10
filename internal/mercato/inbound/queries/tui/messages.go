@@ -44,6 +44,10 @@ type PruneCompleteMsg struct {
 	Err    error
 }
 
+type StatusesReadyMsg struct {
+	Statuses []domain.EntryStatus
+}
+
 type SearchResultMsg struct {
 	Query   string
 	Results []service.SearchResult
