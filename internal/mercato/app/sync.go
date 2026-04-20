@@ -141,6 +141,7 @@ func (a *App) packageFileRefs(market string, pkg domain.InstalledPackage) []doma
 	return refs
 }
 
+
 func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 	cfg, err := a.cfg.Load(a.configPath)
 	if err != nil {
@@ -411,12 +412,8 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 			}
 
 			for _, location := range pkg.Locations {
-				if !opts.AllLocations && location != projectPath {
-					continue
-				}
-				localPath := cfg.LocalPath
 				if location != projectPath {
-					localPath = filepath.Join(location, filepath.Base(cfg.LocalPath))
+					continue
 				}
 				r := a.updatePackageAtLocation(updateCtx{
 					mc:        mc,
@@ -427,7 +424,6 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 					clonePath: clonePath,
 					cfg:       cfg,
 					opts:      opts,
-					localPath: localPath,
 				})
 				results = append(results, r)
 			}
@@ -452,7 +448,6 @@ type updateCtx struct {
 	clonePath string
 	cfg       domain.Config
 	opts      service.UpdateOpts
-	localPath string
 }
 
 // findAffectedPackages identifies which installed packages in a market are
@@ -525,7 +520,7 @@ func (a *App) updatePackageAtLocation(ctx updateCtx) service.UpdateResult {
 	}
 
 	// Delete old files
-	if err := a.deleteInstalledFiles(ctx.localPath, ctx.pkg.Files); err != nil {
+	if err := a.deleteInstalledFiles(ctx.cfg.LocalPath, ctx.pkg.Files); err != nil {
 		return service.UpdateResult{
 			Ref:      a.packagePrimaryRef(ctx.mc.Name, ctx.pkg),
 			Location: ctx.location,
@@ -576,7 +571,7 @@ func (a *App) copyUpdatedFiles(ctx updateCtx) domain.InstalledFiles {
 		if err != nil {
 			continue
 		}
-		localSkillDir := filepath.Join(ctx.localPath, "skills", skill)
+		localSkillDir := filepath.Join(ctx.cfg.LocalPath, "skills", skill)
 		for _, f := range dirFiles {
 			content, err := a.git.ReadFileAtRef(ctx.clonePath, ctx.mc.Branch, f, "HEAD")
 			if err != nil {
@@ -595,7 +590,7 @@ func (a *App) copyUpdatedFiles(ctx updateCtx) domain.InstalledFiles {
 		if err != nil {
 			continue
 		}
-		localPath := filepath.Join(ctx.localPath, "agents", agent)
+		localPath := filepath.Join(ctx.cfg.LocalPath, "agents", agent)
 		if err := a.fs.WriteFile(localPath, content); err != nil {
 			continue
 		}
@@ -686,7 +681,6 @@ func (a *App) Sync(opts service.SyncOpts) ([]service.SyncResult, error) {
 		CI:             opts.CI,
 		AcceptBreaking: opts.AcceptBreaking,
 		AllMerge:       opts.AllMerge,
-		AllLocations:   opts.AllLocations,
 	})
 	if err != nil {
 		return nil, err

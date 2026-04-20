@@ -9,9 +9,9 @@ import (
 
 	"github.com/JLugagne/claude-mercato/assets"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	fsrepo "github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
+
 
 func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
 	cfg, err := a.cfg.Load(a.configPath)
@@ -283,13 +283,7 @@ func (a *App) addInternal(
 			}
 		}
 		if atLocation && fileInPackage(relPath, pkg.Files) {
-			localPath, err := a.resolveLocalPath(cfg, relPath)
-			if err != nil {
-				return err
-			}
-			if fsrepo.FileExists(a.fs, localPath) {
-				return domain.ErrEntryAlreadyInstalled
-			}
+			return domain.ErrEntryAlreadyInstalled
 		}
 	}
 
@@ -530,6 +524,9 @@ func (a *App) installProfileSkills(
 		if isReadme(mf.Path) {
 			continue
 		}
+		if !isSkillEntryPoint(mf.Path) {
+			continue
+		}
 
 		fileRef := domain.MctRef(marketName + "@" + mf.Path)
 		_, fileRelPath, err := fileRef.Parse()
@@ -569,6 +566,8 @@ func (a *App) addProfile(
 		return err
 	}
 
+	projectPath := projectPath(cfg.LocalPath)
+
 	prefix := relPath + "/"
 	installedCount := 0
 	skippedCount := 0
@@ -584,16 +583,29 @@ func (a *App) addProfile(
 			continue
 		}
 		fileRef := domain.MctRef(marketName + "@" + mf.Path)
+		fileProfile := refProfile(fileRef)
+
+		// Check if already installed at this location via installdb
+		pkg := db.FindPackage(marketName, fileProfile)
+		if pkg != nil {
+			atLocation := false
+			for _, loc := range pkg.Locations {
+				if loc == projectPath {
+					atLocation = true
+					break
+				}
+			}
+			if atLocation && fileInPackage(mf.Path, pkg.Files) {
+				skippedCount++
+				continue
+			}
+		}
 
 		_, fileRelPath, err := fileRef.Parse()
 		if err != nil {
 			return err
 		}
 		if err := a.addInternal(fileRef, marketName, fileRelPath, cfg, mc, db, visited, opts, result); err != nil {
-			if err == domain.ErrEntryAlreadyInstalled {
-				skippedCount++
-				continue
-			}
 			return err
 		}
 		installedCount++
@@ -633,6 +645,18 @@ func fileInPackage(relPath string, files domain.InstalledFiles) bool {
 		}
 	}
 	return false
+}
+
+// isSkillEntryPoint returns true when relPath is a skill's main entry file:
+// either a flat skill (e.g. "skills/foo.md") or a dir-based SKILL.md
+// (e.g. "skills/foo/SKILL.md"). Support files like "skills/foo/prompt.md"
+// return false.
+func isSkillEntryPoint(relPath string) bool {
+	base := filepath.Base(relPath)
+	if isDirBasedSkill(relPath) {
+		return base == "SKILL.md"
+	}
+	return strings.HasSuffix(relPath, ".md")
 }
 
 // isDirBasedSkill returns true when relPath is a directory-based skill file
@@ -1047,3 +1071,4 @@ func inferEntryType(relPath string) domain.EntryType {
 	}
 	return ""
 }
+
