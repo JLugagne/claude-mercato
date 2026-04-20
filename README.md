@@ -90,6 +90,16 @@ Real features, all implemented today:
 
 ## Install
 
+**Linux / macOS (recommended):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JLugagne/claude-mercato/main/install.sh | bash
+```
+
+Installs to `/usr/local/bin/mct`. Override with `MCT_INSTALL_DIR=/your/path` or pin a version with `MCT_VERSION=v1.3.9`.
+
+**Go install:**
+
 ```bash
 go install github.com/JLugagne/claude-mercato/cmd/mct@latest
 ```
