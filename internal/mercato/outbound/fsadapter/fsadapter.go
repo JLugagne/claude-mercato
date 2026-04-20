@@ -2,6 +2,7 @@ package fsadapter
 
 import (
 	"crypto/md5"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -57,7 +58,11 @@ func (a *Adapter) WriteFile(path string, content []byte) error {
 }
 
 func (a *Adapter) DeleteFile(path string) error {
-	return os.Remove(path)
+	err := os.Remove(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func (a *Adapter) MkdirAll(path string) error {
@@ -103,4 +108,3 @@ func (a *Adapter) ListDir(path string) ([]string, error) {
 	}
 	return names, nil
 }
-

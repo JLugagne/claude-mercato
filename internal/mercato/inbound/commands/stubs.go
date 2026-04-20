@@ -115,6 +115,7 @@ func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			acceptBreaking, _ := cmd.Flags().GetBool("accept-breaking")
 			allMerge, _ := cmd.Flags().GetBool("all-merge")
+			allLocations, _ := cmd.Flags().GetBool("all")
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			results, err := svc.Sync.Sync(service.SyncOpts{
 				Market:         market,
@@ -122,6 +123,7 @@ func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				CI:             opts.CI,
 				AcceptBreaking: acceptBreaking,
 				AllMerge:       allMerge,
+				AllLocations:   allLocations,
 			})
 			if err != nil {
 				return err
@@ -136,7 +138,7 @@ func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 					cmd.Printf("  up  %s %s -> %s\n", r.Refresh.Market, r.Refresh.OldSHA[:7], r.Refresh.NewSHA[:7])
 				}
 				for _, u := range r.Updates {
-					cmd.Printf("     %s  %s\n", u.Action, u.Ref)
+					cmd.Printf("     %s  %s  %s\n", u.Action, u.Ref, u.Location)
 				}
 			}
 			return nil
@@ -146,6 +148,7 @@ func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Flags().Bool("dry-run", false, "preview changes")
 	cmd.Flags().Bool("accept-breaking", false, "accept breaking changes")
 	cmd.Flags().Bool("all-merge", false, "merge all changes")
+	cmd.Flags().Bool("all", false, "update all locations where entries are installed")
 	cmd.Flags().Bool("json", false, "JSON output")
 	return cmd
 }

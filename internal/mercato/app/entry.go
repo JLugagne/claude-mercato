@@ -9,9 +9,9 @@ import (
 
 	"github.com/JLugagne/claude-mercato/assets"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	fsrepo "github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
-
 
 func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
 	cfg, err := a.cfg.Load(a.configPath)
@@ -283,7 +283,13 @@ func (a *App) addInternal(
 			}
 		}
 		if atLocation && fileInPackage(relPath, pkg.Files) {
-			return domain.ErrEntryAlreadyInstalled
+			localPath, err := a.resolveLocalPath(cfg, relPath)
+			if err != nil {
+				return err
+			}
+			if fsrepo.FileExists(a.fs, localPath) {
+				return domain.ErrEntryAlreadyInstalled
+			}
 		}
 	}
 
@@ -563,8 +569,6 @@ func (a *App) addProfile(
 		return err
 	}
 
-	projectPath := projectPath(cfg.LocalPath)
-
 	prefix := relPath + "/"
 	installedCount := 0
 	skippedCount := 0
@@ -580,29 +584,16 @@ func (a *App) addProfile(
 			continue
 		}
 		fileRef := domain.MctRef(marketName + "@" + mf.Path)
-		fileProfile := refProfile(fileRef)
-
-		// Check if already installed at this location via installdb
-		pkg := db.FindPackage(marketName, fileProfile)
-		if pkg != nil {
-			atLocation := false
-			for _, loc := range pkg.Locations {
-				if loc == projectPath {
-					atLocation = true
-					break
-				}
-			}
-			if atLocation && fileInPackage(mf.Path, pkg.Files) {
-				skippedCount++
-				continue
-			}
-		}
 
 		_, fileRelPath, err := fileRef.Parse()
 		if err != nil {
 			return err
 		}
 		if err := a.addInternal(fileRef, marketName, fileRelPath, cfg, mc, db, visited, opts, result); err != nil {
+			if err == domain.ErrEntryAlreadyInstalled {
+				skippedCount++
+				continue
+			}
 			return err
 		}
 		installedCount++
@@ -1056,4 +1047,3 @@ func inferEntryType(relPath string) domain.EntryType {
 	}
 	return ""
 }
-

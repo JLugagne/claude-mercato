@@ -38,6 +38,7 @@ type UpdateOpts struct {
 	AcceptBreaking bool
 	DryRun         bool
 	CI             bool
+	AllLocations   bool
 }
 
 type SyncOpts struct {
@@ -46,6 +47,7 @@ type SyncOpts struct {
 	CI             bool
 	AcceptBreaking bool
 	AllMerge       bool
+	AllLocations   bool
 }
 
 type RefreshResult struct {
