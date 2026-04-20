@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -374,12 +373,11 @@ func inferCategory(relPath string) string {
 	return profilePrefix(relPath)
 }
 
-var (
-	stemmer, _ = snowball.NewStemmer("english",
-		snowball.WithoutToLower(),
-		snowball.WithoutTrimSpace(),
-	)
-	stemmerMu sync.Mutex
+// stemmer is a package-level reusable Snowball stemmer for English.
+// Not safe for concurrent use, but search is single-goroutine.
+var stemmer, _ = snowball.NewStemmer("english",
+	snowball.WithoutToLower(),
+	snowball.WithoutTrimSpace(),
 )
 
 func tokenize(text string) []string {
@@ -388,8 +386,6 @@ func tokenize(text string) []string {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	})
 	tokens := make([]string, 0, len(words))
-	stemmerMu.Lock()
-	defer stemmerMu.Unlock()
 	for _, w := range words {
 		if w == "" {
 			continue

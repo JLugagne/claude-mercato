@@ -1,6 +1,7 @@
 package app
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/outbound/gitadapter"
 	"github.com/go-git/go-billy/v5/osfs"
 	git "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -101,15 +103,64 @@ func createTestRepo(t *testing.T, files map[string]string) string {
 	return dir
 }
 
-// cloneTestRepo clones sourceDir into cloneDir so that origin/<branch> refs exist.
+// cloneTestRepo copies the .git directory from sourceDir into cloneDir and sets
+// up origin remote refs so that origin/<branch> refs exist — without going
+// through the git transport layer, which behaves differently across Go versions.
 func cloneTestRepo(t *testing.T, sourceDir, cloneDir string) {
 	t.Helper()
-	_, err := git.PlainClone(cloneDir, false, &git.CloneOptions{
-		URL: sourceDir,
-	})
+	if err := os.MkdirAll(cloneDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Copy the entire source repo (worktree + .git) into cloneDir.
+	if err := copyDir(sourceDir, cloneDir); err != nil {
+		t.Fatalf("copyDir: %v", err)
+	}
+	// Add an origin remote pointing at sourceDir so origin/main refs resolve.
+	repo, err := git.PlainOpen(cloneDir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg, err := repo.Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Remotes["origin"] = &gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{sourceDir},
+	}
+	if err := repo.SetConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	// Create origin/main tracking ref pointing at main.
+	ref, err := repo.Reference(plumbing.NewBranchReferenceName("main"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originMain := plumbing.NewHashReference(plumbing.NewRemoteReferenceName("origin", "main"), ref.Hash())
+	if err := repo.Storer.SetReference(originMain); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0644)
+	})
 }
 
 // addCommitToRepo adds or modifies files in an existing repo and creates a new commit.
