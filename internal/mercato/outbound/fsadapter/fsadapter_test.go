@@ -82,8 +82,8 @@ func TestDeleteFile(t *testing.T) {
 		t.Error("FileExists after delete = true, want false")
 	}
 
-	if err := a.DeleteFile(filepath.Join(dir, "nonexistent.txt")); err == nil {
-		t.Error("DeleteFile on nonexistent path: expected error, got nil")
+	if err := a.DeleteFile(filepath.Join(dir, "nonexistent.txt")); err != nil {
+		t.Errorf("DeleteFile on nonexistent path: expected nil, got %v", err)
 	}
 }
 

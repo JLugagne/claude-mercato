@@ -2,8 +2,10 @@ package app
 
 import (
 	"errors"
+	"io/fs"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
@@ -239,7 +241,12 @@ func TestAdd_AlreadyInstalled(t *testing.T) {
 			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
 		},
 	}
-	fsMock := &filesystemtest.MockFilesystem{}
+	fsMock := &filesystemtest.MockFilesystem{
+		StatFn: func(name string) (fs.FileInfo, error) {
+			// simulate the agent file existing on disk
+			return fstest.MapFS{"foo.md": &fstest.MapFile{}}.Stat("foo.md")
+		},
+	}
 
 	// installdb already has the package at this location
 	// refProfile("mkt@agents/foo.md") = "agents/foo.md" (first 2 path segments)
@@ -500,7 +507,11 @@ func TestAdd_ProfileExpand_AllAlreadyInstalled(t *testing.T) {
 			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
 		},
 	}
-	fsMock := &filesystemtest.MockFilesystem{}
+	fsMock := &filesystemtest.MockFilesystem{
+		StatFn: func(name string) (fs.FileInfo, error) {
+			return fstest.MapFS{"foo.md": &fstest.MapFile{}}.Stat("foo.md")
+		},
+	}
 	git := &gitrepotest.MockGitRepo{
 		ReadMarketFilesFn: func(clonePath, branch string) ([]gitrepo.MarketFile, error) {
 			return []gitrepo.MarketFile{
@@ -556,6 +567,13 @@ func TestAdd_ProfileExpand_PartialInstall(t *testing.T) {
 		WriteFileFn: func(path string, content []byte) error {
 			writePaths = append(writePaths, path)
 			return nil
+		},
+		StatFn: func(name string) (fs.FileInfo, error) {
+			// foo.md is already on disk; bar.md is not
+			if filepath.Base(name) == "foo.md" {
+				return fstest.MapFS{"foo.md": &fstest.MapFile{}}.Stat("foo.md")
+			}
+			return nil, fs.ErrNotExist
 		},
 	}
 	git := &gitrepotest.MockGitRepo{

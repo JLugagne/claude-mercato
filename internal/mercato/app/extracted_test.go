@@ -533,6 +533,7 @@ func TestCopyUpdatedFiles_Agents(t *testing.T) {
 		pkg:       &domain.InstalledPackage{Profile: "dev/go", Files: domain.InstalledFiles{Agents: []string{"foo.md"}}},
 		clonePath: "/cache/mkt",
 		cfg:       domain.Config{LocalPath: ".claude"},
+		localPath: ".claude",
 	}
 
 	files := a.copyUpdatedFiles(ctx)
