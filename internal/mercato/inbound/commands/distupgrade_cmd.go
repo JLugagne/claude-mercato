@@ -6,21 +6,25 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/update"
 )
 
-func newDistUpgradeCmd(opts *GlobalOpts) *cobra.Command {
+func newUpgradeCmd(opts *GlobalOpts) *cobra.Command {
 	return &cobra.Command{
-		Use:   "dist-upgrade",
-		Short: "Update mct to the latest version",
-		Long:  "Runs `go install github.com/JLugagne/claude-mercato/cmd/mct@latest` to install the latest version.",
+		Use:   "upgrade",
+		Short: "Update mct to the latest release",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cmd.Println("Updating mct to latest version...")
-			if err := update.RunDistUpgrade(); err != nil {
+			if err := update.RunUpgrade(Version); err != nil {
 				return err
 			}
-			// Reset the update check state so we don't nag after upgrading.
-			update.CheckLatestVersion(opts.CacheDir, "")
-			cmd.Println("mct updated successfully.")
+			update.CheckLatestVersion(opts.CacheDir, Version)
 			return nil
 		},
 	}
+}
+
+func newDistUpgradeCmd(opts *GlobalOpts) *cobra.Command {
+	cmd := newUpgradeCmd(opts)
+	cmd.Use = "dist-upgrade"
+	cmd.Short = "Update mct to the latest release (alias for upgrade)"
+	cmd.Hidden = true
+	return cmd
 }

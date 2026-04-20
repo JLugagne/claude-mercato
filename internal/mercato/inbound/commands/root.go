@@ -6,8 +6,9 @@ import (
 	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 )
 
-// Version is the current mct version.
-const Version = "1.3.6"
+// Version is set at build time via -ldflags "-X ...commands.Version=vX.Y.Z".
+// Defaults to "dev" for local builds.
+var Version = "dev"
 
 // GlobalOpts holds flags shared across all commands
 type GlobalOpts struct {
@@ -47,7 +48,7 @@ func NewRootCmd(svc Services) *cobra.Command {
 	root.PersistentFlags().StringVar(&opts.ConfigPath, "config", "~/.config/mct/config.yml", "path to config file")
 	root.PersistentFlags().StringVar(&opts.CacheDir, "cache", "~/.cache/mct", "cache directory")
 	root.PersistentFlags().BoolVar(&opts.Offline, "offline", false, "disable network operations")
-	root.PersistentFlags().BoolVar(&opts.Verbose, "verbose", false, "detailed operation log")
+	root.PersistentFlags().BoolVar(&opts.Verbose, "verbose", false, "detailed output")
 	root.PersistentFlags().BoolVar(&opts.Quiet, "quiet", false, "suppress all output except errors")
 	root.PersistentFlags().BoolVar(&opts.NoColor, "no-color", false, "disable ANSI colours")
 	root.PersistentFlags().BoolVar(&opts.CI, "ci", false, "non-interactive mode")
@@ -74,7 +75,7 @@ func NewRootCmd(svc Services) *cobra.Command {
 		newImportCmd(svc, opts),
 		newLintCmd(svc, opts),
 		newHookCmd(svc, opts),
-		newDistUpgradeCmd(opts),
+		newUpgradeCmd(opts),
 	)
 
 	// Aliases
@@ -83,6 +84,7 @@ func NewRootCmd(svc Services) *cobra.Command {
 	root.AddCommand(newMarketsCmd(svc, opts)) // alias for market list
 	root.AddCommand(newSaveCmd(svc, opts))    // alias for export .mct.json
 	root.AddCommand(newRestoreCmd(svc, opts)) // alias for import .mct.json
+	root.AddCommand(newDistUpgradeCmd(opts))  // alias for upgrade
 
 	return root
 }

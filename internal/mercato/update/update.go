@@ -1,18 +1,19 @@
-// Package update provides self-update checking and installation for mct.
 package update
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	selfupdate "github.com/creativeprojects/go-selfupdate"
 )
 
 const (
-	modulePath    = "github.com/JLugagne/claude-mercato/cmd/mct"
+	repoSlug      = "JLugagne/claude-mercato"
 	checkInterval = 24 * time.Hour
 	stateFile     = "update-check.json"
 )
@@ -50,14 +51,11 @@ func saveState(cacheDir string, s State) {
 	_ = os.WriteFile(statePath(cacheDir), data, 0o644)
 }
 
-// ShouldCheck returns true if enough time has passed since the last check.
 func ShouldCheck(cacheDir string) bool {
 	s := loadState(cacheDir)
 	return time.Since(s.LastCheck) >= checkInterval
 }
 
-// CheckLatestVersion queries the Go module proxy for the latest version.
-// It updates the state file regardless of the outcome.
 func CheckLatestVersion(cacheDir, currentVersion string) Result {
 	result := Result{CurrentVersion: currentVersion}
 
@@ -66,42 +64,59 @@ func CheckLatestVersion(cacheDir, currentVersion string) Result {
 	if err == nil {
 		s.LatestVersion = latest
 		result.LatestVersion = latest
-		result.UpdateAvailable = latest != "" && latest != currentVersion
+		result.UpdateAvailable = latest != "" && latest != currentVersion && currentVersion != "dev"
 	}
 	saveState(cacheDir, s)
 	return result
 }
 
-// CachedResult returns the last known update check result without hitting the network.
 func CachedResult(cacheDir, currentVersion string) Result {
 	s := loadState(cacheDir)
 	return Result{
 		CurrentVersion:  currentVersion,
 		LatestVersion:   s.LatestVersion,
-		UpdateAvailable: s.LatestVersion != "" && s.LatestVersion != currentVersion,
+		UpdateAvailable: s.LatestVersion != "" && s.LatestVersion != currentVersion && currentVersion != "dev",
 	}
 }
 
-// fetchLatestVersion uses `go list -m` to query the latest module version.
 func fetchLatestVersion() (string, error) {
-	cmd := exec.Command("go", "list", "-m", "-f", "{{.Version}}", modulePath+"@latest")
-	cmd.Env = append(os.Environ(), "GOFLAGS=")
-	out, err := cmd.Output()
+	updater, err := selfupdate.NewUpdater(selfupdate.Config{})
 	if err != nil {
-		return "", fmt.Errorf("go list: %w", err)
+		return "", err
 	}
-	return strings.TrimSpace(string(out)), nil
+	repo := selfupdate.NewRepositorySlug("", repoSlug)
+	release, found, err := updater.DetectLatest(context.Background(), repo)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", fmt.Errorf("no release found")
+	}
+	return "v" + release.Version(), nil
 }
 
-// RunDistUpgrade runs `go install` to update mct to the latest version.
-func RunDistUpgrade() error {
-	cmd := exec.Command("go", "install", modulePath+"@latest")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+// RunUpgrade downloads and replaces the running binary with the latest release.
+func RunUpgrade(currentVersion string) error {
+	updater, err := selfupdate.NewUpdater(selfupdate.Config{})
+	if err != nil {
+		return err
+	}
+	repo := selfupdate.NewRepositorySlug("", repoSlug)
+	current := strings.TrimPrefix(currentVersion, "v")
+
+	release, err := updater.UpdateSelf(context.Background(), current, repo)
+	if err != nil {
+		return fmt.Errorf("upgrade failed: %w", err)
+	}
+	latest := "v" + release.Version()
+	if latest == currentVersion {
+		fmt.Println("  ok  already at latest version", latest)
+	} else {
+		fmt.Printf("  ok  updated %s → %s\n", currentVersion, latest)
+	}
+	return nil
 }
 
-// FormatUpdateNotice returns a human-readable update message.
 func FormatUpdateNotice(r Result) string {
-	return fmt.Sprintf("A new version of mct is available: %s → %s (run `mct dist-upgrade` to update)", r.CurrentVersion, r.LatestVersion)
+	return fmt.Sprintf("A new version of mct is available: %s → %s (run `mct upgrade` to update)", r.CurrentVersion, r.LatestVersion)
 }
