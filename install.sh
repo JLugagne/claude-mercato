@@ -3,7 +3,7 @@ set -e
 
 REPO="JLugagne/claude-mercato"
 BINARY="mct"
-INSTALL_DIR="${MCT_INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR="${MCT_INSTALL_DIR:-$HOME/.local/bin}"
 
 # Resolve OS
 OS="$(uname -s)"
@@ -48,12 +48,8 @@ trap 'rm -rf "$TMP"' EXIT
 curl -fsSL "$URL" -o "$TMP/$ARCHIVE"
 tar -xzf "$TMP/$ARCHIVE" -C "$TMP"
 
-# Install (use sudo if needed)
-if [ -w "$INSTALL_DIR" ]; then
-  mv "$TMP/$BINARY" "$INSTALL_DIR/$BINARY"
-else
-  sudo mv "$TMP/$BINARY" "$INSTALL_DIR/$BINARY"
-fi
+mkdir -p "$INSTALL_DIR"
+mv "$TMP/$BINARY" "$INSTALL_DIR/$BINARY"
 
 chmod +x "$INSTALL_DIR/$BINARY"
 

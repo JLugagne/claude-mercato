@@ -96,7 +96,7 @@ Real features, all implemented today:
 curl -fsSL https://raw.githubusercontent.com/JLugagne/claude-mercato/main/install.sh | bash
 ```
 
-Installs to `/usr/local/bin/mct`. Override with `MCT_INSTALL_DIR=/your/path` or pin a version with `MCT_VERSION=v1.3.9`.
+Installs to `~/.local/bin/mct` (no root required). Override with `MCT_INSTALL_DIR=/your/path` or pin a version with `MCT_VERSION=v1.3.9`.
 
 **Go install:**
 
