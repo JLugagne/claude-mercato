@@ -141,7 +141,6 @@ func (a *App) packageFileRefs(market string, pkg domain.InstalledPackage) []doma
 	return refs
 }
 
-
 func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 	cfg, err := a.cfg.Load(a.configPath)
 	if err != nil {
@@ -361,8 +360,6 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 		return nil, err
 	}
 
-	projectPath := projectPath(cfg.LocalPath)
-
 	var results []service.UpdateResult
 
 	for _, mc := range cfg.Markets {
@@ -412,9 +409,6 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 			}
 
 			for _, location := range pkg.Locations {
-				if location != projectPath {
-					continue
-				}
 				r := a.updatePackageAtLocation(updateCtx{
 					mc:        mc,
 					im:        im,
@@ -681,6 +675,7 @@ func (a *App) Sync(opts service.SyncOpts) ([]service.SyncResult, error) {
 		CI:             opts.CI,
 		AcceptBreaking: opts.AcceptBreaking,
 		AllMerge:       opts.AllMerge,
+		AllLocations:   opts.AllLocations,
 	})
 	if err != nil {
 		return nil, err
