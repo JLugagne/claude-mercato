@@ -1,7 +1,7 @@
 package transform
 
 import (
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
 )
 
 // ContinueTransformer converts skills to Continue .continue/rules/*.md files.

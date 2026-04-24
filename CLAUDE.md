@@ -1,4 +1,4 @@
-# claude-mercato
+# agents-mercato
 
 ALWAYS load doc-project skill, NEVER explore the code first. Explore the code only if you don't find the information in doc-project skill.
 

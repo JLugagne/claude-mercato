@@ -3,13 +3,13 @@ package app
 import (
 	"testing"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/gitrepo"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 )
 
 // agentContent is a minimal agent frontmatter for search tests.
@@ -250,9 +250,9 @@ func TestTokenize(t *testing.T) {
 	}{
 		{"hello world", []string{"hello", "world"}},
 		{"Go-lang", []string{"go", "lang"}},
-		{"discovering skills", []string{"discov", "skill"}},          // stemming
+		{"discovering skills", []string{"discov", "skill"}},             // stemming
 		{"the agent is running", []string{"the", "agent", "is", "run"}}, // stemming (no stop word removal)
-		{"hexagonal architecture", []string{"hexagon", "architectur"}}, // stemming
+		{"hexagonal architecture", []string{"hexagon", "architectur"}},  // stemming
 	}
 	for _, tt := range tests {
 		got := tokenize(tt.input)

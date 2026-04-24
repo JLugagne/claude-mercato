@@ -1,6 +1,6 @@
 package service
 
-import "github.com/JLugagne/claude-mercato/internal/mercato/domain"
+import "github.com/JLugagne/agents-mercato/internal/mercato/domain"
 
 type ReadmeQueries interface {
 	// Readme returns the README.md at the given path within a market.

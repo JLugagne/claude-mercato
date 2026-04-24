@@ -1,6 +1,6 @@
 package service
 
-import "github.com/JLugagne/claude-mercato/internal/mercato/domain"
+import "github.com/JLugagne/agents-mercato/internal/mercato/domain"
 
 type SyncQueries interface {
 	Check(opts CheckOpts) ([]domain.EntryStatus, error)

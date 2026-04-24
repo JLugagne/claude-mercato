@@ -1,4 +1,4 @@
-module github.com/JLugagne/claude-mercato
+module github.com/JLugagne/agents-mercato
 
 go 1.25.0
 

@@ -7,16 +7,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/app"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/transform"
-	"github.com/JLugagne/claude-mercato/internal/mercato/inbound/commands"
-	"github.com/JLugagne/claude-mercato/internal/mercato/inbound/queries/tui"
-	"github.com/JLugagne/claude-mercato/internal/mercato/outbound/cfgadapter"
-	"github.com/JLugagne/claude-mercato/internal/mercato/outbound/fsadapter"
-	"github.com/JLugagne/claude-mercato/internal/mercato/outbound/gitadapter"
-	"github.com/JLugagne/claude-mercato/internal/mercato/update"
+	"github.com/JLugagne/agents-mercato/internal/mercato/app"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/transform"
+	"github.com/JLugagne/agents-mercato/internal/mercato/inbound/commands"
+	"github.com/JLugagne/agents-mercato/internal/mercato/inbound/queries/tui"
+	"github.com/JLugagne/agents-mercato/internal/mercato/outbound/cfgadapter"
+	"github.com/JLugagne/agents-mercato/internal/mercato/outbound/fsadapter"
+	"github.com/JLugagne/agents-mercato/internal/mercato/outbound/gitadapter"
+	"github.com/JLugagne/agents-mercato/internal/mercato/update"
 )
 
 func resolveSSHEnabled(configPath string) bool {
@@ -46,17 +46,17 @@ func NewApp(configPath, cacheDir string) *cobra.Command {
 	installDB := cfgadapter.NewInstallDB()
 
 	registry := domain.TransformerRegistry{
-		"claude":      &transform.ClaudeTransformer{},
-		"cursor":      &transform.CursorTransformer{},
-		"windsurf":    &transform.WindsurfTransformer{},
-		"codex":       &transform.CodexTransformer{},
-		"gemini":      &transform.GeminiTransformer{},
-		"opencode":    &transform.OpenCodeTransformer{},
-		"copilot":     &transform.CopilotTransformer{},
-		"supermaven":  &transform.SupermavenTransformer{},
-		"pearai":      &transform.PearAITransformer{},
-		"roocode":     &transform.RooCodeTransformer{},
-		"continue":    &transform.ContinueTransformer{},
+		"claude":     &transform.ClaudeTransformer{},
+		"cursor":     &transform.CursorTransformer{},
+		"windsurf":   &transform.WindsurfTransformer{},
+		"codex":      &transform.CodexTransformer{},
+		"gemini":     &transform.GeminiTransformer{},
+		"opencode":   &transform.OpenCodeTransformer{},
+		"copilot":    &transform.CopilotTransformer{},
+		"supermaven": &transform.SupermavenTransformer{},
+		"pearai":     &transform.PearAITransformer{},
+		"roocode":    &transform.RooCodeTransformer{},
+		"continue":   &transform.ContinueTransformer{},
 	}
 	toolMappingsStore := cfgadapter.NewToolMappingStore()
 

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato"
+	"github.com/JLugagne/agents-mercato/internal/mercato"
 )
 
 func main() {

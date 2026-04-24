@@ -5,10 +5,10 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
 )
 
 func newLintTestApp() *App {

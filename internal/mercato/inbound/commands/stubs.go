@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 )
 
 func newRefreshCmd(svc Services, opts *GlobalOpts) *cobra.Command {

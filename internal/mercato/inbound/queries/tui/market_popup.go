@@ -3,8 +3,8 @@ package tui
 import (
 	"fmt"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

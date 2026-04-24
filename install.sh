@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO="JLugagne/claude-mercato"
+REPO="JLugagne/agents-mercato"
 BINARY="mct"
 INSTALL_DIR="${MCT_INSTALL_DIR:-$HOME/.local/bin}"
 

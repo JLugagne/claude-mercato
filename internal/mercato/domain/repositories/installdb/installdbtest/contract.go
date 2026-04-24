@@ -1,8 +1,8 @@
 package installdbtest
 
 import (
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/installdb"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/installdb"
 )
 
 var _ installdb.InstallDB = (*MockInstallDB)(nil)

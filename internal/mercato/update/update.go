@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	repoSlug      = "JLugagne/claude-mercato"
+	repoSlug      = "JLugagne/agents-mercato"
 	checkInterval = 24 * time.Hour
 	stateFile     = "update-check.json"
 )

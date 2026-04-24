@@ -6,12 +6,12 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 )
 
 // ---------------------------------------------------------------------------
@@ -297,10 +297,10 @@ func TestInstallEntryFiles_WriteError(t *testing.T) {
 
 func TestWalkMarketEntries_CollectsProfileData(t *testing.T) {
 	fsys := fstest.MapFS{
-		"dev/go/README.md":              {Data: []byte("---\ntags:\n  - golang\n---\n# README\n")},
-		"dev/go/agents/foo.md":          {Data: []byte("---\ndescription: test\n---\n# foo\n")},
-		"dev/go/skills/bar/SKILL.md":    {Data: []byte("---\ndescription: skill\n---\n# bar\n")},
-		"dev/py/agents/baz.md":          {Data: []byte("---\ndescription: py agent\n---\n# baz\n")},
+		"dev/go/README.md":           {Data: []byte("---\ntags:\n  - golang\n---\n# README\n")},
+		"dev/go/agents/foo.md":       {Data: []byte("---\ndescription: test\n---\n# foo\n")},
+		"dev/go/skills/bar/SKILL.md": {Data: []byte("---\ndescription: skill\n---\n# bar\n")},
+		"dev/py/agents/baz.md":       {Data: []byte("---\ndescription: py agent\n---\n# baz\n")},
 	}
 
 	var result service.LintResult

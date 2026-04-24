@@ -3,8 +3,8 @@ package tui
 import (
 	"time"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 )
 
 type MarketLoadedMsg struct {
@@ -64,7 +64,6 @@ type MarketRemovedMsg struct {
 	Name string
 	Err  error
 }
-
 
 type EntryContentMsg struct {
 	Ref     domain.MctRef

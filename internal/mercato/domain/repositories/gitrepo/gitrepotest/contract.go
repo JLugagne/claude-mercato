@@ -1,25 +1,25 @@
 package gitrepotest
 
 import (
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/gitrepo"
 )
 
 var _ gitrepo.GitRepo = (*MockGitRepo)(nil)
 
 type MockGitRepo struct {
-	CloneFn              func(url, clonePath string) error
-	DefaultBranchFn      func(clonePath string) (string, error)
-	FetchFn              func(clonePath, branch string) (string, error)
-	DiffSinceCommitFn    func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error)
-	ReadFileAtRefFn      func(clonePath, branch, filePath, commitSHA string) ([]byte, error)
-	FileVersionFn        func(clonePath, filePath string) (domain.MctVersion, error)
-	RemoteHEADFn         func(clonePath, branch string) (string, error)
-	ListFilesFn          func(clonePath, branch string) ([]string, error)
-	IsValidRepoFn        func(clonePath string) bool
-	ValidateRemoteFn     func(url string) error
-	ReadMarketFilesFn    func(clonePath, branch string) ([]gitrepo.MarketFile, error)
-	ListDirFilesFn       func(clonePath, branch, dirPrefix string) ([]string, error)
+	CloneFn           func(url, clonePath string) error
+	DefaultBranchFn   func(clonePath string) (string, error)
+	FetchFn           func(clonePath, branch string) (string, error)
+	DiffSinceCommitFn func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error)
+	ReadFileAtRefFn   func(clonePath, branch, filePath, commitSHA string) ([]byte, error)
+	FileVersionFn     func(clonePath, filePath string) (domain.MctVersion, error)
+	RemoteHEADFn      func(clonePath, branch string) (string, error)
+	ListFilesFn       func(clonePath, branch string) ([]string, error)
+	IsValidRepoFn     func(clonePath string) bool
+	ValidateRemoteFn  func(url string) error
+	ReadMarketFilesFn func(clonePath, branch string) ([]gitrepo.MarketFile, error)
+	ListDirFilesFn    func(clonePath, branch, dirPrefix string) ([]string, error)
 }
 
 func (m *MockGitRepo) Clone(url, clonePath string) error {

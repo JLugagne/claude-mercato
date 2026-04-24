@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
 )
 
 func (a *App) Readme(market, path string) (domain.ReadmeEntry, error) {

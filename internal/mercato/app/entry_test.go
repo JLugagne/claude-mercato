@@ -5,14 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/installdb/installdbtest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/gitrepo"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/installdb/installdbtest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 )
 
 // agentFile returns minimal valid agent frontmatter content (no mct fields).
@@ -561,8 +561,8 @@ func TestAdd_ProfileExpand_PartialInstall(t *testing.T) {
 	git := &gitrepotest.MockGitRepo{
 		ReadMarketFilesFn: func(clonePath, branch string) ([]gitrepo.MarketFile, error) {
 			return []gitrepo.MarketFile{
-				{Path: "dev/go/agents/foo.md"},   // already installed
-				{Path: "dev/go/skills/bar.md"},   // not installed
+				{Path: "dev/go/agents/foo.md"}, // already installed
+				{Path: "dev/go/skills/bar.md"}, // not installed
 			}, nil
 		},
 		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
@@ -1119,7 +1119,7 @@ func TestIsSkillDirRef(t *testing.T) {
 		{"dev/go/skills/bar", true},
 		{"dev/go/skills/bar/SKILL.md", false},
 		{"agents/foo.md", false},
-		{"agents/foo", false},     // agents dir, not skill
+		{"agents/foo", false},       // agents dir, not skill
 		{"dev/go-hexagonal", false}, // profile, no skills segment
 	}
 	for _, tc := range cases {

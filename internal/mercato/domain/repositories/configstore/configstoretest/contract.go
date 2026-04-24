@@ -1,8 +1,8 @@
 package configstoretest
 
 import (
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/configstore"
 )
 
 var _ configstore.ConfigStore = (*MockConfigStore)(nil)
@@ -14,8 +14,8 @@ type MockConfigStore struct {
 	AddMarketFn         func(path string, market domain.MarketConfig) error
 	RemoveMarketFn      func(path string, name string) error
 	SetMarketPropertyFn func(path string, marketName string, key string, value string) error
-	SetConfigFieldFn       func(path string, key string, value string) error
-	LoadProjectConfigFn    func(projectDir string) (domain.ProjectConfig, error)
+	SetConfigFieldFn    func(path string, key string, value string) error
+	LoadProjectConfigFn func(projectDir string) (domain.ProjectConfig, error)
 }
 
 func (m *MockConfigStore) Load(path string) (domain.Config, error) {

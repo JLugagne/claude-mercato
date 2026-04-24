@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
 	"gopkg.in/yaml.v3"
 )
 
@@ -93,4 +93,3 @@ func entryName(entry domain.Entry) string {
 	}
 	return name
 }
-

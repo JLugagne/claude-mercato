@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	fsrepo "github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
+	fsrepo "github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/filesystem"
 )
 
 func newAdapter(t *testing.T) *Adapter {

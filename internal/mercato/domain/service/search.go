@@ -3,7 +3,7 @@ package service
 import (
 	"time"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
 )
 
 type SearchQueries interface {

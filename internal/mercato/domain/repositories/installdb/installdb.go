@@ -1,6 +1,6 @@
 package installdb
 
-import "github.com/JLugagne/claude-mercato/internal/mercato/domain"
+import "github.com/JLugagne/agents-mercato/internal/mercato/domain"
 
 // InstallDB provides locked read/write access to the install database.
 type InstallDB interface {

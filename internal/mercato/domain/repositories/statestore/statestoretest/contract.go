@@ -1,8 +1,8 @@
 package statestoretest
 
 import (
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/statestore"
 )
 
 var _ statestore.StateStore = (*MockStateStore)(nil)

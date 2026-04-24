@@ -1,6 +1,6 @@
 package gitrepo
 
-import "github.com/JLugagne/claude-mercato/internal/mercato/domain"
+import "github.com/JLugagne/agents-mercato/internal/mercato/domain"
 
 // MarketFile holds a file's content and version, as read from a market repo in a single pass.
 type MarketFile struct {

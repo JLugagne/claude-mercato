@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/installdb/installdbtest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/installdb/installdbtest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 )
 
 // ---------------------------------------------------------------------------
@@ -81,9 +81,9 @@ func (f *fakeToolMappingStore) DefaultToolMappings() domain.ToolMapping {
 // fakeFileInfo implements fs.FileInfo for Stat mock.
 type fakeFileInfo struct{ isDir bool }
 
-func (fi fakeFileInfo) Name() string      { return "." }
-func (fi fakeFileInfo) Size() int64       { return 0 }
-func (fi fakeFileInfo) Mode() fs.FileMode { return fs.ModeDir }
+func (fi fakeFileInfo) Name() string       { return "." }
+func (fi fakeFileInfo) Size() int64        { return 0 }
+func (fi fakeFileInfo) Mode() fs.FileMode  { return fs.ModeDir }
 func (fi fakeFileInfo) ModTime() time.Time { return time.Time{} }
 func (fi fakeFileInfo) IsDir() bool        { return fi.isDir }
 func (fi fakeFileInfo) Sys() interface{}   { return nil }

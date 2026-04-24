@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
-	"github.com/JLugagne/claude-mercato/internal/mercato/outbound/cfgadapter"
-	"github.com/JLugagne/claude-mercato/internal/mercato/outbound/fsadapter"
-	"github.com/JLugagne/claude-mercato/internal/mercato/outbound/gitadapter"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/outbound/cfgadapter"
+	"github.com/JLugagne/agents-mercato/internal/mercato/outbound/fsadapter"
+	"github.com/JLugagne/agents-mercato/internal/mercato/outbound/gitadapter"
 	"github.com/go-git/go-billy/v5/osfs"
 	git "github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
@@ -203,8 +203,8 @@ const marketName = "test/market"
 // marketFiles returns the standard market repo file set.
 func marketFiles() map[string]string {
 	return map[string]string{
-		"dev/go/agents/code-review.md": "---\ndescription: \"Go code reviewer\"\n---\nReview Go code for best practices.\n",
-		"dev/go/skills/go-arch/SKILL.md": "---\ndescription: \"Go architect\"\n---\nArchitect Go applications.\n",
+		"dev/go/agents/code-review.md":    "---\ndescription: \"Go code reviewer\"\n---\nReview Go code for best practices.\n",
+		"dev/go/skills/go-arch/SKILL.md":  "---\ndescription: \"Go architect\"\n---\nArchitect Go applications.\n",
 		"dev/go/skills/go-arch/prompt.md": "You are a Go architect.\n",
 		"dev/go/README.md":                "---\ntags:\n  - go\n  - dev\n---\nGo development profile.\n",
 	}
@@ -650,8 +650,8 @@ func TestIntegration_SyncAndUpdate(t *testing.T) {
 		}
 	}
 
-	_ = projectDir  // first projectDir unused after restructure
-	_ = sourceDir   // first sourceDir unused after restructure
+	_ = projectDir // first projectDir unused after restructure
+	_ = sourceDir  // first sourceDir unused after restructure
 }
 
 func TestIntegration_MultiLocation(t *testing.T) {
@@ -780,14 +780,14 @@ func TestIntegration_MultiLocation(t *testing.T) {
 // in the same profile, plus skills in a different profile.
 func multiSkillMarketFiles() map[string]string {
 	return map[string]string{
-		"dev/go/agents/reviewer.md":            "---\ndescription: \"Go reviewer\"\n---\nReview Go code.\n",
-		"dev/go/skills/arch/SKILL.md":          "---\ndescription: \"Go architect\"\n---\nArchitect Go.\n",
-		"dev/go/skills/arch/prompt.md":          "You are a Go architect.\n",
-		"dev/go/skills/testing/SKILL.md":        "---\ndescription: \"Go tester\"\n---\nTest Go.\n",
-		"dev/go/skills/testing/helpers.md":      "Test helpers.\n",
-		"dev/go/README.md":                      "---\ntags:\n  - go\n---\nGo dev profile.\n",
-		"dev/python/agents/py-review.md":        "---\ndescription: \"Python reviewer\"\n---\nReview Python code.\n",
-		"dev/python/skills/pytest/SKILL.md":     "---\ndescription: \"pytest skill\"\n---\npytest.\n",
+		"dev/go/agents/reviewer.md":         "---\ndescription: \"Go reviewer\"\n---\nReview Go code.\n",
+		"dev/go/skills/arch/SKILL.md":       "---\ndescription: \"Go architect\"\n---\nArchitect Go.\n",
+		"dev/go/skills/arch/prompt.md":      "You are a Go architect.\n",
+		"dev/go/skills/testing/SKILL.md":    "---\ndescription: \"Go tester\"\n---\nTest Go.\n",
+		"dev/go/skills/testing/helpers.md":  "Test helpers.\n",
+		"dev/go/README.md":                  "---\ntags:\n  - go\n---\nGo dev profile.\n",
+		"dev/python/agents/py-review.md":    "---\ndescription: \"Python reviewer\"\n---\nReview Python code.\n",
+		"dev/python/skills/pytest/SKILL.md": "---\ndescription: \"pytest skill\"\n---\npytest.\n",
 	}
 }
 
@@ -827,8 +827,8 @@ func TestIntegration_AddAgent_InstallsSiblingSkills(t *testing.T) {
 func TestIntegration_AddAgent_FlatMarket_NoSiblingSkills(t *testing.T) {
 	// Flat market layout: agents/foo.md, skills/bar/SKILL.md — no profile prefix.
 	flatFiles := map[string]string{
-		"agents/reviewer.md":       "---\ndescription: \"reviewer\"\n---\nReview code.\n",
-		"skills/testing/SKILL.md":  "---\ndescription: \"testing\"\n---\nTest code.\n",
+		"agents/reviewer.md":      "---\ndescription: \"reviewer\"\n---\nReview code.\n",
+		"skills/testing/SKILL.md": "---\ndescription: \"testing\"\n---\nTest code.\n",
 	}
 	application, projectDir, _ := setupIntegration(t, flatFiles)
 
@@ -877,7 +877,7 @@ func TestIntegration_AddAgent_SiblingSkillsWithDeps(t *testing.T) {
 	// Agent declares a dependency, and profile also has undeclared sibling skills.
 	// Both should be installed.
 	files := map[string]string{
-		"dev/go/agents/reviewer.md": "---\ndescription: \"Go reviewer\"\nrequires_skills:\n  - file: dev/go/skills/arch/SKILL.md\n---\nReview Go.\n",
+		"dev/go/agents/reviewer.md":      "---\ndescription: \"Go reviewer\"\nrequires_skills:\n  - file: dev/go/skills/arch/SKILL.md\n---\nReview Go.\n",
 		"dev/go/skills/arch/SKILL.md":    "---\ndescription: \"Go architect\"\n---\nArchitect.\n",
 		"dev/go/skills/testing/SKILL.md": "---\ndescription: \"Go tester\"\n---\nTest.\n",
 		"dev/go/README.md":               "---\ntags:\n  - go\n---\nGo.\n",

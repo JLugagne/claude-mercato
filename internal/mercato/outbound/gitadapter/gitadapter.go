@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/gitrepo"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -530,4 +530,3 @@ func (a *Adapter) ValidateRemote(url string) error {
 	_, err = sess.AdvertisedReferences()
 	return err
 }
-

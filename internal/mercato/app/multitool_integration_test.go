@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/installdb/installdbtest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/transform"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/configstore/configstoretest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/filesystem/filesystemtest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/gitrepo/gitrepotest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/installdb/installdbtest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/statestore/statestoretest"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/transform"
 )
 
 // ---------------------------------------------------------------------------
@@ -144,7 +144,7 @@ func TestMultiTool_AgentSkipUnsupportedTools(t *testing.T) {
 	}
 
 	transformers := domain.TransformerRegistry{
-		"cursor":   cursorTransformer(), // does NOT support agents
+		"cursor":   cursorTransformer(),   // does NOT support agents
 		"opencode": opencodeTransformer(), // DOES support agents
 	}
 

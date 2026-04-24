@@ -4,7 +4,7 @@ import (
 	"io/fs"
 	"testing/fstest"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/filesystem"
 )
 
 var _ filesystem.Filesystem = (*MockFilesystem)(nil)
@@ -23,15 +23,15 @@ type MockFilesystem struct {
 	// ReadFileFn overrides ReadFile when set (useful for call-counting in tests).
 	ReadFileFn func(name string) ([]byte, error)
 
-	WriteFileFn      func(path string, content []byte) error
-	DeleteFileFn     func(path string) error
-	MkdirAllFn       func(path string) error
-	RemoveAllFn      func(path string) error
-	MD5ChecksumFn    func(content []byte) string
-	SymlinkFn        func(target, link string) error
-	ReadlinkFn       func(path string) (string, error)
-	IsSymlinkFn      func(path string) bool
-	ListDirFn        func(path string) ([]string, error)
+	WriteFileFn   func(path string, content []byte) error
+	DeleteFileFn  func(path string) error
+	MkdirAllFn    func(path string) error
+	RemoveAllFn   func(path string) error
+	MD5ChecksumFn func(content []byte) string
+	SymlinkFn     func(target, link string) error
+	ReadlinkFn    func(path string) (string, error)
+	IsSymlinkFn   func(path string) bool
+	ListDirFn     func(path string) ([]string, error)
 }
 
 func (m *MockFilesystem) mapFS() fstest.MapFS {
@@ -125,4 +125,3 @@ func (m *MockFilesystem) ListDir(path string) ([]string, error) {
 	}
 	return m.ListDirFn(path)
 }
-

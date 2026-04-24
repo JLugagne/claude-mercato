@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
 )
 
 func newInstallDB(t *testing.T) (*InstallDBAdapter, string) {

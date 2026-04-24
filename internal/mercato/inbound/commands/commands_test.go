@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 )
 
 // ---------------------------------------------------------------------------
@@ -23,7 +23,7 @@ type stubMarkets struct {
 	marketInfoFn        func(name string) (service.MarketInfoResult, error)
 	addMarketFn         func(url string, opts service.AddMarketOpts) (service.AddMarketResult, error)
 	removeMarketFn      func(name string, opts service.RemoveMarketOpts) error
-setMarketPropertyFn func(name, key, value string) error
+	setMarketPropertyFn func(name, key, value string) error
 	lintMarketFn        func(fsys fs.FS, dir string) (service.LintResult, error)
 }
 

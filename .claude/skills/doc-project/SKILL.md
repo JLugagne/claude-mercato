@@ -1,16 +1,16 @@
 ---
 name: doc-project
 description: >
-  ALWAYS LOAD THIS SKILL when working on claude-mercato. Comprehensive project documentation:
+  ALWAYS LOAD THIS SKILL when working on agents-mercato. Comprehensive project documentation:
   purpose, how it works end-to-end, architecture, all packages, data models, and key workflows.
   Required context for any code change, review, or question about this codebase.
 ---
 
-# claude-mercato (mct) — Project Documentation
+# agents-mercato (mct) — Project Documentation
 
-## What is claude-mercato?
+## What is agents-mercato?
 
-claude-mercato (`mct`) is a **decentralized package manager for Claude Code agents and skills**. It solves the problem of distributing, versioning, and synchronizing Claude agent/skill definitions across teams and projects — without requiring any central registry or infrastructure.
+agents-mercato (`mct`) is a **decentralized package manager for Claude Code agents and skills**. It solves the problem of distributing, versioning, and synchronizing Claude agent/skill definitions across teams and projects — without requiring any central registry or infrastructure.
 
 ### The Problem
 

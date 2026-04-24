@@ -1,7 +1,7 @@
 package transform
 
 import (
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
 )
 
 // PearAITransformer converts skills to PearAI .peairules files.

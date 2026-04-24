@@ -4,7 +4,7 @@ import (
 	"io/fs"
 	"time"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
 )
 
 type MarketQueries interface {
@@ -17,7 +17,7 @@ type MarketCommands interface {
 	MarketQueries
 	AddMarket(url string, opts AddMarketOpts) (AddMarketResult, error)
 	RemoveMarket(name string, opts RemoveMarketOpts) error
-SetMarketProperty(name, key, value string) error
+	SetMarketProperty(name, key, value string) error
 	LintMarket(fsys fs.FS, dir string) (LintResult, error)
 }
 

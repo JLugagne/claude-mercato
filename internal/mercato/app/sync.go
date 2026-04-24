@@ -7,8 +7,8 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 )
 
 // detectDrift compares installed files at a location against the cached clone

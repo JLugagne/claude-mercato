@@ -3,7 +3,7 @@ package commands
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/update"
+	"github.com/JLugagne/agents-mercato/internal/mercato/update"
 )
 
 func newUpgradeCmd(opts *GlobalOpts) *cobra.Command {

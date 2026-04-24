@@ -1,6 +1,6 @@
 package configstore
 
-import "github.com/JLugagne/claude-mercato/internal/mercato/domain"
+import "github.com/JLugagne/agents-mercato/internal/mercato/domain"
 
 type ConfigStore interface {
 	Load(path string) (domain.Config, error)

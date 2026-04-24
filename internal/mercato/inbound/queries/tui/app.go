@@ -7,8 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -54,11 +54,11 @@ type AppModel struct {
 	profileAction       string // "install" or "remove"
 	profileActionTarget ProfileItem
 
-	loading        bool
-	loadingPhase   string
-	searching      bool
-	statusMsg      string
-	updateNotice   string // set when a new mct version is available
+	loading      bool
+	loadingPhase string
+	searching    bool
+	statusMsg    string
+	updateNotice string // set when a new mct version is available
 }
 
 func NewAppModel(svc TUIServices) AppModel {
@@ -826,7 +826,7 @@ func (m AppModel) View() string {
 
 	main := lipgloss.JoinHorizontal(lipgloss.Top, panels...)
 
-	title := StyleTitle.Render("claude-mercato")
+	title := StyleTitle.Render("agents-mercato")
 
 	statusBar := m.viewStatusBar()
 
@@ -851,7 +851,7 @@ func (m AppModel) View() string {
 
 func (m AppModel) viewLoading() string {
 	return lipgloss.JoinVertical(lipgloss.Left,
-		StyleTitle.Render("claude-mercato"),
+		StyleTitle.Render("agents-mercato"),
 		"",
 		"  "+m.spinner.View()+" "+m.loadingPhase,
 	)
@@ -882,8 +882,6 @@ func (m AppModel) buildDetailContent(item ProfileItem, w int) string {
 
 	return s
 }
-
-
 
 func (m AppModel) viewStatusBar() string {
 	if m.searching {
@@ -1011,9 +1009,9 @@ type mdCacheKey struct {
 }
 
 var (
-	mdRenderers  = make(map[int]*glamour.TermRenderer)
+	mdRenderers   = make(map[int]*glamour.TermRenderer)
 	mdRenderCache = make(map[mdCacheKey]string)
-	mdRendererMu sync.Mutex
+	mdRendererMu  sync.Mutex
 )
 
 func renderMarkdown(md string, width int) string {

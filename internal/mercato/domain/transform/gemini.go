@@ -1,7 +1,7 @@
 package transform
 
 import (
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
 )
 
 // GeminiTransformer strips all frontmatter and outputs only the markdown body.

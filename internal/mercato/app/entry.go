@@ -7,11 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/JLugagne/claude-mercato/assets"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/assets"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 )
-
 
 func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
 	cfg, err := a.cfg.Load(a.configPath)
@@ -1071,4 +1070,3 @@ func inferEntryType(relPath string) domain.EntryType {
 	}
 	return ""
 }
-

@@ -3,7 +3,7 @@ package commands
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 )
 
 // Version is set at build time via -ldflags "-X ...commands.Version=vX.Y.Z".
@@ -38,7 +38,7 @@ func NewRootCmd(svc Services) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "mct",
 		Short:         "Claude agent and skill market manager",
-		Long:          "claude-mercato — manage Claude agent and skill definitions across Git-based markets",
+		Long:          "agents-mercato — manage Claude agent and skill definitions across Git-based markets",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       Version,

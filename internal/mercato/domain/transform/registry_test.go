@@ -3,22 +3,22 @@ package transform
 import (
 	"testing"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
 )
 
 func TestTransformerRegistry_AllRegistered(t *testing.T) {
 	registry := domain.TransformerRegistry{
-		"claude":      &ClaudeTransformer{},
-		"cursor":      &CursorTransformer{},
-		"windsurf":    &WindsurfTransformer{},
-		"codex":       &CodexTransformer{},
-		"gemini":      &GeminiTransformer{},
-		"opencode":    &OpenCodeTransformer{},
-		"copilot":     &CopilotTransformer{},
-		"supermaven":  &SupermavenTransformer{},
-		"pearai":      &PearAITransformer{},
-		"roocode":     &RooCodeTransformer{},
-		"continue":    &ContinueTransformer{},
+		"claude":     &ClaudeTransformer{},
+		"cursor":     &CursorTransformer{},
+		"windsurf":   &WindsurfTransformer{},
+		"codex":      &CodexTransformer{},
+		"gemini":     &GeminiTransformer{},
+		"opencode":   &OpenCodeTransformer{},
+		"copilot":    &CopilotTransformer{},
+		"supermaven": &SupermavenTransformer{},
+		"pearai":     &PearAITransformer{},
+		"roocode":    &RooCodeTransformer{},
+		"continue":   &ContinueTransformer{},
 	}
 
 	expected := []string{"claude", "cursor", "windsurf", "codex", "gemini", "opencode", "copilot", "supermaven", "pearai", "roocode", "continue"}

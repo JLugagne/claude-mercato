@@ -7,9 +7,9 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 	"github.com/JLugagne/bm25"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
 	"github.com/JLugagne/snowball"
 )
 

@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,7 +52,7 @@ func TestSaveRestore_FileFlag(t *testing.T) {
 
 		_, err = os.Stat("custom.json")
 		assert.NoError(t, err, "custom.json should be created")
-		
+
 		_, err = os.Stat(".mct.json")
 		assert.Error(t, err, ".mct.json should not be created")
 		assert.Contains(t, out.String(), "exported to custom.json")

@@ -5,18 +5,19 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/configstore"
-	fsrepo "github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/filesystem"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/gitrepo"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/installdb"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/repositories/statestore"
-	"github.com/JLugagne/claude-mercato/internal/mercato/domain/service"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/configstore"
+	fsrepo "github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/filesystem"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/gitrepo"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/installdb"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/statestore"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 )
 
 // marketNameFromURL derives a market name from a git URL.
 // e.g. "https://github.com/aa/bb.git" -> "aa/bb"
-//      "git@gitlab.com:aa/bb/cc.git"  -> "aa/bb/cc"
+//
+//	"git@gitlab.com:aa/bb/cc.git"  -> "aa/bb/cc"
 func marketNameFromURL(url string) (string, error) {
 	normalized := domain.NormalizeURL(url)
 	// normalized is "github.com/aa/bb" — strip the host
@@ -89,7 +90,6 @@ func WithToolMappings(store configstore.ToolMappingStore) AppOption {
 	return func(a *App) { a.toolMappings = store }
 }
 
-
 // projectPath returns the absolute project root derived from cfg.LocalPath.
 // LocalPath is typically ".claude/" — the project root is its parent.
 func projectPath(localPath string) string {
@@ -99,7 +99,6 @@ func projectPath(localPath string) string {
 	}
 	return filepath.Dir(abs)
 }
-
 
 func (a *App) clonePath(marketName string) string {
 	return filepath.Join(a.cacheDir, marketDirName(marketName))
