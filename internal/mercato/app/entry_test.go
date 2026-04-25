@@ -1818,3 +1818,138 @@ func TestRefProfile_TwoOrMoreSegments(t *testing.T) {
 		t.Errorf("expected 'dev/go', got %q", result)
 	}
 }
+
+// TestAdd_DepResolution_HierarchicalProfile pins the rule that same-market
+// requires_skills paths in a hierarchical market are resolved relative to the
+// caller's profile, not the repo root. Regression: paths like
+// "skills/foo/SKILL.md" inside an agent at "dev/team/agents/foo.md" must read
+// "dev/team/skills/foo/SKILL.md", not "skills/foo/SKILL.md".
+// TestAdd_DepResolution_HierarchicalProfile pins the rule that same-market
+// requires_skills paths in a hierarchical market are resolved relative to the
+// caller's profile, not the repo root. Regression: paths like
+// "skills/foo/SKILL.md" inside an agent at "dev/team/agents/foo.md" must read
+// "dev/team/skills/foo/SKILL.md", not "skills/foo/SKILL.md".
+func TestAdd_DepResolution_HierarchicalProfile(t *testing.T) {
+	agentContent := []byte("---\ndescription: test agent\nauthor: alice\nrequires_skills:\n  - file: skills/bar/SKILL.md\n---\n# Agent\n")
+	skillContent := []byte("---\ndescription: bar skill\nauthor: alice\n---\n# Skill\n")
+
+	const (
+		agentPath = "dev/team/agents/foo.md"
+		skillPath = "dev/team/skills/bar/SKILL.md"
+	)
+
+	pathsRead := []string{}
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		WriteFileFn: func(path string, content []byte) error { return nil },
+	}
+	git := &gitrepotest.MockGitRepo{
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			pathsRead = append(pathsRead, filePath)
+			switch filePath {
+			case agentPath:
+				return agentContent, nil
+			case skillPath:
+				return skillContent, nil
+			}
+			return nil, errors.New("unexpected file: " + filePath)
+		},
+		RemoteHEADFn: func(clonePath, branch string) (string, error) { return "abc123", nil },
+		ListDirFilesFn: func(clonePath, branch, dirPrefix string) ([]string, error) {
+			return []string{dirPrefix + "/SKILL.md"}, nil
+		},
+		ReadMarketFilesFn: func(clonePath, branch string) ([]gitrepo.MarketFile, error) {
+			return []gitrepo.MarketFile{
+				{Path: agentPath, Content: agentContent, Version: "abc123"},
+				{Path: skillPath, Content: skillContent, Version: "abc123"},
+			}, nil
+		},
+	}
+
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+
+	if _, err := a.Add(domain.MctRef("mkt@"+agentPath), service.AddOpts{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sawAgent, sawSkill := false, false
+	for _, p := range pathsRead {
+		switch p {
+		case agentPath:
+			sawAgent = true
+		case skillPath:
+			sawSkill = true
+		}
+	}
+	if !sawAgent {
+		t.Errorf("expected agent path %q to be read, paths read: %v", agentPath, pathsRead)
+	}
+	if !sawSkill {
+		t.Errorf("expected dep to resolve to %q (caller-profile-relative), paths read: %v", skillPath, pathsRead)
+	}
+}
+
+// TestAdd_DepResolution_FlatSkillsOnly pins that skills_only (flat) markets
+// keep dep paths repo-rooted. A skill at "skills/foo/SKILL.md" depending on
+// "skills/bar/SKILL.md" must NOT have its caller profile ("skills/foo") spliced in.
+func TestAdd_DepResolution_FlatSkillsOnly(t *testing.T) {
+	fooContent := []byte("---\ndescription: foo skill\nauthor: alice\nrequires_skills:\n  - file: skills/bar/SKILL.md\n---\n# Foo\n")
+	barContent := []byte("---\ndescription: bar skill\nauthor: alice\n---\n# Bar\n")
+
+	const (
+		fooPath = "skills/foo/SKILL.md"
+		barPath = "skills/bar/SKILL.md"
+	)
+
+	pathsRead := []string{}
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			c := cfgWithMarket("mkt", "https://example.com", "main", ".claude")
+			c.Markets[0].SkillsOnly = true
+			return c, nil
+		},
+	}
+	fsMock := &filesystemtest.MockFilesystem{
+		WriteFileFn: func(path string, content []byte) error { return nil },
+	}
+	git := &gitrepotest.MockGitRepo{
+		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
+			pathsRead = append(pathsRead, filePath)
+			switch filePath {
+			case fooPath:
+				return fooContent, nil
+			case barPath:
+				return barContent, nil
+			}
+			return nil, errors.New("unexpected file: " + filePath)
+		},
+		RemoteHEADFn: func(clonePath, branch string) (string, error) { return "abc123", nil },
+		ListDirFilesFn: func(clonePath, branch, dirPrefix string) ([]string, error) {
+			return []string{dirPrefix + "/SKILL.md"}, nil
+		},
+	}
+
+	a := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{})
+
+	if _, err := a.Add(domain.MctRef("mkt@"+fooPath), service.AddOpts{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sawBar := false
+	for _, p := range pathsRead {
+		if p == barPath {
+			sawBar = true
+		}
+		// Spliced-profile path (the bug we are guarding against).
+		if p == "skills/foo/skills/bar/SKILL.md" {
+			t.Fatalf("flat market dep was incorrectly profile-prefixed: paths read: %v", pathsRead)
+		}
+	}
+	if !sawBar {
+		t.Errorf("expected dep to resolve to %q (repo-rooted), paths read: %v", barPath, pathsRead)
+	}
+}
