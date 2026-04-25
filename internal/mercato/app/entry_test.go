@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -118,9 +119,21 @@ func TestList_InstalledFilter(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetEntry_Found(t *testing.T) {
+	// GetEntry now requires the on-disk target to exist (disk truth beats
+	// pkg.Files, which is package-wide and survives RemoveLocation).
+	tmpDir := t.TempDir()
+	localPath := filepath.Join(tmpDir, ".claude")
+	if err := os.MkdirAll(filepath.Join(localPath, "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localPath, "agents", "foo.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projectPath := filepath.Dir(localPath)
+
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
-			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+			return cfgWithMarket("mkt", "https://example.com", "main", localPath), nil
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{}
@@ -138,7 +151,7 @@ func TestGetEntry_Found(t *testing.T) {
 								Profile:   "agents/foo.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
-								Locations: []string{testProjectPath()},
+								Locations: []string{projectPath},
 							},
 						},
 					},
@@ -234,9 +247,21 @@ func TestAdd_Success(t *testing.T) {
 }
 
 func TestAdd_AlreadyInstalled(t *testing.T) {
+	// "Already installed" is now decided by disk presence, not pkg.Files —
+	// so the on-disk agent must exist for this guard to fire.
+	tmpDir := t.TempDir()
+	localPath := filepath.Join(tmpDir, ".claude")
+	if err := os.MkdirAll(filepath.Join(localPath, "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localPath, "agents", "foo.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projectPath := filepath.Dir(localPath)
+
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
-			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+			return cfgWithMarket("mkt", "https://example.com", "main", localPath), nil
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{}
@@ -256,7 +281,7 @@ func TestAdd_AlreadyInstalled(t *testing.T) {
 								Profile:   "agents/foo.md",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
-								Locations: []string{testProjectPath()},
+								Locations: []string{projectPath},
 							},
 						},
 					},
@@ -495,9 +520,21 @@ func TestAdd_ProfileExpand_DryRun(t *testing.T) {
 }
 
 func TestAdd_ProfileExpand_AllAlreadyInstalled(t *testing.T) {
+	// "Already installed" is now decided by disk presence, not pkg.Files —
+	// so the on-disk agent must exist for addProfile to skip every file.
+	tmpDir := t.TempDir()
+	localPath := filepath.Join(tmpDir, ".claude")
+	if err := os.MkdirAll(filepath.Join(localPath, "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localPath, "agents", "foo.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projectPath := filepath.Dir(localPath)
+
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
-			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+			return cfgWithMarket("mkt", "https://example.com", "main", localPath), nil
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{}
@@ -523,7 +560,7 @@ func TestAdd_ProfileExpand_AllAlreadyInstalled(t *testing.T) {
 								Profile:   "dev/go",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
-								Locations: []string{testProjectPath()},
+								Locations: []string{projectPath},
 							},
 						},
 					},
@@ -545,11 +582,23 @@ func TestAdd_ProfileExpand_AllAlreadyInstalled(t *testing.T) {
 }
 
 func TestAdd_ProfileExpand_PartialInstall(t *testing.T) {
+	// Disk presence drives "already installed", so the foo.md agent must
+	// exist on disk for addProfile to skip it and install only bar.md.
+	tmpDir := t.TempDir()
+	localPath := filepath.Join(tmpDir, ".claude")
+	if err := os.MkdirAll(filepath.Join(localPath, "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localPath, "agents", "foo.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projectPath := filepath.Dir(localPath)
+
 	writePaths := []string{}
 
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
-			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
+			return cfgWithMarket("mkt", "https://example.com", "main", localPath), nil
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
@@ -590,7 +639,7 @@ func TestAdd_ProfileExpand_PartialInstall(t *testing.T) {
 								Profile:   "dev/go",
 								Version:   "abc123",
 								Files:     domain.InstalledFiles{Agents: []string{"foo.md"}},
-								Locations: []string{testProjectPath()},
+								Locations: []string{projectPath},
 							},
 						},
 					},

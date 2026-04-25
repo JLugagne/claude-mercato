@@ -183,7 +183,7 @@ func (a *App) GetEntry(ref domain.MctRef) (domain.Entry, error) {
 			continue
 		}
 
-		if !fileInPackage(relPath, pkg.Files) {
+		if !a.entryFileExistsAt(cfg, relPath) {
 			continue
 		}
 
@@ -271,7 +271,9 @@ func (a *App) addInternal(
 
 	projectPath := projectPath(cfg.LocalPath)
 
-	// Check if already installed at this location
+	// Check if already installed at this location.
+	// Disk presence is the source of truth — pkg.Files is package-wide and
+	// can carry over from a sibling location after RemoveLocation.
 	pkg := db.FindPackage(marketName, profile)
 	if pkg != nil {
 		atLocation := false
@@ -281,7 +283,7 @@ func (a *App) addInternal(
 				break
 			}
 		}
-		if atLocation && fileInPackage(relPath, pkg.Files) {
+		if atLocation && a.entryFileExistsAt(cfg, relPath) {
 			return domain.ErrEntryAlreadyInstalled
 		}
 	}
@@ -598,7 +600,9 @@ func (a *App) addProfile(
 		fileRef := domain.MctRef(marketName + "@" + mf.Path)
 		fileProfile := refProfile(fileRef)
 
-		// Check if already installed at this location via installdb
+		// Check if already installed at this location.
+		// Disk presence is the source of truth — pkg.Files is package-wide
+		// and can carry over from a sibling location after RemoveLocation.
 		pkg := db.FindPackage(marketName, fileProfile)
 		if pkg != nil {
 			atLocation := false
@@ -608,7 +612,7 @@ func (a *App) addProfile(
 					break
 				}
 			}
-			if atLocation && fileInPackage(mf.Path, pkg.Files) {
+			if atLocation && a.entryFileExistsAt(cfg, mf.Path) {
 				skippedCount++
 				continue
 			}
@@ -1083,4 +1087,18 @@ func inferEntryType(relPath string) domain.EntryType {
 		}
 	}
 	return ""
+}
+
+// entryFileExistsAt reports whether the on-disk target for relPath (an agent
+// or skill entry) already exists at the local install path. This is the
+// authoritative "is this entry installed at this location" check — pkg.Files
+// in the install DB is package-wide and stays populated when other locations
+// of the same package remain after a RemoveLocation.
+func (a *App) entryFileExistsAt(cfg domain.Config, relPath string) bool {
+	target, err := a.resolveLocalPath(cfg, relPath)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(target)
+	return err == nil
 }

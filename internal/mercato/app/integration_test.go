@@ -901,3 +901,154 @@ func TestIntegration_AddAgent_SiblingSkillsWithDeps(t *testing.T) {
 		t.Errorf("expected undeclared sibling skill to be installed: %v", err)
 	}
 }
+
+// TestIntegration_ReAddAfterRemove_WithSiblingLocation reproduces the bug
+// where re-adding an entry after removing it from one of several install
+// locations failed with ENTRY_ALREADY_INSTALLED. RemoveLocation only strips
+// the location string and leaves pkg.Files populated for the remaining
+// sibling locations, so the fileInPackage-based "already installed" check
+// would incorrectly trip on re-add.
+func TestIntegration_ReAddAfterRemove_WithSiblingLocation(t *testing.T) {
+	sourceDir := createTestRepo(t, marketFiles())
+	cacheDir := t.TempDir()
+	projectDir1 := t.TempDir()
+	projectDir2 := t.TempDir()
+
+	cloneDir := filepath.Join(cacheDir, marketDirName(marketName))
+	cloneTestRepo(t, sourceDir, cloneDir)
+
+	cfgStore := cfgadapter.NewConfigStore()
+	stateStore := cfgadapter.NewStateStore()
+	installDB := cfgadapter.NewInstallDB()
+	gitRepo := gitadapter.New(gitadapter.WithDepth(0))
+
+	headSHA, err := gitRepo.RemoteHEAD(cloneDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stateStore.SetMarketSyncClean(cacheDir, marketName, headSHA); err != nil {
+		t.Fatal(err)
+	}
+
+	makeApp := func(projectDir string) *App {
+		configPath := filepath.Join(projectDir, ".claude", ".mct.yaml")
+		localPath := filepath.Join(projectDir, ".claude")
+		cfg := domain.Config{
+			LocalPath: localPath,
+			Markets: []domain.MarketConfig{
+				{Name: marketName, URL: sourceDir, Branch: "main"},
+			},
+		}
+		if err := cfgStore.Save(configPath, cfg); err != nil {
+			t.Fatal(err)
+		}
+		return New(gitRepo, fsadapter.New(), cfgStore, stateStore, installDB, configPath, cacheDir)
+	}
+
+	app1 := makeApp(projectDir1)
+	app2 := makeApp(projectDir2)
+	ref := domain.MctRef(marketName + "@dev/go/agents/code-review.md")
+
+	if _, err := app1.Add(ref, service.AddOpts{}); err != nil {
+		t.Fatalf("Add to project 1: %v", err)
+	}
+	if _, err := app2.Add(ref, service.AddOpts{}); err != nil {
+		t.Fatalf("Add to project 2: %v", err)
+	}
+
+	if _, err := app2.Remove(ref, service.RemoveOpts{}); err != nil {
+		t.Fatalf("Remove from project 2: %v", err)
+	}
+
+	// Re-add to project 2 — must succeed even though pkg.Files still
+	// records the agent because project 1 keeps the package alive.
+	if _, err := app2.Add(ref, service.AddOpts{}); err != nil {
+		t.Fatalf("Re-add to project 2 after remove: %v", err)
+	}
+
+	agentPath := filepath.Join(projectDir2, ".claude", "agents", "code-review.md")
+	if _, err := os.Stat(agentPath); err != nil {
+		t.Errorf("expected agent file restored at project 2: %v", err)
+	}
+}
+
+// TestIntegration_ReAddProfileAfterRemove_WithSiblingLocation reproduces the
+// user-reported scenario: a profile with several agents+skills installed in
+// two locations, removed from one, then re-added. addProfile iterates files
+// and installs the first one fine; the bug caused subsequent files to be
+// reported as already installed because pkg.Files still listed them from the
+// sibling location.
+func TestIntegration_ReAddProfileAfterRemove_WithSiblingLocation(t *testing.T) {
+	sourceDir := createTestRepo(t, multiSkillMarketFiles())
+	cacheDir := t.TempDir()
+	projectDir1 := t.TempDir()
+	projectDir2 := t.TempDir()
+
+	cloneDir := filepath.Join(cacheDir, marketDirName(marketName))
+	cloneTestRepo(t, sourceDir, cloneDir)
+
+	cfgStore := cfgadapter.NewConfigStore()
+	stateStore := cfgadapter.NewStateStore()
+	installDB := cfgadapter.NewInstallDB()
+	gitRepo := gitadapter.New(gitadapter.WithDepth(0))
+
+	headSHA, err := gitRepo.RemoteHEAD(cloneDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stateStore.SetMarketSyncClean(cacheDir, marketName, headSHA); err != nil {
+		t.Fatal(err)
+	}
+
+	makeApp := func(projectDir string) *App {
+		configPath := filepath.Join(projectDir, ".claude", ".mct.yaml")
+		localPath := filepath.Join(projectDir, ".claude")
+		cfg := domain.Config{
+			LocalPath: localPath,
+			Markets: []domain.MarketConfig{
+				{Name: marketName, URL: sourceDir, Branch: "main"},
+			},
+		}
+		if err := cfgStore.Save(configPath, cfg); err != nil {
+			t.Fatal(err)
+		}
+		return New(gitRepo, fsadapter.New(), cfgStore, stateStore, installDB, configPath, cacheDir)
+	}
+
+	app1 := makeApp(projectDir1)
+	app2 := makeApp(projectDir2)
+	profileRef := domain.MctRef(marketName + "@dev/go")
+
+	if _, err := app1.Add(profileRef, service.AddOpts{}); err != nil {
+		t.Fatalf("Add profile to project 1: %v", err)
+	}
+	if _, err := app2.Add(profileRef, service.AddOpts{}); err != nil {
+		t.Fatalf("Add profile to project 2: %v", err)
+	}
+
+	if _, err := app2.Remove(profileRef, service.RemoveOpts{}); err != nil {
+		t.Fatalf("Remove profile from project 2: %v", err)
+	}
+
+	// Re-add the full profile. Before the fix this returned
+	// ENTRY_ALREADY_INSTALLED on the second file in addProfile.
+	if _, err := app2.Add(profileRef, service.AddOpts{}); err != nil {
+		t.Fatalf("Re-add profile to project 2 after remove: %v", err)
+	}
+
+	wantFiles := []string{
+		filepath.Join(projectDir2, ".claude", "agents", "reviewer.md"),
+		filepath.Join(projectDir2, ".claude", "skills", "arch", "SKILL.md"),
+		filepath.Join(projectDir2, ".claude", "skills", "testing", "SKILL.md"),
+	}
+	for _, p := range wantFiles {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("expected file restored at %s: %v", p, err)
+		}
+	}
+
+	// Project 1 must remain intact.
+	if _, err := os.Stat(filepath.Join(projectDir1, ".claude", "agents", "reviewer.md")); err != nil {
+		t.Errorf("project 1 agent should still exist: %v", err)
+	}
+}
