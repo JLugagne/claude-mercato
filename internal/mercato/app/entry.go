@@ -356,7 +356,7 @@ func (a *App) addInternal(
 
 	// Resolve dependencies with cycle detection
 	if !opts.NoDeps && len(fm.RequiresSkills) > 0 {
-		if err := a.resolveDependencies(fm.RequiresSkills, marketName, cfg, db, visited, opts, result); err != nil {
+		if err := a.resolveDependencies(fm.RequiresSkills, marketName, profile, mc, cfg, db, visited, opts, result); err != nil {
 			return err
 		}
 	}
@@ -429,6 +429,8 @@ func mergeAddResult(result *service.AddResult, twr toolWriteResult) {
 func (a *App) resolveDependencies(
 	deps []domain.SkillDep,
 	marketName string,
+	callerProfile string,
+	callerMc *domain.MarketConfig,
 	cfg domain.Config,
 	db *domain.InstallDatabase,
 	visited map[domain.MctRef]bool,
@@ -464,6 +466,18 @@ func (a *App) resolveDependencies(
 		}
 
 		depFile := dep.File
+		// For same-market deps in a hierarchical market, paths in requires_skills
+		// are relative to the caller's profile (e.g. "skills/foo/SKILL.md" inside
+		// agent at profile "dev/agile-team" resolves to
+		// "dev/agile-team/skills/foo/SKILL.md"). Skip when:
+		//   - cross-market dep (it carries its own market context),
+		//   - market is flat (skills_only),
+		//   - caller is not actually under a profile directory (isProfileRef false),
+		//   - dep path is already profile-rooted.
+		if dep.Market == "" && callerMc != nil && !callerMc.SkillsOnly &&
+			isProfileRef(callerProfile) && !strings.HasPrefix(depFile, callerProfile+"/") {
+			depFile = callerProfile + "/" + depFile
+		}
 		if !strings.HasSuffix(depFile, ".md") {
 			depFile = strings.TrimSuffix(depFile, "/") + "/SKILL.md"
 		}
