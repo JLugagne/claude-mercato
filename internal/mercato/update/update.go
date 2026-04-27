@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	repoSlug      = "JLugagne/agents-mercato"
+	repoOwner     = "JLugagne"
+	repoName      = "agents-mercato"
 	checkInterval = 24 * time.Hour
 	stateFile     = "update-check.json"
 )
@@ -84,7 +85,7 @@ func fetchLatestVersion() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	repo := selfupdate.NewRepositorySlug("", repoSlug)
+	repo := selfupdate.NewRepositorySlug(repoOwner, repoName)
 	release, found, err := updater.DetectLatest(context.Background(), repo)
 	if err != nil {
 		return "", err
@@ -101,7 +102,7 @@ func RunUpgrade(currentVersion string) error {
 	if err != nil {
 		return err
 	}
-	repo := selfupdate.NewRepositorySlug("", repoSlug)
+	repo := selfupdate.NewRepositorySlug(repoOwner, repoName)
 	current := strings.TrimPrefix(currentVersion, "v")
 
 	release, err := updater.UpdateSelf(context.Background(), current, repo)
