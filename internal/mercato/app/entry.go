@@ -483,6 +483,14 @@ func (a *App) resolveDependencies(
 		if !strings.HasSuffix(depFile, ".md") {
 			depFile = strings.TrimSuffix(depFile, "/") + "/SKILL.md"
 		}
+		// Sub-file deps inside a skill directory (e.g.
+		// "skills/foo/references/x.md") are redundant: installing the parent
+		// SKILL.md copies the whole skill tree. Redirect to that SKILL.md so
+		// the skill is installed once instead of being re-entered through a
+		// supporting file (which trips the on-disk "already installed" guard).
+		if skillRoot := skillRootForSubFile(depFile); skillRoot != "" {
+			depFile = skillRoot + "/SKILL.md"
+		}
 		skillRef := domain.MctRef(depMarket + "@" + depFile)
 
 		depMc := findMarketConfig(cfg, depMarket)
@@ -688,6 +696,25 @@ func isDirBasedSkill(relPath string) bool {
 		}
 	}
 	return false
+}
+
+// skillRootForSubFile returns the skill directory path (e.g.
+// "dev/go/skills/foo") when relPath points inside a directory-based skill at
+// any depth other than the SKILL.md entry point — including
+// "skills/foo/references/markers.md" or "skills/foo/scripts/check.sh".
+// Returns "" for SKILL.md itself, flat-file skills, and non-skill paths.
+func skillRootForSubFile(relPath string) string {
+	parts := strings.Split(relPath, "/")
+	for i, p := range parts {
+		if p == "skills" && i+2 < len(parts) {
+			tail := parts[i+2:]
+			if len(tail) == 1 && tail[0] == "SKILL.md" {
+				return ""
+			}
+			return strings.Join(parts[:i+2], "/")
+		}
+	}
+	return ""
 }
 
 // isSkillDirRef returns true when relPath points to a skill directory

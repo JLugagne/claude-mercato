@@ -902,6 +902,43 @@ func TestIntegration_AddAgent_SiblingSkillsWithDeps(t *testing.T) {
 	}
 }
 
+// TestIntegration_AddAgent_DepOnSkillSubFile reproduces the user-reported
+// scenario where an agent declares requires_skills entries that point at
+// supporting files inside a skill directory (e.g.
+// "skills/agile-project/references/markers.md") rather than the SKILL.md.
+// Installing the parent SKILL.md already copies the whole skill directory
+// (including the referenced sub-file), so the sub-file dep is redundant.
+// Before the fix, addInternal saw the on-disk skill directory created by
+// the previous dep install and returned ENTRY_ALREADY_INSTALLED, which
+// bubbled up through resolveDependencies and aborted the whole add.
+func TestIntegration_AddAgent_DepOnSkillSubFile(t *testing.T) {
+	files := map[string]string{
+		"dev/go/agents/reviewer.md":      "---\ndescription: \"Go reviewer\"\nrequires_skills:\n  - file: dev/go/skills/arch/SKILL.md\n  - file: dev/go/skills/arch/prompt.md\n---\nReview Go.\n",
+		"dev/go/skills/arch/SKILL.md":    "---\ndescription: \"Go architect\"\n---\nArchitect.\n",
+		"dev/go/skills/arch/prompt.md":   "You are a Go architect.\n",
+		"dev/go/skills/testing/SKILL.md": "---\ndescription: \"Go tester\"\n---\nTest.\n",
+		"dev/go/README.md":               "---\ntags:\n  - go\n---\nGo.\n",
+	}
+	application, projectDir, _ := setupIntegration(t, files)
+
+	ref := domain.MctRef(marketName + "@dev/go/agents/reviewer.md")
+	if _, err := application.Add(ref, service.AddOpts{}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// SKILL.md and the supporting prompt.md must both be present (the skill
+	// installer copies the whole directory).
+	for _, p := range []string{
+		filepath.Join(projectDir, ".claude", "skills", "arch", "SKILL.md"),
+		filepath.Join(projectDir, ".claude", "skills", "arch", "prompt.md"),
+		filepath.Join(projectDir, ".claude", "agents", "reviewer.md"),
+	} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("expected %s installed: %v", p, err)
+		}
+	}
+}
+
 // TestIntegration_ReAddAfterRemove_WithSiblingLocation reproduces the bug
 // where re-adding an entry after removing it from one of several install
 // locations failed with ENTRY_ALREADY_INSTALLED. RemoveLocation only strips
