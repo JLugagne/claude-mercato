@@ -4,6 +4,10 @@ Think **npm**, but for your `.claude/` directory.
 
 Install, share, version, and sync Claude Code agents and skills across your team, your machines, and your CI — from any Git repository.
 
+<p align="center">
+  <img src="docs/screenshot-tui.png" width="700" alt="mct TUI" />
+</p>
+
 ---
 
 ## The problem
@@ -87,8 +91,6 @@ Real features, all implemented today:
 - **JSON output** (`--json`) on most commands for scripting and CI
 - **Save / Restore** to a portable `.mct.json` file — share setups across machines and teammates
 - **Tracking metadata** injected into frontmatter (`mct_ref`, `mct_version`, `mct_market`, `mct_installed_at`) so installed files are self-describing
-
-<img src="docs/screenshot-tui.png" width="700" alt="mct TUI" />
 
 ## Install
 
