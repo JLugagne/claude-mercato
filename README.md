@@ -88,6 +88,8 @@ Real features, all implemented today:
 - **Save / Restore** to a portable `.mct.json` file — share setups across machines and teammates
 - **Tracking metadata** injected into frontmatter (`mct_ref`, `mct_version`, `mct_market`, `mct_installed_at`) so installed files are self-describing
 
+<img src="docs/screenshot-tui.png" width="700" alt="mct TUI" />
+
 ## Install
 
 **Linux / macOS (recommended):**
