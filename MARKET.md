@@ -1,8 +1,10 @@
 # Creating a Market
 
-A market is a Git repository with a specific directory structure. `mct` indexes it to let users discover, install, and update Claude agent and skill definitions.
+A market is a Git repository with a specific directory structure. `mct` indexes it to let users discover, install, and update agent and skill definitions — and to **transform** them into the native format of any supported AI coding tool (Claude Code, Cursor, Windsurf, Codex, Gemini, OpenCode, Copilot, Continue, Supermaven, PearAI, RooCode).
 
 `mct` supports two repository formats: the **mct market format** (hierarchical, with profiles) and the **skills-only format** (flat, for pure skill collections). When you register a repository, `mct` auto-detects which format it uses.
+
+> Market authors only need to write entries **once**, in the canonical Markdown + YAML frontmatter format described below. `mct` handles the per-tool conversion (frontmatter, file extension, output directory) at install time. See [Tool transformations](#tool-transformations) for the per-tool output mapping.
 
 ---
 
@@ -60,7 +62,7 @@ Your agent/skill prompt content here...
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `description` | string | Short description, used in search results and the TUI |
+| `description` | string | Short description, used in search results, the TUI, and as the description in tool-specific frontmatter |
 
 #### Optional fields
 
@@ -212,9 +214,90 @@ mct market add https://github.com/org/repo.git src/skills
 
 When using a `/tree/` URL, `mct` parses the branch and subdirectory path automatically. The clone is pruned to keep only the skills folder and `.git`, reducing disk usage.
 
-### Installation
+---
 
-Skills from any format are installed as **copied directories** into `.claude/skills/`:
+## Tool transformations
+
+When a user runs `mct add`, the entry is converted into the native format of every **enabled tool** and written to that tool's expected location. A tool is enabled when `tools.<name>: true` appears in the user's config (`mct config set tools.<name> true`). By default only `claude` is enabled.
+
+### Output paths and capabilities
+
+| Tool       | Agents | Skills | Output path                                                       |
+| ---------- | :----: | :----: | ----------------------------------------------------------------- |
+| Claude     |   ✓    |   ✓    | `.claude/agents/<name>.md`, `.claude/skills/<name>/SKILL.md`      |
+| Cursor     |        |   ✓    | `.cursor/rules/<name>.mdc`                                        |
+| Windsurf   |        |   ✓    | `.windsurf/rules/<name>.md`                                       |
+| Codex      |        |   ✓    | `.codex/skills/<name>/SKILL.md`                                   |
+| Gemini     |        |   ✓    | `.gemini/rules/<name>.md`                                         |
+| OpenCode   |   ✓    |   ✓    | `.opencode/agents/<name>.md`, `.opencode/skills/<name>/SKILL.md`  |
+| Copilot    |        |   ✓    | `.github/copilot-instructions.md`                                 |
+| Continue   |        |   ✓    | `.continue/rules/<name>.md`                                       |
+| Supermaven |        |   ✓    | `.supermavenrules`                                                |
+| PearAI     |        |   ✓    | `.peairules`                                                      |
+| RooCode    |        |   ✓    | `.roocode.rules`                                                  |
+
+Tools that don't support agents skip agent entries with a warning (e.g. installing an agent with `tools.cursor` enabled produces a `cursor does not support agents` warning).
+
+### Frontmatter conversion
+
+Each transformer rewrites the YAML frontmatter to match the conventions of its target tool. For example:
+
+- **Claude** — passes content through unchanged (canonical format).
+- **Cursor** — emits `alwaysApply: false` and `description: <desc>` in the `.mdc` file.
+- **Windsurf / Gemini / Continue** — emit a tool-specific frontmatter block with the description.
+- **Copilot / Supermaven / PearAI / RooCode** — concatenate body content into a single rules file (no frontmatter).
+
+The body of the entry is preserved as-is in all cases — you write your prompt once, and `mct` only adapts the wrapper.
+
+### Tool mappings (`tool_mappings.yml`)
+
+Some entries reference Claude-specific model names (`opus`, `sonnet`, `haiku`) or built-in tool names (`Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep`). When emitting to a different tool, `mct` rewrites these via mappings stored in `~/.config/mct/tool_mappings.yml`:
+
+```yaml
+models:
+  sonnet:
+    opencode: anthropic/claude-sonnet-4-20250514
+    cursor: ""
+    windsurf: ""
+tools:
+  Bash:
+    opencode: bash
+  Read:
+    opencode: read
+  Edit:
+    opencode: edit
+```
+
+The defaults cover OpenCode and leave most other tools blank (no rewrite). Edit `tool_mappings.yml` directly to add custom mappings — for example, to map `Bash` to your team's preferred command name in another tool.
+
+### Per-tool output result
+
+`mct add` reports which tool wrote which file:
+
+```
+ok  installed acme/agents/dev/go/skills/go-test
+ok  claude    .claude/skills/go-test/SKILL.md
+ok  cursor    .cursor/rules/go-test.mdc
+ok  windsurf  .windsurf/rules/go-test.md
+```
+
+In `--json` mode the same information is returned under `tool_writes`:
+
+```json
+{
+  "ref": "acme/agents/dev/go/skills/go-test",
+  "status": "installed",
+  "tool_writes": {
+    "claude": ".claude/skills/go-test/SKILL.md",
+    "cursor": ".cursor/rules/go-test.mdc",
+    "windsurf": ".windsurf/rules/go-test.md"
+  }
+}
+```
+
+### Installation as a copy
+
+Skills from any format are installed as **copied directories** into the target tool's location:
 
 ```
 .claude/
@@ -230,7 +313,7 @@ All files in the skill directory are copied, so supporting files alongside `SKIL
 
 ## Fields injected by mct
 
-When a user installs an entry, `mct` injects tracking fields into the YAML frontmatter. **Do not include these in your market files** — `mct` will reject files that already contain them:
+When a user installs an entry, `mct` injects tracking fields into the YAML frontmatter of the **Claude** output (and any other tool whose format preserves frontmatter). **Do not include these in your market files** — `mct` will reject files that already contain them:
 
 | Field | Description | Example |
 |-------|-------------|---------|
@@ -319,7 +402,7 @@ The market name is auto-derived from the URL (host is stripped, e.g. `org/my-mar
 
 | Flag | Description |
 |------|-------------|
-| `--branch <name>` | Track a specific branch (default: `main`) |
+| `--branch <name>` | Track a specific branch (auto-detected if omitted) |
 | `--trusted` | Skip breaking change confirmations for this market |
 | `--read-only` | Index the market for search but never install from it |
 | `--no-clone` | Register the market in config without cloning the repo |
@@ -345,7 +428,7 @@ This shows the market name, URL, branch, trusted/read-only/skills-only flags, sk
 
 ## Default markets
 
-When a user runs `mct init` for the first time, `mct` auto-registers a set of community markets from an embedded registry. These include Anthropic's official skills repository and several popular community collections. Users can remove any of them with `mct market remove`.
+When a user runs `mct init` for the first time (or on first invocation when no config exists), `mct` auto-registers a set of community markets from an embedded registry (`assets/skills.json`). Current defaults include Anthropic's official skills repository, `wshobson/agents`, and several popular community collections. Users can remove any of them with `mct market remove`.
 
 ---
 
