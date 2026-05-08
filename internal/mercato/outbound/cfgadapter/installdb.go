@@ -2,13 +2,11 @@ package cfgadapter
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
@@ -113,14 +111,10 @@ func (a *InstallDBAdapter) removeStaleLock(lockPath string) bool {
 	if err != nil {
 		return false
 	}
-	err = syscall.Kill(pid, 0)
-	if err == nil {
+	if processExists(pid) {
 		// Process exists — lock is not stale.
 		return false
 	}
-	if errors.Is(err, syscall.ESRCH) {
-		_ = os.Remove(lockPath)
-		return true
-	}
-	return false
+	_ = os.Remove(lockPath)
+	return true
 }
