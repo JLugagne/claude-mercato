@@ -209,7 +209,7 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 		for _, pkg := range im.Packages {
 			atLocation := false
 			for _, loc := range pkg.Locations {
-				if loc == projectPath {
+				if loc.Path == projectPath {
 					atLocation = true
 					break
 				}

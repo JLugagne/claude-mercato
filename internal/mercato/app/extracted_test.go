@@ -111,48 +111,6 @@ func TestFindAffectedPackages_NoMatch(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// mergeToolChecksums
-// ---------------------------------------------------------------------------
-
-func TestMergeToolChecksums_Empty(t *testing.T) {
-	pkg := &domain.InstalledPackage{}
-	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
-	a.mergeToolChecksums(pkg, nil)
-
-	if pkg.ToolChecksums != nil {
-		t.Error("expected nil ToolChecksums when merging empty map")
-	}
-}
-
-func TestMergeToolChecksums_InitializesMap(t *testing.T) {
-	pkg := &domain.InstalledPackage{}
-	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
-	a.mergeToolChecksums(pkg, map[string]string{"cursor": "abc123"})
-
-	if pkg.ToolChecksums == nil {
-		t.Fatal("expected ToolChecksums to be initialized")
-	}
-	if pkg.ToolChecksums["cursor"] != "abc123" {
-		t.Errorf("expected cursor=abc123, got %q", pkg.ToolChecksums["cursor"])
-	}
-}
-
-func TestMergeToolChecksums_MergesIntoExisting(t *testing.T) {
-	pkg := &domain.InstalledPackage{
-		ToolChecksums: map[string]string{"cursor": "old"},
-	}
-	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
-	a.mergeToolChecksums(pkg, map[string]string{"cursor": "new", "windsurf": "ws1"})
-
-	if pkg.ToolChecksums["cursor"] != "new" {
-		t.Errorf("expected cursor=new, got %q", pkg.ToolChecksums["cursor"])
-	}
-	if pkg.ToolChecksums["windsurf"] != "ws1" {
-		t.Errorf("expected windsurf=ws1, got %q", pkg.ToolChecksums["windsurf"])
-	}
-}
-
-// ---------------------------------------------------------------------------
 // mergeAddResult
 // ---------------------------------------------------------------------------
 
@@ -213,7 +171,7 @@ func TestInstallEntryFiles_Agent(t *testing.T) {
 	git := &gitrepotest.MockGitRepo{}
 	a := newTestApp(&configstoretest.MockConfigStore{}, git, fsMock, &statestoretest.MockStateStore{})
 
-	files, err := a.installEntryFiles("/clone", "main", "agents/foo.md", "/project/agents/foo.md", []byte("content"))
+	files, _, err := a.installEntryFiles("/clone", "main", "agents/foo.md", "/project/agents/foo.md", []byte("content"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +193,7 @@ func TestInstallEntryFiles_FlatSkill(t *testing.T) {
 	git := &gitrepotest.MockGitRepo{}
 	a := newTestApp(&configstoretest.MockConfigStore{}, git, fsMock, &statestoretest.MockStateStore{})
 
-	files, err := a.installEntryFiles("/clone", "main", "skills/bar.md", "/project/skills/bar.md", []byte("content"))
+	files, _, err := a.installEntryFiles("/clone", "main", "skills/bar.md", "/project/skills/bar.md", []byte("content"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +220,7 @@ func TestInstallEntryFiles_DirBasedSkill(t *testing.T) {
 	}
 	a := newTestApp(&configstoretest.MockConfigStore{}, git, fsMock, &statestoretest.MockStateStore{})
 
-	files, err := a.installEntryFiles("/clone", "main", "skills/baz/SKILL.md", "/project/skills/baz", []byte("unused"))
+	files, _, err := a.installEntryFiles("/clone", "main", "skills/baz/SKILL.md", "/project/skills/baz", []byte("unused"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +240,7 @@ func TestInstallEntryFiles_WriteError(t *testing.T) {
 	}
 	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
 
-	_, err := a.installEntryFiles("/clone", "main", "agents/foo.md", "/project/agents/foo.md", []byte("content"))
+	_, _, err := a.installEntryFiles("/clone", "main", "agents/foo.md", "/project/agents/foo.md", []byte("content"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -503,7 +461,7 @@ func TestCopyUpdatedFiles_Skills(t *testing.T) {
 		cfg:       domain.Config{LocalPath: ".claude"},
 	}
 
-	files := a.copyUpdatedFiles(ctx)
+	files, _ := a.copyUpdatedFiles(ctx)
 	if len(files.Skills) != 1 || files.Skills[0] != "bar" {
 		t.Errorf("expected skill bar, got %v", files.Skills)
 	}
@@ -535,7 +493,7 @@ func TestCopyUpdatedFiles_Agents(t *testing.T) {
 		cfg:       domain.Config{LocalPath: ".claude"},
 	}
 
-	files := a.copyUpdatedFiles(ctx)
+	files, _ := a.copyUpdatedFiles(ctx)
 	if len(files.Agents) != 1 || files.Agents[0] != "foo.md" {
 		t.Errorf("expected agent foo.md, got %v", files.Agents)
 	}
@@ -561,7 +519,7 @@ func TestUpdatePackageAtLocation_DriftKeep(t *testing.T) {
 	im := &domain.InstalledMarket{
 		Market: "mkt",
 		Packages: []domain.InstalledPackage{
-			{Profile: "dev/go", Version: "old", Files: domain.InstalledFiles{Agents: []string{"foo.md"}}, Locations: []string{"/proj"}},
+			{Profile: "dev/go", Version: "old", Files: domain.InstalledFiles{Agents: []string{"foo.md"}}, Locations: []domain.InstalledLocation{{Path: "/proj", Type: domain.RuntimeTypeClaudeCode}}},
 		},
 	}
 
@@ -595,7 +553,7 @@ func TestUpdatePackageAtLocation_DriftReport(t *testing.T) {
 	im := &domain.InstalledMarket{
 		Market: "mkt",
 		Packages: []domain.InstalledPackage{
-			{Profile: "dev/go", Version: "old", Files: domain.InstalledFiles{Agents: []string{"foo.md"}}, Locations: []string{"/proj"}},
+			{Profile: "dev/go", Version: "old", Files: domain.InstalledFiles{Agents: []string{"foo.md"}}, Locations: []domain.InstalledLocation{{Path: "/proj", Type: domain.RuntimeTypeClaudeCode}}},
 		},
 	}
 

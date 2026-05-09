@@ -50,7 +50,7 @@ func installedDB(market, profile, version string, files domain.InstalledFiles) d
 						Profile:   profile,
 						Version:   version,
 						Files:     files,
-						Locations: []string{testProjectPath()},
+						Locations: []domain.InstalledLocation{{Path: testProjectPath(), Type: domain.RuntimeTypeClaudeCode}},
 					},
 				},
 			},
@@ -254,10 +254,10 @@ func TestCheck_MarketFilter(t *testing.T) {
 	db := domain.InstallDatabase{
 		Markets: []domain.InstalledMarket{
 			{Market: "alpha", Packages: []domain.InstalledPackage{
-				{Profile: "agents/a.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []string{testProjectPath()}},
+				{Profile: "agents/a.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []domain.InstalledLocation{{Path: testProjectPath(), Type: domain.RuntimeTypeClaudeCode}}},
 			}},
 			{Market: "beta", Packages: []domain.InstalledPackage{
-				{Profile: "agents/b.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []string{testProjectPath()}},
+				{Profile: "agents/b.md", Version: "abc123", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []domain.InstalledLocation{{Path: testProjectPath(), Type: domain.RuntimeTypeClaudeCode}}},
 			}},
 		},
 	}
@@ -481,8 +481,8 @@ func TestRefresh_UpdatesAvailable(t *testing.T) {
 	db := domain.InstallDatabase{
 		Markets: []domain.InstalledMarket{
 			{Market: "mkt", Packages: []domain.InstalledPackage{
-				{Profile: "agents/a.md", Version: "oldhash", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []string{testProjectPath()}},
-				{Profile: "agents/b.md", Version: "newhash", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []string{testProjectPath()}},
+				{Profile: "agents/a.md", Version: "oldhash", Files: domain.InstalledFiles{Agents: []string{"a.md"}}, Locations: []domain.InstalledLocation{{Path: testProjectPath(), Type: domain.RuntimeTypeClaudeCode}}},
+				{Profile: "agents/b.md", Version: "newhash", Files: domain.InstalledFiles{Agents: []string{"b.md"}}, Locations: []domain.InstalledLocation{{Path: testProjectPath(), Type: domain.RuntimeTypeClaudeCode}}},
 			}},
 		},
 	}

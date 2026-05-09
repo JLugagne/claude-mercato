@@ -47,7 +47,7 @@ func TestInstallDB_SaveAndLoad(t *testing.T) {
 						Files: domain.InstalledFiles{
 							Skills: []string{"do-thing.md"},
 						},
-						Locations: []string{"/home/user/project"},
+						Locations: []domain.InstalledLocation{{Path: "/home/user/project", Type: domain.RuntimeTypeClaudeCode}},
 					},
 				},
 			},
@@ -83,7 +83,7 @@ func TestInstallDB_SaveAndLoad(t *testing.T) {
 	if len(pkg.Files.Skills) != 1 || pkg.Files.Skills[0] != "do-thing.md" {
 		t.Errorf("Files.Skills = %v, want [do-thing.md]", pkg.Files.Skills)
 	}
-	if len(pkg.Locations) != 1 || pkg.Locations[0] != "/home/user/project" {
+	if len(pkg.Locations) != 1 || pkg.Locations[0].Path != "/home/user/project" {
 		t.Errorf("Locations = %v, want [/home/user/project]", pkg.Locations)
 	}
 }

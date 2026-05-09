@@ -306,7 +306,7 @@ func TestIntegration_AddAgent(t *testing.T) {
 				found = true
 				// Verify location.
 				for _, loc := range pkg.Locations {
-					if loc == projectDir {
+					if loc.Path == projectDir {
 						break
 					}
 				}
@@ -440,7 +440,7 @@ func TestIntegration_RemoveAgent(t *testing.T) {
 	if im != nil {
 		for _, pkg := range im.Packages {
 			for _, loc := range pkg.Locations {
-				if loc == projectDir {
+				if loc.Path == projectDir {
 					for _, a := range pkg.Files.Agents {
 						if a == "code-review.md" {
 							t.Error("agent still present in installdb after Remove")
@@ -725,7 +725,7 @@ func TestIntegration_MultiLocation(t *testing.T) {
 	locationsSet := make(map[string]bool)
 	for _, pkg := range im.Packages {
 		for _, loc := range pkg.Locations {
-			locationsSet[loc] = true
+			locationsSet[loc.Path] = true
 		}
 	}
 	if !locationsSet[projectDir1] || !locationsSet[projectDir2] {
@@ -759,10 +759,10 @@ func TestIntegration_MultiLocation(t *testing.T) {
 	hasProject2 := false
 	for _, pkg := range im.Packages {
 		for _, loc := range pkg.Locations {
-			if loc == projectDir2 {
+			if loc.Path == projectDir2 {
 				hasProject2 = true
 			}
-			if loc == projectDir1 {
+			if loc.Path == projectDir1 {
 				t.Error("project 1 should no longer be in installdb locations")
 			}
 		}

@@ -14,6 +14,25 @@ import (
 // detectDrift compares installed files at a location against the cached clone
 // at the version recorded in installdb. Returns list of files that differ.
 func (a *App) detectDrift(pkg domain.InstalledPackage, location, clonePath, branch string) []string {
+	// Prefer per-location file hashes (v2 schema). Fall back to git-comparison
+	// for legacy packages whose locations have no Files list yet.
+	loc := pkg.FindLocation(location)
+	if loc != nil && len(loc.Files) > 0 && loc.Type == domain.RuntimeTypeClaudeCode {
+		var drifted []string
+		for _, f := range loc.Files {
+			abs := filepath.Join(location, f.Path)
+			data, err := os.ReadFile(abs)
+			if err != nil {
+				drifted = append(drifted, f.Path)
+				continue
+			}
+			if xxhashHex(data) != f.XXH {
+				drifted = append(drifted, f.Path)
+			}
+		}
+		return drifted
+	}
+
 	var drifted []string
 	localBase := filepath.Join(location, ".claude")
 
@@ -23,14 +42,12 @@ func (a *App) detectDrift(pkg domain.InstalledPackage, location, clonePath, bran
 		repoRelPath := a.skillFileRepoPath(pkg.Profile, skill, "SKILL.md")
 		_, origErr := a.git.ReadFileAtRef(clonePath, branch, repoRelPath, pkg.Version)
 		if origErr != nil {
-			// Skill didn't exist at that version, skip drift check
 			continue
 		}
 
 		skillDir := filepath.Join(localBase, "skills", skill)
 		entries, err := os.ReadDir(skillDir)
 		if err != nil {
-			// Local directory doesn't exist but original does => drift
 			drifted = append(drifted, "skills/"+skill)
 			continue
 		}
@@ -41,7 +58,6 @@ func (a *App) detectDrift(pkg domain.InstalledPackage, location, clonePath, bran
 			fileRepoPath := a.skillFileRepoPath(pkg.Profile, skill, entry.Name())
 			originalContent, err := a.git.ReadFileAtRef(clonePath, branch, fileRepoPath, pkg.Version)
 			if err != nil {
-				// File didn't exist at that version, skip drift check
 				continue
 			}
 
@@ -63,14 +79,12 @@ func (a *App) detectDrift(pkg domain.InstalledPackage, location, clonePath, bran
 		repoRelPath := a.agentFileRepoPath(pkg.Profile, agent)
 		originalContent, err := a.git.ReadFileAtRef(clonePath, branch, repoRelPath, pkg.Version)
 		if err != nil {
-			// File didn't exist at that version, skip drift check
 			continue
 		}
 
 		localPath := filepath.Join(localBase, "agents", agent)
 		localContent, err := os.ReadFile(localPath)
 		if err != nil {
-			// Local file missing but original exists => drift
 			drifted = append(drifted, "agents/"+agent)
 			continue
 		}
@@ -158,7 +172,6 @@ func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 		return err == nil && info.IsDir()
 	})
 	if len(stale) > 0 {
-		// Save cleaned db
 		if lockErr := a.idb.Lock(a.cacheDir); lockErr == nil {
 			_ = a.idb.Save(a.cacheDir, db)
 			_ = a.idb.Unlock(a.cacheDir)
@@ -182,26 +195,16 @@ func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 		clonePath := a.clonePath(im.Market)
 
 		for _, pkg := range im.Packages {
-			atLocation := false
-			for _, loc := range pkg.Locations {
-				if loc == projectPath {
-					atLocation = true
-					break
-				}
-			}
-			if !atLocation {
+			if pkg.FindLocation(projectPath) == nil {
 				continue
 			}
 
-			// Check for drift
 			driftFiles := a.detectDrift(pkg, projectPath, clonePath, mc.Branch)
 			hasDrift := len(driftFiles) > 0
 
-			// Check for updates
 			headSHA, err := a.git.RemoteHEAD(clonePath, mc.Branch)
 			hasUpdate := err == nil && headSHA != pkg.Version
 
-			// Build a ref for each file in the package
 			var state domain.EntryState
 			switch {
 			case hasDrift && hasUpdate:
@@ -220,7 +223,6 @@ func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 					State: state,
 				}
 
-				// Per-tool drift detection
 				_, refRelPath, _ := ref.Parse()
 				entryForCheck := domain.Entry{
 					Ref:      ref,
@@ -349,7 +351,6 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 		return nil, err
 	}
 
-	// Lock installdb
 	if err := a.idb.Lock(a.cacheDir); err != nil {
 		return nil, err
 	}
@@ -374,7 +375,6 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 			continue
 		}
 
-		// Resolve ref filter once per market
 		var refRelPath string
 		if opts.Ref != "" {
 			refMarket, rp, refErr := opts.Ref.Parse()
@@ -384,8 +384,6 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 			refRelPath = rp
 		}
 
-		// Process each package independently, diffing from its installed version
-		// to the current HEAD so that Update works correctly after Refresh.
 		for pi := range im.Packages {
 			pkg := &im.Packages[pi]
 
@@ -393,7 +391,6 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 				continue
 			}
 
-			// Apply ref filter: skip packages that don't contain the target file
 			if refRelPath != "" && !fileInPackage(refRelPath, pkg.Files) {
 				continue
 			}
@@ -408,13 +405,18 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 				continue
 			}
 
+			seen := make(map[string]bool)
 			for _, location := range pkg.Locations {
+				if seen[location.Path] {
+					continue
+				}
+				seen[location.Path] = true
 				r := a.updatePackageAtLocation(updateCtx{
 					mc:        mc,
 					im:        im,
 					pkg:       pkg,
 					pkgIdx:    pi,
-					location:  location,
+					location:  location.Path,
 					clonePath: clonePath,
 					cfg:       cfg,
 					opts:      opts,
@@ -424,7 +426,6 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 		}
 	}
 
-	// Save installdb
 	if err := a.idb.Save(a.cacheDir, db); err != nil {
 		return results, err
 	}
@@ -513,20 +514,17 @@ func (a *App) updatePackageAtLocation(ctx updateCtx) service.UpdateResult {
 		}
 	}
 
-	// Delete old files
-	if err := a.deleteInstalledFiles(ctx.cfg.LocalPath, ctx.pkg.Files); err != nil {
-		return service.UpdateResult{
-			Ref:      a.packagePrimaryRef(ctx.mc.Name, ctx.pkg),
-			Location: ctx.location,
-			Action:   "error",
-			Err:      err,
-		}
+	// Snapshot the previous claude-code file set BEFORE writing, so we can
+	// diff and prune orphans (files removed in the upstream version).
+	var oldClaudeFiles []domain.InstalledFile
+	if loc := findLocationByPathAndType(ctx.pkg, ctx.location, domain.RuntimeTypeClaudeCode); loc != nil {
+		oldClaudeFiles = append(oldClaudeFiles, loc.Files...)
 	}
 
-	// Copy new files from cached clone
-	newFiles := a.copyUpdatedFiles(ctx)
+	newFiles, claudeFiles := a.copyUpdatedFiles(ctx)
 
-	// Get new HEAD
+	a.pruneRemovedFiles(ctx.location, oldClaudeFiles, claudeFiles)
+
 	newSHA, err := a.git.RemoteHEAD(ctx.clonePath, ctx.mc.Branch)
 	if err != nil {
 		return service.UpdateResult{
@@ -537,11 +535,21 @@ func (a *App) updatePackageAtLocation(ctx updateCtx) service.UpdateResult {
 		}
 	}
 
-	// Update package version in db
+	// Replace package-level Files and the claude-code location's Files
+	// with the new authoritative set.
 	ctx.im.Packages[ctx.pkgIdx].Version = newSHA
 	ctx.im.Packages[ctx.pkgIdx].Files = newFiles
 
-	// Re-transform to all enabled tool targets
+	if loc := findLocationByPathAndType(&ctx.im.Packages[ctx.pkgIdx], ctx.location, domain.RuntimeTypeClaudeCode); loc != nil {
+		loc.Files = claudeFiles
+	} else {
+		ctx.im.Packages[ctx.pkgIdx].Locations = append(ctx.im.Packages[ctx.pkgIdx].Locations, domain.InstalledLocation{
+			Path:  ctx.location,
+			Type:  domain.RuntimeTypeClaudeCode,
+			Files: claudeFiles,
+		})
+	}
+
 	a.reTransformToolTargets(ctx.mc, ctx.im, ctx.pkgIdx, newFiles, ctx.location)
 
 	return service.UpdateResult{
@@ -556,48 +564,90 @@ func (a *App) updatePackageAtLocation(ctx updateCtx) service.UpdateResult {
 
 // copyUpdatedFiles reads updated skill and agent files from the cached clone
 // and writes them to the local project directory.
-func (a *App) copyUpdatedFiles(ctx updateCtx) domain.InstalledFiles {
+func (a *App) copyUpdatedFiles(ctx updateCtx) (domain.InstalledFiles, []domain.InstalledFile) {
 	var newFiles domain.InstalledFiles
+	var written []domain.InstalledFile
+
+	projectRel := func(abs string) string {
+		rel, err := filepath.Rel(ctx.location, abs)
+		if err != nil {
+			return filepath.ToSlash(abs)
+		}
+		return filepath.ToSlash(rel)
+	}
 
 	for _, skill := range ctx.pkg.Files.Skills {
 		skillDirPath := a.skillDirRepoPath(ctx.pkg.Profile, skill)
 		dirFiles, err := a.git.ListDirFiles(ctx.clonePath, ctx.mc.Branch, skillDirPath)
-		if err != nil {
+		if err != nil || len(dirFiles) == 0 {
+			// Skill removed upstream — skip; pruning will drop the leftover
+			// files from disk and the location's Files list.
 			continue
 		}
 		localSkillDir := filepath.Join(ctx.cfg.LocalPath, "skills", skill)
+		wroteAny := false
 		for _, f := range dirFiles {
 			content, err := a.git.ReadFileAtRef(ctx.clonePath, ctx.mc.Branch, f, "HEAD")
 			if err != nil {
 				continue
 			}
-			if err := a.fs.WriteFile(filepath.Join(localSkillDir, filepath.Base(f)), content); err != nil {
+			dest := filepath.Join(localSkillDir, filepath.Base(f))
+			if err := a.fs.WriteFile(dest, content); err != nil {
 				continue
 			}
+			written = append(written, domain.InstalledFile{
+				Path: projectRel(dest),
+				XXH:  xxhashHex(content),
+			})
+			wroteAny = true
 		}
-		newFiles.Skills = append(newFiles.Skills, skill)
+		if wroteAny {
+			newFiles.Skills = append(newFiles.Skills, skill)
+		}
 	}
 
 	for _, agent := range ctx.pkg.Files.Agents {
 		repoPath := a.agentFileRepoPath(ctx.pkg.Profile, agent)
 		content, err := a.git.ReadFileAtRef(ctx.clonePath, ctx.mc.Branch, repoPath, "HEAD")
 		if err != nil {
+			// Agent removed upstream — skip.
 			continue
 		}
 		localPath := filepath.Join(ctx.cfg.LocalPath, "agents", agent)
 		if err := a.fs.WriteFile(localPath, content); err != nil {
 			continue
 		}
+		written = append(written, domain.InstalledFile{
+			Path: projectRel(localPath),
+			XXH:  xxhashHex(content),
+		})
 		newFiles.Agents = append(newFiles.Agents, agent)
 	}
 
-	return newFiles
+	return newFiles, written
 }
 
 // reTransformToolTargets re-transforms all files in a package to enabled tool
 // targets and updates the tool checksums in the install database.
 func (a *App) reTransformToolTargets(mc domain.MarketConfig, im *domain.InstalledMarket, pkgIdx int, files domain.InstalledFiles, location string) {
 	pkg := &im.Packages[pkgIdx]
+
+	// Snapshot per-tool old file sets BEFORE re-writing so we can prune
+	// orphans (files dropped from the new version) per tool.
+	oldByTool := make(map[string][]domain.InstalledFile)
+	for _, loc := range pkg.Locations {
+		if loc.Path != location || loc.Type == domain.RuntimeTypeClaudeCode {
+			continue
+		}
+		oldByTool[loc.Type] = append([]domain.InstalledFile(nil), loc.Files...)
+	}
+
+	newByTool := make(map[string][]domain.InstalledFile)
+	accumulate := func(twr toolWriteResult) {
+		for toolName, toolFiles := range twr.ToolFiles {
+			newByTool[toolName] = append(newByTool[toolName], toolFiles...)
+		}
+	}
 
 	for _, skill := range files.Skills {
 		repoPath := a.skillFileRepoPath(pkg.Profile, skill, "SKILL.md")
@@ -613,8 +663,7 @@ func (a *App) reTransformToolTargets(mc domain.MarketConfig, im *domain.Installe
 			Type:     domain.EntryTypeSkill,
 			Profile:  pkg.Profile,
 		}
-		twr := a.writeToToolTargets(entry, content, location)
-		a.mergeToolChecksums(pkg, twr.Checksums)
+		accumulate(a.writeToToolTargets(entry, content, location))
 	}
 
 	for _, agent := range files.Agents {
@@ -631,22 +680,40 @@ func (a *App) reTransformToolTargets(mc domain.MarketConfig, im *domain.Installe
 			Type:     domain.EntryTypeAgent,
 			Profile:  pkg.Profile,
 		}
-		twr := a.writeToToolTargets(entry, content, location)
-		a.mergeToolChecksums(pkg, twr.Checksums)
+		accumulate(a.writeToToolTargets(entry, content, location))
+	}
+
+	// Prune per-tool: files in old\new are gone from the new version.
+	for toolName, oldFiles := range oldByTool {
+		a.pruneRemovedFiles(location, oldFiles, newByTool[toolName])
+	}
+
+	// Replace each tool location's Files with the new authoritative set.
+	// Drop locations whose tool produced no files this round.
+	for toolName, toolFiles := range newByTool {
+		loc := findLocationByPathAndType(pkg, location, toolName)
+		if loc == nil {
+			pkg.Locations = append(pkg.Locations, domain.InstalledLocation{
+				Path:  location,
+				Type:  toolName,
+				Files: toolFiles,
+			})
+			continue
+		}
+		loc.Files = toolFiles
 	}
 }
 
 // mergeToolChecksums merges new checksums into a package's ToolChecksums map.
-func (a *App) mergeToolChecksums(pkg *domain.InstalledPackage, checksums map[string]string) {
-	if len(checksums) == 0 {
-		return
+// findLocationByPathAndType returns the location entry for the given (path,
+// type) tuple, or nil. Locations may share a path across runtime types.
+func findLocationByPathAndType(pkg *domain.InstalledPackage, path, runtimeType string) *domain.InstalledLocation {
+	for i := range pkg.Locations {
+		if pkg.Locations[i].Path == path && pkg.Locations[i].Type == runtimeType {
+			return &pkg.Locations[i]
+		}
 	}
-	if pkg.ToolChecksums == nil {
-		pkg.ToolChecksums = make(map[string]string)
-	}
-	for k, v := range checksums {
-		pkg.ToolChecksums[k] = v
-	}
+	return nil
 }
 
 // packagePrimaryRef returns a representative MctRef for a package, using the
@@ -699,4 +766,52 @@ func (a *App) Sync(opts service.SyncOpts) ([]service.SyncResult, error) {
 
 func (a *App) SyncState() (domain.SyncState, error) {
 	return a.state.LoadSyncState(a.cacheDir)
+}
+
+// pruneRemovedFiles deletes files present in oldFiles but not newFiles
+// (matched by Path). After deletion it walks the parent directory chain
+// upward, removing any directory that becomes empty, stopping at the
+// project root. Missing files are ignored — the on-disk truth may have
+// already drifted from the recorded set.
+//
+// projectRoot is the project base (typically cfg.LocalPath's parent so
+// we don't accidentally remove .claude/). InstalledFile.Path is rooted
+// at projectRoot.
+// pruneRemovedFiles deletes files present in oldFiles but not newFiles
+// (matched by Path). After deletion it walks the parent directory chain
+// upward, removing any directory that becomes empty, stopping at the
+// project root. Missing files are ignored — the on-disk truth may have
+// already drifted from the recorded set.
+//
+// projectRoot is the project base (typically cfg.LocalPath's parent so
+// we don't accidentally remove .claude/). InstalledFile.Path is rooted
+// at projectRoot.
+func (a *App) pruneRemovedFiles(projectRoot string, oldFiles, newFiles []domain.InstalledFile) {
+	if len(oldFiles) == 0 {
+		return
+	}
+	keep := make(map[string]bool, len(newFiles))
+	for _, f := range newFiles {
+		keep[f.Path] = true
+	}
+	for _, f := range oldFiles {
+		if keep[f.Path] {
+			continue
+		}
+		abs := filepath.Join(projectRoot, filepath.FromSlash(f.Path))
+		if err := a.fs.DeleteFile(abs); err != nil && !os.IsNotExist(err) {
+			continue
+		}
+		dir := filepath.Dir(abs)
+		for dir != projectRoot && dir != "." && dir != string(filepath.Separator) {
+			entries, err := os.ReadDir(dir)
+			if err != nil || len(entries) > 0 {
+				break
+			}
+			if err := os.Remove(dir); err != nil {
+				break
+			}
+			dir = filepath.Dir(dir)
+		}
+	}
 }

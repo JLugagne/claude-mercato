@@ -47,7 +47,7 @@ func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
 		for _, pkg := range im.Packages {
 			atLocation := false
 			for _, loc := range pkg.Locations {
-				if loc == projectPath {
+				if loc.Path == projectPath {
 					atLocation = true
 					break
 				}
@@ -174,7 +174,7 @@ func (a *App) GetEntry(ref domain.MctRef) (domain.Entry, error) {
 	for _, pkg := range im.Packages {
 		atLocation := false
 		for _, loc := range pkg.Locations {
-			if loc == projectPath {
+			if loc.Path == projectPath {
 				atLocation = true
 				break
 			}
@@ -276,13 +276,7 @@ func (a *App) addInternal(
 	// can carry over from a sibling location after RemoveLocation.
 	pkg := db.FindPackage(marketName, profile)
 	if pkg != nil {
-		atLocation := false
-		for _, loc := range pkg.Locations {
-			if loc == projectPath {
-				atLocation = true
-				break
-			}
-		}
+		atLocation := pkg.FindLocation(projectPath) != nil
 		if atLocation && a.entryFileExistsAt(cfg, relPath) {
 			return domain.ErrEntryAlreadyInstalled
 		}
@@ -314,8 +308,7 @@ func (a *App) addInternal(
 		return err
 	}
 
-	// Install files locally and get tool-target write results
-	files, err := a.installEntryFiles(clonePath, mc.Branch, relPath, localPath, content)
+	files, claudeFiles, err := a.installEntryFiles(clonePath, mc.Branch, relPath, localPath, content)
 	if err != nil {
 		return err
 	}
@@ -325,7 +318,6 @@ func (a *App) addInternal(
 		return err
 	}
 
-	// Write to additional tool targets (non-Claude)
 	entryForTransform := domain.Entry{
 		Ref:      ref,
 		Market:   marketName,
@@ -336,35 +328,56 @@ func (a *App) addInternal(
 	}
 	twr := a.writeToToolTargets(entryForTransform, content, projectPath)
 
-	// Populate AddResult with tool write info
 	if result != nil {
 		mergeAddResult(result, twr)
 	}
 
-	// Update installdb
-	db.AddOrUpdatePackage(marketName, profile, headSHA, files, projectPath)
+	// AddOrUpdatePackage now replaces wholesale, so for a single-entry add we
+	// must merge the new files with whatever this (location, runtime-type)
+	// already holds from sibling entries before recording.
+	existingPkg := db.FindPackage(marketName, profile)
+	mergedPkgFiles := files
+	if existingPkg != nil {
+		mergedPkgFiles = domain.MergePackageFiles(existingPkg.Files, files)
+	}
 
-	// Store tool checksums
-	if len(twr.Checksums) > 0 {
-		pkg := db.FindPackage(marketName, profile)
-		if pkg != nil {
-			a.mergeToolChecksums(pkg, twr.Checksums)
+	mergedClaudeFiles := claudeFiles
+	if existingPkg != nil {
+		if loc := findLocationByPathAndType(existingPkg, projectPath, domain.RuntimeTypeClaudeCode); loc != nil {
+			mergedClaudeFiles = domain.MergeLocationFiles(loc.Files, claudeFiles)
 		}
+	}
+
+	db.AddOrUpdatePackage(marketName, profile, headSHA, mergedPkgFiles, domain.InstalledLocation{
+		Path:  projectPath,
+		Type:  domain.RuntimeTypeClaudeCode,
+		Files: mergedClaudeFiles,
+	})
+
+	for toolName, toolFiles := range twr.ToolFiles {
+		mergedToolFiles := toolFiles
+		if pkg := db.FindPackage(marketName, profile); pkg != nil {
+			if loc := findLocationByPathAndType(pkg, projectPath, toolName); loc != nil {
+				mergedToolFiles = domain.MergeLocationFiles(loc.Files, toolFiles)
+			}
+		}
+		db.AddOrUpdatePackage(marketName, profile, headSHA, mergedPkgFiles, domain.InstalledLocation{
+			Path:  projectPath,
+			Type:  toolName,
+			Files: mergedToolFiles,
+		})
 	}
 
 	if err := a.idb.Save(a.cacheDir, *db); err != nil {
 		return err
 	}
 
-	// Resolve dependencies with cycle detection
 	if !opts.NoDeps && len(fm.RequiresSkills) > 0 {
 		if err := a.resolveDependencies(fm.RequiresSkills, marketName, profile, mc, cfg, db, visited, opts, result); err != nil {
 			return err
 		}
 	}
 
-	// When installing an agent from a hierarchical market (profile-based layout),
-	// also install all sibling skills from the same profile.
 	if !opts.NoDeps && entryType == domain.EntryTypeAgent && isProfileRef(profile) {
 		if err := a.installProfileSkills(marketName, profile, mc, cfg, db, visited, opts, result); err != nil {
 			return err
@@ -376,41 +389,76 @@ func (a *App) addInternal(
 
 // installEntryFiles writes skill or agent files to the local .claude/ directory
 // and returns the InstalledFiles record.
-func (a *App) installEntryFiles(clonePath, branch, relPath, localPath string, content []byte) (domain.InstalledFiles, error) {
+func (a *App) installEntryFiles(clonePath, branch, relPath, localPath string, content []byte) (domain.InstalledFiles, []domain.InstalledFile, error) {
 	var files domain.InstalledFiles
+	var written []domain.InstalledFile
 	entryType := inferEntryType(relPath)
+
+	// projectRel converts an absolute file path under the project tree into a
+	// slash-separated path rooted at the project (e.g. ".claude/agents/foo.md").
+	projectRel := func(abs string) string {
+		root := filepath.Dir(filepath.Clean(localPath))
+		for {
+			if filepath.Base(root) == ".claude" {
+				root = filepath.Dir(root)
+				break
+			}
+			parent := filepath.Dir(root)
+			if parent == root {
+				break
+			}
+			root = parent
+		}
+		rel, err := filepath.Rel(root, abs)
+		if err != nil {
+			return filepath.ToSlash(abs)
+		}
+		return filepath.ToSlash(rel)
+	}
 
 	if entryType == domain.EntryTypeSkill && isDirBasedSkill(relPath) {
 		skillDirPath := filepath.Dir(relPath)
 		dirFiles, err := a.git.ListDirFiles(clonePath, branch, skillDirPath)
 		if err != nil {
-			return files, err
+			return files, written, err
 		}
 		for _, f := range dirFiles {
 			fileContent, err := a.git.ReadFileAtRef(clonePath, branch, f, "HEAD")
 			if err != nil {
-				return files, err
+				return files, written, err
 			}
 			fileDest := filepath.Join(localPath, filepath.Base(f))
 			if err := a.fs.WriteFile(fileDest, fileContent); err != nil {
-				return files, err
+				return files, written, err
 			}
+			written = append(written, domain.InstalledFile{
+				Path: projectRel(fileDest),
+				XXH:  xxhashHex(fileContent),
+			})
 		}
 		files.Skills = append(files.Skills, filepath.Base(skillDirPath))
 	} else if entryType == domain.EntryTypeSkill {
 		if err := a.fs.WriteFile(localPath, content); err != nil {
-			return files, err
+			return files, written, err
 		}
 		stem := strings.TrimSuffix(filepath.Base(relPath), ".md")
 		files.Skills = append(files.Skills, stem)
+		written = append(written, domain.InstalledFile{
+			Path: projectRel(localPath),
+			XXH:  xxhashHex(content),
+		})
 	} else {
 		if err := a.fs.WriteFile(localPath, content); err != nil {
-			return files, err
+			return files, written, err
 		}
 		files.Agents = append(files.Agents, filepath.Base(relPath))
+		written = append(written, domain.InstalledFile{
+			Path: projectRel(localPath),
+			XXH:  xxhashHex(content),
+		})
 	}
 
-	return files, nil
+	return files, written, nil
 }
 
 // mergeAddResult populates an AddResult with tool write paths and warnings.
@@ -615,7 +663,7 @@ func (a *App) addProfile(
 		if pkg != nil {
 			atLocation := false
 			for _, loc := range pkg.Locations {
-				if loc == projectPath {
+				if loc.Path == projectPath {
 					atLocation = true
 					break
 				}
@@ -742,7 +790,6 @@ func isProfileRef(relPath string) bool {
 }
 
 func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.RemoveResult, error) {
-	// Normalize skill directory refs: skills/foo → skills/foo/SKILL.md
 	marketName, relPath, err := ref.Parse()
 	if err != nil {
 		return service.RemoveResult{}, err
@@ -757,13 +804,11 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.Remove
 		return service.RemoveResult{}, err
 	}
 
-	// Lock installdb
 	if err := a.idb.Lock(a.cacheDir); err != nil {
 		return service.RemoveResult{}, err
 	}
 	defer func() { _ = a.idb.Unlock(a.cacheDir) }()
 
-	// Load installdb
 	db, err := a.idb.Load(a.cacheDir)
 	if err != nil {
 		return service.RemoveResult{}, err
@@ -771,7 +816,6 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.Remove
 
 	profile := refProfile(ref)
 
-	// Find the package in installdb
 	pkg := db.FindPackage(marketName, profile)
 	if pkg == nil {
 		return service.RemoveResult{}, domain.ErrEntryNotInstalled
@@ -779,7 +823,6 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.Remove
 
 	projectPath := projectPath(cfg.LocalPath)
 
-	// Build an entry for tool removal
 	entryForRemove := domain.Entry{
 		Ref:      ref,
 		Market:   marketName,
@@ -790,52 +833,42 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.Remove
 	}
 
 	var removeResult service.RemoveResult
-	// Always include "claude" as a removed tool (the main .claude/ files)
 	removeResult.ToolsRemoved = append(removeResult.ToolsRemoved, "claude")
 
 	if opts.AllLocations {
-		// Delete files from every location
+		seen := make(map[string]bool)
+		var paths []string
 		for _, loc := range pkg.Locations {
-			localPath := filepath.Join(loc, filepath.Base(cfg.LocalPath))
+			if seen[loc.Path] {
+				continue
+			}
+			seen[loc.Path] = true
+			paths = append(paths, loc.Path)
+			localPath := filepath.Join(loc.Path, filepath.Base(cfg.LocalPath))
 			if err := a.deleteInstalledFiles(localPath, pkg.Files); err != nil {
 				return service.RemoveResult{}, err
 			}
-			tr := a.removeFromToolTargets(entryForRemove, loc)
+			tr := a.removeFromToolTargets(entryForRemove, loc.Path)
 			removeResult.ToolsRemoved = append(removeResult.ToolsRemoved, tr.Removed...)
 		}
-		// Remove all locations (remove the package entirely)
-		locs := make([]string, len(pkg.Locations))
-		copy(locs, pkg.Locations)
-		for _, loc := range locs {
-			db.RemoveLocation(marketName, profile, loc)
+		for _, p := range paths {
+			db.RemoveLocation(marketName, profile, p)
 		}
 	} else {
-		// Check that the current project path is in the package's Locations
-		atLocation := false
-		for _, loc := range pkg.Locations {
-			if loc == projectPath {
-				atLocation = true
-				break
-			}
-		}
-		if !atLocation {
+		if pkg.FindLocation(projectPath) == nil {
 			return service.RemoveResult{}, domain.ErrEntryNotInstalled
 		}
 
-		// Delete files from current project
 		if err := a.deleteInstalledFiles(cfg.LocalPath, pkg.Files); err != nil {
 			return service.RemoveResult{}, err
 		}
 
-		// Remove tool-specific files
 		tr := a.removeFromToolTargets(entryForRemove, projectPath)
 		removeResult.ToolsRemoved = append(removeResult.ToolsRemoved, tr.Removed...)
 
-		// Update installdb
 		db.RemoveLocation(marketName, profile, projectPath)
 	}
 
-	// Save installdb
 	return removeResult, a.idb.Save(a.cacheDir, db)
 }
 
@@ -886,7 +919,7 @@ func (a *App) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
 			// Check if this package is installed at the current project path
 			atLocation := false
 			for _, loc := range pkg.Locations {
-				if loc == projectPath {
+				if loc.Path == projectPath {
 					atLocation = true
 					break
 				}

@@ -51,13 +51,13 @@ func (a *App) loadToolMappings() domain.ToolMapping {
 
 // toolWriteResult holds the full result of writing to tool targets.
 type toolWriteResult struct {
-	Checksums  map[string]string // tool -> xxhash checksum
-	ToolWrites map[string]string // tool -> relative output path
+	ToolWrites map[string]string                 // tool -> relative output path
+	ToolFiles  map[string][]domain.InstalledFile // tool -> files written (one per tool, but kept as a slice for symmetry)
 	Warnings   []string
 }
 
 // writeToToolTargets transforms and writes the entry content to all enabled
-// tool targets. It returns checksums, output paths, and warnings.
+// tool targets. It returns per-tool file records (path + xxhash) and warnings.
 // The Claude tool is skipped here since it is handled by the existing code path.
 func (a *App) writeToToolTargets(entry domain.Entry, content []byte, projectDir string) toolWriteResult {
 	enabledTools := a.loadEnabledTools()
@@ -72,8 +72,8 @@ func (a *App) writeToToolTargets(entry domain.Entry, content []byte, projectDir 
 
 	mappings := a.loadToolMappings()
 
-	checksums := make(map[string]string)
 	toolWrites := make(map[string]string)
+	toolFiles := make(map[string][]domain.InstalledFile)
 	var warnings []string
 
 	for _, t := range transformers {
@@ -117,14 +117,17 @@ func (a *App) writeToToolTargets(entry domain.Entry, content []byte, projectDir 
 			continue
 		}
 
-		checksums[toolName] = xxhashHex(result.Content)
 		toolWrites[toolName] = result.OutputPath
+		toolFiles[toolName] = append(toolFiles[toolName], domain.InstalledFile{
+			Path: filepath.ToSlash(result.OutputPath),
+			XXH:  xxhashHex(result.Content),
+		})
 		warnings = append(warnings, result.Warnings...)
 	}
 
 	return toolWriteResult{
-		Checksums:  checksums,
 		ToolWrites: toolWrites,
+		ToolFiles:  toolFiles,
 		Warnings:   warnings,
 	}
 }
@@ -182,13 +185,10 @@ func toolDotDir(relPath string) string {
 	return ""
 }
 
-// detectToolDrift checks per-tool files for drift against stored checksums.
-// Returns a map of toolName -> EntryState.
+// detectToolDrift compares per-tool files at a project location against their
+// recorded xxhash. Returns a map of toolName → EntryState. Reads from the
+// per-location InstalledFile entries (not the legacy ToolChecksums map).
 func (a *App) detectToolDrift(entry domain.Entry, pkg domain.InstalledPackage, projectDir string) map[string]domain.EntryState {
-	if len(pkg.ToolChecksums) == 0 {
-		return nil
-	}
-
 	enabledTools := a.loadEnabledTools()
 	if len(enabledTools) == 0 {
 		return nil
@@ -206,21 +206,40 @@ func (a *App) detectToolDrift(entry domain.Entry, pkg domain.InstalledPackage, p
 			continue
 		}
 
-		expectedChecksum, ok := pkg.ToolChecksums[toolName]
-		if !ok {
+		// Look up the location entry for (projectDir, toolName).
+		var loc *domain.InstalledLocation
+		for i := range pkg.Locations {
+			if pkg.Locations[i].Path == projectDir && pkg.Locations[i].Type == toolName {
+				loc = &pkg.Locations[i]
+				break
+			}
+		}
+		if loc == nil || len(loc.Files) == 0 {
+			continue
+		}
+
+		expectedPath := filepath.ToSlash(t.OutputPath(entry))
+		var expectedXXH string
+		found := false
+		for _, f := range loc.Files {
+			if f.Path == expectedPath {
+				expectedXXH = f.XXH
+				found = true
+				break
+			}
+		}
+		if !found {
 			continue
 		}
 
 		outPath := filepath.Join(projectDir, t.OutputPath(entry))
 		localContent, err := a.fs.ReadFile(outPath)
 		if err != nil {
-			// File missing => drift
 			states[toolName] = domain.StateDrift
 			continue
 		}
 
-		actualChecksum := xxhashHex(localContent)
-		if actualChecksum != expectedChecksum {
+		if xxhashHex(localContent) != expectedXXH {
 			states[toolName] = domain.StateDrift
 		} else {
 			states[toolName] = domain.StateClean

@@ -4,6 +4,10 @@ import (
 	"testing"
 )
 
+func loc(path string) InstalledLocation {
+	return InstalledLocation{Path: path, Type: RuntimeTypeClaudeCode}
+}
+
 func TestFindPackage(t *testing.T) {
 	db := InstallDatabase{
 		Markets: []InstalledMarket{
@@ -70,7 +74,7 @@ func TestFindMarket(t *testing.T) {
 func TestAddOrUpdatePackage(t *testing.T) {
 	t.Run("new market and package", func(t *testing.T) {
 		var db InstallDatabase
-		db.AddOrUpdatePackage("acme", "web-dev", "v1", InstalledFiles{Skills: []string{"s1.md"}}, "/home/user/.claude")
+		db.AddOrUpdatePackage("acme", "web-dev", "v1", InstalledFiles{Skills: []string{"s1.md"}}, loc("/home/user/.claude"))
 
 		if len(db.Markets) != 1 {
 			t.Fatalf("got %d markets, want 1", len(db.Markets))
@@ -85,7 +89,7 @@ func TestAddOrUpdatePackage(t *testing.T) {
 		if pkg.Version != "v1" {
 			t.Fatalf("got version %q, want %q", pkg.Version, "v1")
 		}
-		if len(pkg.Locations) != 1 || pkg.Locations[0] != "/home/user/.claude" {
+		if len(pkg.Locations) != 1 || pkg.Locations[0].Path != "/home/user/.claude" {
 			t.Fatalf("got locations %v, want [/home/user/.claude]", pkg.Locations)
 		}
 	})
@@ -96,7 +100,7 @@ func TestAddOrUpdatePackage(t *testing.T) {
 				{Market: "acme", Packages: []InstalledPackage{{Profile: "old", Version: "v0"}}},
 			},
 		}
-		db.AddOrUpdatePackage("acme", "web-dev", "v1", InstalledFiles{}, "/loc")
+		db.AddOrUpdatePackage("acme", "web-dev", "v1", InstalledFiles{}, loc("/loc"))
 
 		if len(db.Markets) != 1 {
 			t.Fatalf("got %d markets, want 1", len(db.Markets))
@@ -110,11 +114,11 @@ func TestAddOrUpdatePackage(t *testing.T) {
 		db := InstallDatabase{
 			Markets: []InstalledMarket{
 				{Market: "acme", Packages: []InstalledPackage{
-					{Profile: "web-dev", Version: "v1", Locations: []string{"/loc1"}},
+					{Profile: "web-dev", Version: "v1", Locations: []InstalledLocation{loc("/loc1")}},
 				}},
 			},
 		}
-		db.AddOrUpdatePackage("acme", "web-dev", "v2", InstalledFiles{Agents: []string{"a.md"}}, "/loc2")
+		db.AddOrUpdatePackage("acme", "web-dev", "v2", InstalledFiles{Agents: []string{"a.md"}}, loc("/loc2"))
 
 		pkg := db.FindPackage("acme", "web-dev")
 		if pkg.Version != "v2" {
@@ -129,11 +133,11 @@ func TestAddOrUpdatePackage(t *testing.T) {
 		db := InstallDatabase{
 			Markets: []InstalledMarket{
 				{Market: "acme", Packages: []InstalledPackage{
-					{Profile: "web-dev", Version: "v1", Locations: []string{"/loc1"}},
+					{Profile: "web-dev", Version: "v1", Locations: []InstalledLocation{loc("/loc1")}},
 				}},
 			},
 		}
-		db.AddOrUpdatePackage("acme", "web-dev", "v2", InstalledFiles{}, "/loc1")
+		db.AddOrUpdatePackage("acme", "web-dev", "v2", InstalledFiles{}, loc("/loc1"))
 
 		pkg := db.FindPackage("acme", "web-dev")
 		if len(pkg.Locations) != 1 {
@@ -147,7 +151,7 @@ func TestRemoveLocation(t *testing.T) {
 		db := InstallDatabase{
 			Markets: []InstalledMarket{
 				{Market: "acme", Packages: []InstalledPackage{
-					{Profile: "web-dev", Locations: []string{"/loc1", "/loc2"}},
+					{Profile: "web-dev", Locations: []InstalledLocation{loc("/loc1"), loc("/loc2")}},
 				}},
 			},
 		}
@@ -157,7 +161,7 @@ func TestRemoveLocation(t *testing.T) {
 		if pkg == nil {
 			t.Fatal("package should still exist")
 		}
-		if len(pkg.Locations) != 1 || pkg.Locations[0] != "/loc2" {
+		if len(pkg.Locations) != 1 || pkg.Locations[0].Path != "/loc2" {
 			t.Fatalf("got locations %v, want [/loc2]", pkg.Locations)
 		}
 	})
@@ -166,8 +170,8 @@ func TestRemoveLocation(t *testing.T) {
 		db := InstallDatabase{
 			Markets: []InstalledMarket{
 				{Market: "acme", Packages: []InstalledPackage{
-					{Profile: "web-dev", Locations: []string{"/loc1"}},
-					{Profile: "other", Locations: []string{"/loc2"}},
+					{Profile: "web-dev", Locations: []InstalledLocation{loc("/loc1")}},
+					{Profile: "other", Locations: []InstalledLocation{loc("/loc2")}},
 				}},
 			},
 		}
@@ -186,7 +190,7 @@ func TestRemoveLocation(t *testing.T) {
 		db := InstallDatabase{
 			Markets: []InstalledMarket{
 				{Market: "acme", Packages: []InstalledPackage{
-					{Profile: "web-dev", Locations: []string{"/loc1"}},
+					{Profile: "web-dev", Locations: []InstalledLocation{loc("/loc1")}},
 				}},
 			},
 		}
@@ -203,7 +207,7 @@ func TestCleanStaleLocations(t *testing.T) {
 		db := InstallDatabase{
 			Markets: []InstalledMarket{
 				{Market: "acme", Packages: []InstalledPackage{
-					{Profile: "web-dev", Locations: []string{"/valid", "/stale"}},
+					{Profile: "web-dev", Locations: []InstalledLocation{loc("/valid"), loc("/stale")}},
 				}},
 			},
 		}
@@ -218,7 +222,7 @@ func TestCleanStaleLocations(t *testing.T) {
 		if pkg == nil {
 			t.Fatal("package should still exist")
 		}
-		if len(pkg.Locations) != 1 || pkg.Locations[0] != "/valid" {
+		if len(pkg.Locations) != 1 || pkg.Locations[0].Path != "/valid" {
 			t.Fatalf("got locations %v, want [/valid]", pkg.Locations)
 		}
 	})
@@ -227,7 +231,7 @@ func TestCleanStaleLocations(t *testing.T) {
 		db := InstallDatabase{
 			Markets: []InstalledMarket{
 				{Market: "acme", Packages: []InstalledPackage{
-					{Profile: "web-dev", Locations: []string{"/stale1", "/stale2"}},
+					{Profile: "web-dev", Locations: []InstalledLocation{loc("/stale1"), loc("/stale2")}},
 				}},
 			},
 		}
@@ -247,7 +251,7 @@ func TestCleanStaleLocations(t *testing.T) {
 		db := InstallDatabase{
 			Markets: []InstalledMarket{
 				{Market: "acme", Packages: []InstalledPackage{
-					{Profile: "web-dev", Locations: []string{"/valid"}},
+					{Profile: "web-dev", Locations: []InstalledLocation{loc("/valid")}},
 				}},
 			},
 		}
