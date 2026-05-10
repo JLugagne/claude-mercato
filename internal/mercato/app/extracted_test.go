@@ -572,3 +572,38 @@ func TestUpdatePackageAtLocation_DriftReport(t *testing.T) {
 		t.Errorf("expected action=drift, got %q", result.Action)
 	}
 }
+
+func TestInstallEntryFiles_Command(t *testing.T) {
+	var writtenPath string
+	fsMock := &filesystemtest.MockFilesystem{
+		WriteFileFn: func(path string, content []byte) error {
+			writtenPath = path
+			return nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{}
+	a := newTestApp(&configstoretest.MockConfigStore{}, git, fsMock, &statestoretest.MockStateStore{})
+
+	files, written, err := a.installEntryFiles(directWriter{fs: fsMock}, "/clone", "main", "commands/foo.md", "/project/.claude/commands/foo.md", []byte("content"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files.Commands) != 1 || files.Commands[0] != "foo.md" {
+		t.Errorf("expected command foo.md, got %v", files.Commands)
+	}
+	if len(files.Agents) != 0 || len(files.Skills) != 0 {
+		t.Errorf("expected no agents or skills, got agents=%v skills=%v", files.Agents, files.Skills)
+	}
+	if writtenPath != "/project/.claude/commands/foo.md" {
+		t.Errorf("unexpected write path %q", writtenPath)
+	}
+	if len(written) != 1 {
+		t.Fatalf("expected 1 InstalledFile, got %d", len(written))
+	}
+	if !strings.HasSuffix(written[0].Path, ".claude/commands/foo.md") {
+		t.Errorf("unexpected installed path %q", written[0].Path)
+	}
+	if written[0].XXH == "" {
+		t.Errorf("expected non-empty XXH hash")
+	}
+}

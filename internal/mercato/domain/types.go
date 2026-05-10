@@ -40,8 +40,9 @@ func (r MctRef) RelPath() string {
 }
 
 const (
-	EntryTypeAgent EntryType = "agent"
-	EntryTypeSkill EntryType = "skill"
+	EntryTypeAgent   EntryType = "agent"
+	EntryTypeSkill   EntryType = "skill"
+	EntryTypeCommand EntryType = "command"
 )
 
 type Market struct {

@@ -1154,3 +1154,44 @@ func TestSync_CallsRefreshAndUpdate(t *testing.T) {
 		t.Errorf("expected Refresh.NewSHA=newhash, got %q", r.Refresh.NewSHA)
 	}
 }
+
+func TestCommandFileRepoPath(t *testing.T) {
+	a := &App{}
+	cases := []struct {
+		profile, command, want string
+	}{
+		{"dev/go", "foo.md", "dev/go/commands/foo.md"},
+		{"", "foo.md", "commands/foo.md"},
+	}
+	for _, tc := range cases {
+		got := a.commandFileRepoPath(tc.profile, tc.command)
+		if got != tc.want {
+			t.Errorf("commandFileRepoPath(%q, %q) = %q, want %q", tc.profile, tc.command, got, tc.want)
+		}
+	}
+}
+
+func TestPackageFileRefs_IncludesCommands(t *testing.T) {
+	a := &App{}
+	pkg := domain.InstalledPackage{
+		Profile: "dev/go",
+		Files: domain.InstalledFiles{
+			Skills:   []string{"s1"},
+			Agents:   []string{"a1.md"},
+			Commands: []string{"c1.md"},
+		},
+	}
+	refs := a.packageFileRefs("market", pkg)
+
+	want := map[string]bool{
+		"market@dev/go/skills/s1/SKILL.md": true,
+		"market@dev/go/agents/a1.md":       true,
+		"market@dev/go/commands/c1.md":     true,
+	}
+	for _, r := range refs {
+		delete(want, string(r))
+	}
+	if len(want) > 0 {
+		t.Errorf("missing refs: %v (got %v)", want, refs)
+	}
+}

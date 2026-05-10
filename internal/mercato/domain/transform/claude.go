@@ -16,6 +16,9 @@ func (t *ClaudeTransformer) OutputPath(entry domain.Entry) string {
 	if entry.Type == domain.EntryTypeAgent {
 		return ".claude/agents/" + name + ".md"
 	}
+	if entry.Type == domain.EntryTypeCommand {
+		return ".claude/commands/" + name + ".md"
+	}
 	return ".claude/skills/" + name + "/SKILL.md"
 }
 

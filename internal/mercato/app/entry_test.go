@@ -2021,3 +2021,62 @@ func TestAdd_DepResolution_FlatSkillsOnly(t *testing.T) {
 		t.Errorf("expected dep to resolve to %q (repo-rooted), paths read: %v", barPath, pathsRead)
 	}
 }
+
+func TestInferEntryType_Command(t *testing.T) {
+	cases := []struct {
+		relPath  string
+		expected domain.EntryType
+	}{
+		{"commands/foo.md", domain.EntryTypeCommand},
+		{"dev/go/commands/foo.md", domain.EntryTypeCommand},
+		{"commands/sub/foo.md", domain.EntryTypeCommand},
+		{"agents/foo.md", domain.EntryTypeAgent},
+		{"skills/bar/SKILL.md", domain.EntryTypeSkill},
+		{"docs/notes.md", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.relPath, func(t *testing.T) {
+			got := inferEntryType(tc.relPath)
+			if got != tc.expected {
+				t.Errorf("inferEntryType(%q) = %q, want %q", tc.relPath, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestResolveLocalPath_Command(t *testing.T) {
+	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, &filesystemtest.MockFilesystem{}, &statestoretest.MockStateStore{})
+	cfg := domain.Config{LocalPath: ".claude"}
+
+	t.Run("flat command", func(t *testing.T) {
+		got, err := a.resolveLocalPath(cfg, "commands/foo.md")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		expected := filepath.Join(".claude", "commands", "foo.md")
+		if got != expected {
+			t.Errorf("expected %q, got %q", expected, got)
+		}
+	})
+
+	t.Run("hierarchical command", func(t *testing.T) {
+		got, err := a.resolveLocalPath(cfg, "dev/go/commands/foo.md")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		expected := filepath.Join(".claude", "commands", "foo.md")
+		if got != expected {
+			t.Errorf("expected %q, got %q", expected, got)
+		}
+	})
+
+	t.Run("traversal blocked", func(t *testing.T) {
+		_, err := a.resolveLocalPath(cfg, "../commands/foo.md")
+		if err == nil {
+			t.Fatal("expected UNSAFE_PATH error")
+		}
+		if !isDomainErrorWithCode(err, "UNSAFE_PATH") {
+			t.Errorf("expected UNSAFE_PATH error, got %v", err)
+		}
+	})
+}

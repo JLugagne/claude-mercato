@@ -132,6 +132,17 @@ func (a *App) agentFileRepoPath(profile, agent string) string {
 	return "agents/" + agent
 }
 
+// commandFileRepoPath derives the repo-relative path for a command file given a
+// package profile and the command filename.
+// Profile "dev/go" + command "foo.md" -> "dev/go/commands/foo.md"
+// Profile ""       + command "foo.md" -> "commands/foo.md"
+func (a *App) commandFileRepoPath(profile, command string) string {
+	if profile != "" {
+		return profile + "/commands/" + command
+	}
+	return "commands/" + command
+}
+
 // skillDirRepoPath returns the repo-relative directory path for a skill,
 // accounting for profiles that are themselves skill directories.
 // Profile "dev/go"        + skill "bar" -> "dev/go/skills/bar"
@@ -143,13 +154,17 @@ func (a *App) skillDirRepoPath(profile, skill string) string {
 
 // packageFileRefs returns all MctRefs for the files in an installed package.
 func (a *App) packageFileRefs(market string, pkg domain.InstalledPackage) []domain.MctRef {
-	refs := make([]domain.MctRef, 0, len(pkg.Files.Skills)+len(pkg.Files.Agents))
+	refs := make([]domain.MctRef, 0, len(pkg.Files.Skills)+len(pkg.Files.Agents)+len(pkg.Files.Commands))
 	for _, skill := range pkg.Files.Skills {
 		repoPath := a.skillFileRepoPath(pkg.Profile, skill, "SKILL.md")
 		refs = append(refs, domain.MctRef(market+"@"+repoPath))
 	}
 	for _, agent := range pkg.Files.Agents {
 		repoPath := a.agentFileRepoPath(pkg.Profile, agent)
+		refs = append(refs, domain.MctRef(market+"@"+repoPath))
+	}
+	for _, cmd := range pkg.Files.Commands {
+		repoPath := a.commandFileRepoPath(pkg.Profile, cmd)
 		refs = append(refs, domain.MctRef(market+"@"+repoPath))
 	}
 	return refs

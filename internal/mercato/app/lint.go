@@ -35,6 +35,7 @@ type lintProfileData struct {
 	skills    []string
 	hasReadme bool
 	hasTags   bool
+	commands  []string
 }
 
 type lintAgentDeps struct {
@@ -112,6 +113,12 @@ func walkMarketEntries(fsys fs.FS, dir string, result *service.LintResult) (lint
 		case domain.EntryTypeSkill:
 			pd.skills = append(pd.skills, rel)
 			w.knownPaths[rel] = struct{}{}
+		case domain.EntryTypeCommand:
+			pd.commands = append(pd.commands, rel)
+			w.knownPaths[rel] = struct{}{}
+			if len(fm.RequiresSkills) > 0 {
+				w.agentDeps = append(w.agentDeps, lintAgentDeps{agentRel: rel, deps: fm.RequiresSkills})
+			}
 		default:
 			result.Issues = append(result.Issues, service.LintIssue{
 				Profile:  profile,

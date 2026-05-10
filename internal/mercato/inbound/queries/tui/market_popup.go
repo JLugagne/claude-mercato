@@ -158,6 +158,7 @@ type marketStats struct {
 	profiles int
 	agents   int
 	skills   int
+	commands int
 }
 
 func (m *AppModel) recomputeMarketStats() {
@@ -176,6 +177,8 @@ func (m *AppModel) recomputeMarketStats() {
 			ms.agents++
 		case domain.EntryTypeSkill:
 			ms.skills++
+		case domain.EntryTypeCommand:
+			ms.commands++
 		}
 		stats[e.Market] = ms
 	}
@@ -216,7 +219,7 @@ func (m AppModel) viewMarketPopup() string {
 			s += cursor + check + " " + nameStyle.Render(mk.Name) + "\n"
 			s += "      " + muted.Render(mk.URL) + "\n"
 			if ms, ok := stats[mk.Name]; ok {
-				s += "      " + muted.Render(fmt.Sprintf("%d profiles  %d agents  %d skills", ms.profiles, ms.agents, ms.skills)) + "\n"
+				s += "      " + muted.Render(fmt.Sprintf("%d profiles  %d agents  %d skills  %d commands", ms.profiles, ms.agents, ms.skills, ms.commands)) + "\n"
 			}
 		}
 	}

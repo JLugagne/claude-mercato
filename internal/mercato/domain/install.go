@@ -48,8 +48,9 @@ type InstalledFile struct {
 // This is package-level metadata used to drive sync diffs and refs; the
 // authoritative on-disk file list lives in InstalledLocation.Files.
 type InstalledFiles struct {
-	Skills []string `json:"skills,omitempty"`
-	Agents []string `json:"agents,omitempty"`
+	Skills   []string `json:"skills,omitempty"`
+	Agents   []string `json:"agents,omitempty"`
+	Commands []string `json:"commands,omitempty"`
 }
 
 // FindPackage returns a pointer to the installed package for the given market
@@ -174,10 +175,13 @@ func MergeLocationFiles(existing, incoming []InstalledFile) []InstalledFile {
 
 // MergePackageFiles returns the union of existing and incoming leaf-name
 // lists. Used alongside MergeLocationFiles for incremental adds.
+// MergePackageFiles returns the union of existing and incoming leaf-name
+// lists. Used alongside MergeLocationFiles for incremental adds.
 func MergePackageFiles(existing, incoming InstalledFiles) InstalledFiles {
 	out := InstalledFiles{
-		Skills: append([]string(nil), existing.Skills...),
-		Agents: append([]string(nil), existing.Agents...),
+		Skills:   append([]string(nil), existing.Skills...),
+		Agents:   append([]string(nil), existing.Agents...),
+		Commands: append([]string(nil), existing.Commands...),
 	}
 	for _, s := range incoming.Skills {
 		if !slices.Contains(out.Skills, s) {
@@ -187,6 +191,11 @@ func MergePackageFiles(existing, incoming InstalledFiles) InstalledFiles {
 	for _, a := range incoming.Agents {
 		if !slices.Contains(out.Agents, a) {
 			out.Agents = append(out.Agents, a)
+		}
+	}
+	for _, c := range incoming.Commands {
+		if !slices.Contains(out.Commands, c) {
+			out.Commands = append(out.Commands, c)
 		}
 	}
 	return out

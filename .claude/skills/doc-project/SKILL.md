@@ -66,9 +66,12 @@ Format is auto-detected on `market add`. The first two path segments form a "pro
 ### Entry Type Inference
 
 Determined by path convention, not declaration:
-- `.md` file under `agents/` → Agent
-- `SKILL.md` under `skills/<name>/` → Skill
+- `.md` file under `agents/` → Agent (installed to `.claude/agents/<name>.md`)
+- `SKILL.md` under `skills/<name>/` → Skill (installed to `.claude/skills/<name>/`)
+- `.md` file under `commands/` → Command (installed to `.claude/commands/<name>.md`)
 - Everything else → Ignored by mct
+
+Commands are flat single-file entries (like agents), Claude-Code-specific — other transform targets (codex, gemini, etc.) skip them. Commands support `requires_skills` in frontmatter, resolved via the same dependency engine as skills.
 
 ### Dependency Resolution
 
@@ -153,7 +156,7 @@ any leftover `committing` staging dirs from a previous crashed run.
 ## Key Concepts
 
 - **Market** — A Git repo containing agent/skill definitions in a hierarchical or flat layout
-- **Entry** — An agent (.md file under `agents/`) or skill (`SKILL.md` under `skills/<name>/`)
+- **Entry** — An agent (.md file under `agents/`), skill (`SKILL.md` under `skills/<name>/`), or command (.md file under `commands/`)
 - **Profile** — First two path segments group entries (e.g., `dev/go`)
 - **MctRef** — Canonical reference in `market@path` format
 - **Drift** — Local modifications detected via xxhash comparison against upstream

@@ -19,46 +19,40 @@ import (
 )
 
 type AppModel struct {
-	svc    TUIServices
-	mode   Mode
-	focus  Focus
-	width  int
-	height int
-
-	profilesList list.Model
-	detailView   viewport.Model
-	entriesList  list.Model
-	contentView  viewport.Model
-
-	searchInput textinput.Model
-	cmdInput    textinput.Model
-	spinner     spinner.Model
-
-	allEntries      []EntryItem
-	filteredEntries []EntryItem
-	allProfiles     []ProfileItem
-	searchQuery     string
-
+	svc                  TUIServices
+	mode                 Mode
+	focus                Focus
+	width                int
+	height               int
+	profilesList         list.Model
+	detailView           viewport.Model
+	entriesList          list.Model
+	contentView          viewport.Model
+	searchInput          textinput.Model
+	cmdInput             textinput.Model
+	spinner              spinner.Model
+	allEntries           []EntryItem
+	filteredEntries      []EntryItem
+	allProfiles          []ProfileItem
+	searchQuery          string
 	selectedEntryContent string
 	selectedEntryRef     domain.MctRef
 	statusByRef          map[domain.MctRef]domain.EntryState
 	skillsOnlyMarkets    map[string]bool
 	skillDirFiles        []domain.SkillDirFile
 	skillDirMarket       string // market of the currently loaded skill dir files
-
-	marketPopup    MarketPopup
-	cachedMktStats map[string]marketStats
-	detailGen      *atomic.Int64 // generation counter to skip stale detail renders
-	contentGen     *atomic.Int64 // generation counter to skip stale content renders
-
-	profileAction       string // "install" or "remove"
-	profileActionTarget ProfileItem
-
-	loading      bool
-	loadingPhase string
-	searching    bool
-	statusMsg    string
-	updateNotice string // set when a new mct version is available
+	marketPopup          MarketPopup
+	cachedMktStats       map[string]marketStats
+	detailGen            *atomic.Int64 // generation counter to skip stale detail renders
+	contentGen           *atomic.Int64 // generation counter to skip stale content renders
+	profileAction        string        // "install" or "remove"
+	profileActionTarget  ProfileItem
+	loading              bool
+	loadingPhase         string
+	searching            bool
+	statusMsg            string
+	updateNotice         string // set when a new mct version is available
+	typeFilter           domain.EntryType
 }
 
 func NewAppModel(svc TUIServices) AppModel {
@@ -383,6 +377,10 @@ func (m *AppModel) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.refreshCmd()
 	case "R":
 		return m, m.refreshAllCmd()
+	case "t":
+		m.typeFilter = nextTypeFilter(m.typeFilter)
+		m.updateEntriesList()
+		return m, nil
 	case "m":
 		m.mode = ModeMarketPopup
 		markets, _ := m.svc.Markets.ListMarkets()
@@ -655,11 +653,24 @@ func (m *AppModel) updateEntriesList() {
 		m.entriesList.SetItems(items)
 		return
 	}
-	m.entriesList.Title = "Agents & Skills"
 
-	items := make([]list.Item, len(item.Entries))
-	for i, e := range item.Entries {
-		items[i] = EntryItem{Entry: e}
+	title := "Agents, Skills & Commands"
+	switch m.typeFilter {
+	case domain.EntryTypeAgent:
+		title = "Agents"
+	case domain.EntryTypeSkill:
+		title = "Skills"
+	case domain.EntryTypeCommand:
+		title = "Commands"
+	}
+	m.entriesList.Title = title
+
+	items := make([]list.Item, 0, len(item.Entries))
+	for _, e := range item.Entries {
+		if m.typeFilter != "" && e.Type != m.typeFilter {
+			continue
+		}
+		items = append(items, EntryItem{Entry: e})
 	}
 	m.entriesList.SetItems(items)
 }
@@ -1055,4 +1066,18 @@ func RunTUI(svc TUIServices, updateAvailable bool, latestVersion string) error {
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
+}
+
+// nextTypeFilter cycles through: "" (all) -> agent -> skill -> command -> "" (all).
+func nextTypeFilter(current domain.EntryType) domain.EntryType {
+	switch current {
+	case "":
+		return domain.EntryTypeAgent
+	case domain.EntryTypeAgent:
+		return domain.EntryTypeSkill
+	case domain.EntryTypeSkill:
+		return domain.EntryTypeCommand
+	default:
+		return ""
+	}
 }

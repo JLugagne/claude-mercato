@@ -92,8 +92,27 @@ func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
 				}
 				entries = append(entries, entry)
 			}
+			for _, cmd := range pkg.Files.Commands {
+				repoPath := a.commandFileRepoPath(pkg.Profile, cmd)
+				ref := domain.MctRef(im.Market + "@" + repoPath)
+				entry := domain.Entry{
+					Ref:       ref,
+					Market:    im.Market,
+					RelPath:   repoPath,
+					Filename:  cmd,
+					Type:      domain.EntryTypeCommand,
+					Version:   domain.MctVersion(pkg.Version),
+					Profile:   pkg.Profile,
+					Installed: true,
+				}
+				if opts.Type != "" && entry.Type != opts.Type {
+					continue
+				}
+				entries = append(entries, entry)
+			}
 		}
 	}
+
 	return entries, nil
 }
 
@@ -468,6 +487,15 @@ func (a *App) installEntryFiles(w txWriter, clonePath, branch, relPath, localPat
 			Path: projectRel(localPath),
 			XXH:  xxhashHex(content),
 		})
+	} else if entryType == domain.EntryTypeCommand {
+		if err := w.WriteFile(localPath, content); err != nil {
+			return files, written, err
+		}
+		files.Commands = append(files.Commands, filepath.Base(relPath))
+		written = append(written, domain.InstalledFile{
+			Path: projectRel(localPath),
+			XXH:  xxhashHex(content),
+		})
 	} else {
 		if err := w.WriteFile(localPath, content); err != nil {
 			return files, written, err
@@ -723,6 +751,13 @@ func fileInPackage(relPath string, files domain.InstalledFiles) bool {
 				return true
 			}
 		}
+	case domain.EntryTypeCommand:
+		name := filepath.Base(relPath)
+		for _, c := range files.Commands {
+			if c == name {
+				return true
+			}
+		}
 	case domain.EntryTypeSkill:
 		var name string
 		if isDirBasedSkill(relPath) {
@@ -920,6 +955,11 @@ func (a *App) deleteInstalledFiles(w txWriter, localPath string, files domain.In
 	}
 	for _, agent := range files.Agents {
 		if err := w.DeleteFile(filepath.Join(localPath, "agents", agent)); err != nil {
+			return err
+		}
+	}
+	for _, cmd := range files.Commands {
+		if err := w.DeleteFile(filepath.Join(localPath, "commands", cmd)); err != nil {
 			return err
 		}
 	}
@@ -1156,6 +1196,9 @@ func (a *App) resolveLocalPath(cfg domain.Config, relPath string) (string, error
 		if p == "agents" {
 			return filepath.Join(cfg.LocalPath, p, filename), nil
 		}
+		if p == "commands" {
+			return filepath.Join(cfg.LocalPath, p, filename), nil
+		}
 		if p == "skills" {
 			// For directory-based skills: return <localPath>/skills/<skillname>/
 			if i+2 < len(parts) {
@@ -1194,6 +1237,8 @@ func inferEntryType(relPath string) domain.EntryType {
 			return domain.EntryTypeAgent
 		case "skills":
 			return domain.EntryTypeSkill
+		case "commands":
+			return domain.EntryTypeCommand
 		}
 	}
 	return ""
