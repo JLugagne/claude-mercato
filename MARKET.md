@@ -1,6 +1,6 @@
 # Creating a Market
 
-A market is a Git repository with a specific directory structure. `mct` indexes it to let users discover, install, and update agent and skill definitions — and to **transform** them into the native format of any supported AI coding tool (Claude Code, Cursor, Windsurf, Codex, Gemini, OpenCode, Copilot, Continue, Supermaven, PearAI, RooCode).
+A market is a Git repository with a specific directory structure. `mct` indexes it to let users discover, install, and update agent, skill, slash command, and Claude Code hook definitions — and to **transform** them into the native format of any supported AI coding tool (Claude Code, Cursor, Windsurf, Codex, Gemini, OpenCode, Copilot, Continue, Supermaven, PearAI, RooCode).
 
 `mct` supports two repository formats: the **mct market format** (hierarchical, with profiles) and the **skills-only format** (flat, for pure skill collections). When you register a repository, `mct` auto-detects which format it uses.
 
@@ -23,6 +23,10 @@ your-market/
         helper-skill/
           SKILL.md            # Skill definition
           other-file.txt      # Additional files (bundled with the skill)
+      commands/
+        my-command.md        # Slash command definition (Claude Code only)
+      hooks/
+        go-vet.json          # Hook snippet (merged into .claude/settings.json)
   profile-b/
     category-y/
       README.md
@@ -37,17 +41,26 @@ Key rules:
 
 - Agent files must be `.md` and live under an `agents/` directory.
 - Skill definitions use a directory structure: `skills/<name>/SKILL.md`. All files in the skill directory are bundled — not just `SKILL.md`.
+- Command files must be `.md` and live under a `commands/` directory. Slash commands are Claude-Code-specific; other tools silently skip them on install.
+- Hook snippets must be `.json` and live under a `hooks/` directory. Hooks are merged into `.claude/settings.json` rather than copied as files; they are Claude-Code-specific.
 - The first two path segments form the **profile** (e.g. `profile-a/category-x`).
 - A `README.md` at the profile level (`profile/category/README.md`) provides metadata for all entries in that profile.
 - Everything else is ignored by `mct`.
 
 ### Entry type inference
 
-The entry type (agent or skill) is **inferred from the path**, not declared in frontmatter. Any `.md` file under an `agents/` directory is an agent. A `SKILL.md` file under `skills/<name>/` is a skill. If `mct` cannot determine the type from the path, the file is ignored (and `mct lint` will flag it as an error).
+The entry type is **inferred from the path**, not declared in frontmatter:
+
+- `.md` file under `agents/` → **Agent**
+- `SKILL.md` (or any `.md`) under `skills/<name>/` → **Skill**
+- `.md` file under `commands/` → **Command**
+- `.json` file under `hooks/` → **Hook**
+
+If `mct` cannot determine the type from the path, the file is ignored (and `mct lint` will flag it as an error).
 
 ### Entry frontmatter
 
-Every agent or skill file must start with YAML frontmatter delimited by `---`:
+Every agent, skill, or command file must start with YAML frontmatter delimited by `---` (hooks are JSON snippets and have no frontmatter — see [Hook snippets](#hook-snippets) below):
 
 ```yaml
 ---
@@ -75,7 +88,7 @@ Your agent/skill prompt content here...
 
 ### Skill dependencies
 
-An agent or skill can declare that it requires other skills. When a user installs this entry, `mct` auto-installs all required skills — with cycle detection to prevent infinite loops.
+An agent, skill, or command can declare that it requires other skills. When a user installs this entry, `mct` auto-installs all required skills — with cycle detection to prevent infinite loops.
 
 ```yaml
 ---
@@ -147,7 +160,7 @@ Users can install an entire profile in one command:
 mct add acme/agents@dev/go
 ```
 
-This installs all agents and skills under the `dev/go` profile. Already-installed entries are skipped.
+This installs all agents, skills, commands, and hooks under the `dev/go` profile. Already-installed entries are skipped.
 
 ### Example market
 
@@ -164,6 +177,10 @@ acme-market/
           SKILL.md
         go-lint/
           SKILL.md
+      commands/
+        ship.md
+      hooks/
+        go-vet-pre-tool.json
     python/
       README.md
       agents/
@@ -178,7 +195,89 @@ acme-market/
         dockerfile-writer.md
 ```
 
-This market has 3 profiles (`dev/go`, `dev/python`, `ops/docker`) containing 5 agents and 3 skills.
+This market has 3 profiles (`dev/go`, `dev/python`, `ops/docker`) containing 5 agents, 3 skills, 1 command, and 1 hook.
+
+---
+
+## Commands
+
+Slash commands are markdown files under a `commands/` directory in any profile (or at the repo root in a flat market). They appear as `/command-name` inside Claude Code.
+
+```
+my-market/
+  dev/go/
+    commands/
+      review.md
+      ship.md
+```
+
+Command files use the same YAML frontmatter as agents and skills, including optional `requires_skills`:
+
+```markdown
+---
+description: Run the project's pre-flight checks before shipping
+requires_skills:
+  - file: skills/go-test/SKILL.md
+---
+
+Run `go test ./...`, `go vet ./...`, and `golangci-lint run` and report failures.
+```
+
+When installed, a command is copied to `.claude/commands/<filename>.md` in the target project. Required skills are resolved and installed alongside.
+
+**Commands are Claude-Code-specific.** Other transform targets (Cursor, Codex, Gemini, etc.) silently skip command entries.
+
+---
+
+## Hooks
+
+Hooks let a market distribute Claude Code hook configurations (e.g. an auto-`go vet` before every Bash tool call). They live as `.json` files under a `hooks/` directory:
+
+```
+my-market/
+  dev/go/
+    hooks/
+      go-vet-pre-tool.json
+      lint-on-stop.json
+```
+
+### Hook snippets
+
+Each file is a JSON snippet describing a single hook configuration:
+
+```json
+{
+  "event": "PreToolUse",
+  "matcher": "Bash",
+  "hooks": [
+    { "type": "command", "command": "go vet ./..." }
+  ]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `event` | yes | The Claude Code lifecycle event (e.g. `PreToolUse`, `PostToolUse`, `Stop`, `UserPromptSubmit`) |
+| `matcher` | no | Tool-name matcher; empty matcher acts as wildcard |
+| `hooks` | yes | Array of hook objects (each must have at least `type`) |
+
+### Install behavior
+
+Hooks are **not** copied as files. On `mct add`, `mct` reads the snippet, injects an `mct_id` field (xxhash of the ref) into every hook object, and **merges** them into `.claude/settings.json` under `hooks[<event>]`. All other settings.json keys are preserved verbatim.
+
+On `mct remove`, only the entries whose `mct_id` matches the recorded ref are spliced out — user-authored hooks and hooks from other markets stay untouched.
+
+### Drift detection
+
+`mct check` finds the recorded `mct_id` in the live settings.json and compares the canonical body checksum (with `mct_id` excluded) against the value recorded at install. User reformatting (key reorder, whitespace) does not register as drift; command edits do.
+
+### Conflicts
+
+If two markets provide hooks with the same `(event, matcher)` pair, the second install is rejected with `CONFLICT_HOOK_EVENT_MATCHER`. Hooks are intentionally `(event, matcher)`-unique across markets.
+
+**Hooks are Claude-Code-specific.** Other transform targets silently skip them.
+
+> Note: `mct hook install` (the existing CLI command) installs **git** hooks for save/restore automation. That is unrelated to the `hook` entry type described here.
 
 ---
 
@@ -222,21 +321,21 @@ When a user runs `mct add`, the entry is converted into the native format of eve
 
 ### Output paths and capabilities
 
-| Tool       | Agents | Skills | Output path                                                       |
-| ---------- | :----: | :----: | ----------------------------------------------------------------- |
-| Claude     |   ✓    |   ✓    | `.claude/agents/<name>.md`, `.claude/skills/<name>/SKILL.md`      |
-| Cursor     |        |   ✓    | `.cursor/rules/<name>.mdc`                                        |
-| Windsurf   |        |   ✓    | `.windsurf/rules/<name>.md`                                       |
-| Codex      |        |   ✓    | `.codex/skills/<name>/SKILL.md`                                   |
-| Gemini     |        |   ✓    | `.gemini/rules/<name>.md`                                         |
-| OpenCode   |   ✓    |   ✓    | `.opencode/agents/<name>.md`, `.opencode/skills/<name>/SKILL.md`  |
-| Copilot    |        |   ✓    | `.github/copilot-instructions.md`                                 |
-| Continue   |        |   ✓    | `.continue/rules/<name>.md`                                       |
-| Supermaven |        |   ✓    | `.supermavenrules`                                                |
-| PearAI     |        |   ✓    | `.peairules`                                                      |
-| RooCode    |        |   ✓    | `.roocode.rules`                                                  |
+| Tool       | Agents | Skills | Commands | Hooks | Output path                                                       |
+| ---------- | :----: | :----: | :------: | :---: | ----------------------------------------------------------------- |
+| Claude     |   ✓    |   ✓    |    ✓     |   ✓   | `.claude/agents/<name>.md`, `.claude/skills/<name>/SKILL.md`, `.claude/commands/<name>.md`, merged into `.claude/settings.json` |
+| Cursor     |        |   ✓    |          |       | `.cursor/rules/<name>.mdc`                                        |
+| Windsurf   |        |   ✓    |          |       | `.windsurf/rules/<name>.md`                                       |
+| Codex      |        |   ✓    |          |       | `.codex/skills/<name>/SKILL.md`                                   |
+| Gemini     |        |   ✓    |          |       | `.gemini/rules/<name>.md`                                         |
+| OpenCode   |   ✓    |   ✓    |          |       | `.opencode/agents/<name>.md`, `.opencode/skills/<name>/SKILL.md`  |
+| Copilot    |        |   ✓    |          |       | `.github/copilot-instructions.md`                                 |
+| Continue   |        |   ✓    |          |       | `.continue/rules/<name>.md`                                       |
+| Supermaven |        |   ✓    |          |       | `.supermavenrules`                                                |
+| PearAI     |        |   ✓    |          |       | `.peairules`                                                      |
+| RooCode    |        |   ✓    |          |       | `.roocode.rules`                                                  |
 
-Tools that don't support agents skip agent entries with a warning (e.g. installing an agent with `tools.cursor` enabled produces a `cursor does not support agents` warning).
+Tools that don't support agents skip agent entries with a warning (e.g. installing an agent with `tools.cursor` enabled produces a `cursor does not support agents` warning). Commands and hooks are Claude-Code-specific and are silently skipped by every other tool.
 
 ### Frontmatter conversion
 

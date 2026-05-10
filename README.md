@@ -1,8 +1,8 @@
-# mct — A package manager for AI coding agents and skills
+# mct — A package manager for AI coding agents, skills, commands, and hooks
 
-Think **npm**, but for the agents and skills consumed by Claude Code, Cursor, Windsurf, Codex, Gemini, OpenCode, Copilot, and more.
+Think **npm**, but for the agents, skills, slash commands, and Claude Code hooks consumed by Claude Code, Cursor, Windsurf, Codex, Gemini, OpenCode, Copilot, and more.
 
-Install, share, version, and sync agent and skill definitions across your team, your machines, your CI — and across **multiple AI tools at once** — from any Git repository.
+Install, share, version, and sync agent, skill, command, and hook definitions across your team, your machines, your CI — and across **multiple AI tools at once** — from any Git repository.
 
 <p align="center">
   <img src="docs/screenshot-tui.png" width="700" alt="mct TUI" />
@@ -29,10 +29,10 @@ That's what `mct` does.
 
 ## The solution
 
-`mct` treats Git repositories as **markets** — sources of agent and skill definitions — and installs them into your project. Each entry is **transformed** at install time into the native format of every AI tool you've enabled.
+`mct` treats Git repositories as **markets** — sources of agent, skill, command, and hook definitions — and installs them into your project. Each entry is **transformed** at install time into the native format of every AI tool you've enabled (or, for hooks, merged into `.claude/settings.json`).
 
 - **Markets** are Git repos you register as sources
-- **Entries** (agents, skills) are installed from markets
+- **Entries** (agents, skills, slash commands, Claude Code hooks) are installed from markets
 - **Transformers** convert each entry into the correct format and location for every enabled tool (Claude, Cursor, Windsurf, Codex, Gemini, OpenCode, Copilot, Supermaven, PearAI, RooCode, Continue)
 - **Dependencies** between skills are resolved automatically
 - **Drift detection** knows when you've modified an installed file locally
@@ -135,21 +135,23 @@ mct dist-upgrade
 
 ## Supported tools
 
-| Tool       | Agents | Skills | Output location                        |
-| ---------- | :----: | :----: | -------------------------------------- |
-| Claude     |   ✓    |   ✓    | `.claude/agents/*.md`, `.claude/skills/<name>/SKILL.md` |
-| Cursor     |        |   ✓    | `.cursor/rules/<name>.mdc`             |
-| Windsurf   |        |   ✓    | `.windsurf/rules/<name>.md`            |
-| Codex      |        |   ✓    | `.codex/skills/<name>/SKILL.md`        |
-| Gemini     |        |   ✓    | `.gemini/rules/<name>.md`              |
-| OpenCode   |   ✓    |   ✓    | `.opencode/agents/`, `.opencode/skills/` |
-| Copilot    |        |   ✓    | `.github/copilot-instructions.md`      |
-| Continue   |        |   ✓    | `.continue/rules/<name>.md`            |
-| Supermaven |        |   ✓    | `.supermavenrules`                     |
-| PearAI     |        |   ✓    | `.peairules`                           |
-| RooCode    |        |   ✓    | `.roocode.rules`                       |
+| Tool       | Agents | Skills | Commands | Hooks | Output location                        |
+| ---------- | :----: | :----: | :------: | :---: | -------------------------------------- |
+| Claude     |   ✓    |   ✓    |    ✓     |   ✓   | `.claude/agents/*.md`, `.claude/skills/<name>/SKILL.md`, `.claude/commands/*.md`, merged into `.claude/settings.json` |
+| Cursor     |        |   ✓    |          |       | `.cursor/rules/<name>.mdc`             |
+| Windsurf   |        |   ✓    |          |       | `.windsurf/rules/<name>.md`            |
+| Codex      |        |   ✓    |          |       | `.codex/skills/<name>/SKILL.md`        |
+| Gemini     |        |   ✓    |          |       | `.gemini/rules/<name>.md`              |
+| OpenCode   |   ✓    |   ✓    |          |       | `.opencode/agents/`, `.opencode/skills/` |
+| Copilot    |        |   ✓    |          |       | `.github/copilot-instructions.md`      |
+| Continue   |        |   ✓    |          |       | `.continue/rules/<name>.md`            |
+| Supermaven |        |   ✓    |          |       | `.supermavenrules`                     |
+| PearAI     |        |   ✓    |          |       | `.peairules`                           |
+| RooCode    |        |   ✓    |          |       | `.roocode.rules`                       |
 
 Only `claude` is enabled by default. Enable others with `mct config set tools.<name> true`.
+
+**Commands and hooks are Claude-Code-specific.** Other tools silently skip them. Hooks are JSON snippets merged into `.claude/settings.json` under the `hooks` key (rather than copied as files); each entry receives a deterministic `mct_id` so removal targets only mct-installed hooks and leaves user-authored entries untouched.
 
 ## Core commands
 
@@ -162,7 +164,7 @@ mct market set <name> <key> <val> # update a market property (e.g. branch)
 mct market remove <name>
 
 # Install / remove entries
-mct add <market>/<path>           # install an agent or skill (with deps)
+mct add <market>/<path>           # install an agent, skill, command, or hook (with deps)
 mct add <market>@<profile>        # install all entries in a profile
 mct add <ref> --dry-run
 mct remove --ref <market>/<path>
@@ -177,6 +179,7 @@ mct prune                         # handle entries deleted upstream
 # Search
 mct search "security review"
 mct search "cli" --type skill --installed
+mct search "vet" --type hook
 
 # Configuration
 mct config get                    # show current config
@@ -189,7 +192,7 @@ mct restore                       # reinstall everything from .mct.json
 mct export setup.json             # export full setup (markets + entries)
 mct import setup.json
 
-# Git hooks
+# Git hooks (save/restore automation — distinct from Claude Code hook entries)
 mct hook install post-pull        # auto-restore after git pull
 mct hook install pre-push         # auto-save .mct.json before push
 mct hook uninstall <name>
