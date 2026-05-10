@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -112,7 +113,9 @@ func TestCheck_Clean(t *testing.T) {
 	}
 }
 
-// TestCheck_Drift verifies that modified local files produce StateDrift.
+// TestCheck_Drift verifies that a locally-modified file (present on disk
+// but with a different content hash than recorded) produces StateDrift via
+// the v2 per-location hash path.
 func TestCheck_Drift(t *testing.T) {
 	cfg := &configstoretest.MockConfigStore{
 		LoadFn: func(path string) (domain.Config, error) {
@@ -126,19 +129,34 @@ func TestCheck_Drift(t *testing.T) {
 		RemoteHEADFn: func(clonePath, branch string) (string, error) {
 			return "abc123", nil // same version => no update available
 		},
-		// ReadFileAtRef will fail => drift detection sees missing local file as drift
-		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
-			return []byte("original content"), nil
+	}
+	// File exists on disk but its hash will not match the recorded XXH.
+	fsMock := &filesystemtest.MockFilesystem{
+		ReadFileFn: func(name string) ([]byte, error) {
+			return []byte("locally modified"), nil
 		},
 	}
-	// MD5 returns different hashes to simulate drift. But since detectDrift
-	// uses os.ReadFile for local files, and the files don't actually exist on
-	// disk in test, the os.ReadFile will fail and that counts as drift.
-	fsMock := &filesystemtest.MockFilesystem{
-		MD5ChecksumFn: func(content []byte) string { return "hash" },
-	}
 
-	db := installedDB("mkt", "agents/foo.md", "abc123", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	db := domain.InstallDatabase{
+		Markets: []domain.InstalledMarket{
+			{Market: "mkt", Packages: []domain.InstalledPackage{
+				{
+					Profile: "agents/foo.md",
+					Version: "abc123",
+					Files:   domain.InstalledFiles{Agents: []string{"foo.md"}},
+					Locations: []domain.InstalledLocation{
+						{
+							Path: testProjectPath(),
+							Type: domain.RuntimeTypeClaudeCode,
+							Files: []domain.InstalledFile{
+								{Path: ".claude/agents/foo.md", XXH: "originalhash"},
+							},
+						},
+					},
+				},
+			}},
+		},
+	}
 	idb := idbWithData(db)
 
 	app := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
@@ -151,6 +169,171 @@ func TestCheck_Drift(t *testing.T) {
 	}
 	if statuses[0].State != domain.StateDrift {
 		t.Errorf("expected StateDrift, got %v", statuses[0].State)
+	}
+}
+
+// TestCheck_LocallyDeleted verifies that a file recorded as installed but
+// missing from disk produces StateLocallyDeleted (not StateDrift).
+func TestCheck_LocallyDeleted(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
+			}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "abc123", nil // same version => no update available
+		},
+	}
+	// All ReadFile calls report ENOENT — file vanished from disk.
+	fsMock := &filesystemtest.MockFilesystem{
+		ReadFileFn: func(name string) ([]byte, error) {
+			return nil, &fs.PathError{Op: "open", Path: name, Err: os.ErrNotExist}
+		},
+	}
+
+	db := domain.InstallDatabase{
+		Markets: []domain.InstalledMarket{
+			{Market: "mkt", Packages: []domain.InstalledPackage{
+				{
+					Profile: "agents/foo.md",
+					Version: "abc123",
+					Files:   domain.InstalledFiles{Agents: []string{"foo.md"}},
+					Locations: []domain.InstalledLocation{
+						{
+							Path: testProjectPath(),
+							Type: domain.RuntimeTypeClaudeCode,
+							Files: []domain.InstalledFile{
+								{Path: ".claude/agents/foo.md", XXH: "originalhash"},
+							},
+						},
+					},
+				},
+			}},
+		},
+	}
+	idb := idbWithData(db)
+
+	app := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
+	statuses, err := app.Check(service.CheckOpts{})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("expected 1 status, got %d", len(statuses))
+	}
+	if statuses[0].State != domain.StateLocallyDeleted {
+		t.Errorf("expected StateLocallyDeleted, got %v", statuses[0].State)
+	}
+}
+
+// TestCheck_DriftWinsOverDeleted verifies that when a package has both
+// modified and deleted files, the state is StateDrift (modified takes
+// precedence — it carries more risk than a missing file).
+func TestCheck_DriftWinsOverDeleted(t *testing.T) {
+	cfg := &configstoretest.MockConfigStore{
+		LoadFn: func(path string) (domain.Config, error) {
+			return domain.Config{
+				LocalPath: ".claude",
+				Markets:   []domain.MarketConfig{{Name: "mkt", Branch: "main"}},
+			}, nil
+		},
+	}
+	git := &gitrepotest.MockGitRepo{
+		RemoteHEADFn: func(clonePath, branch string) (string, error) {
+			return "abc123", nil // same version
+		},
+	}
+	// File "foo.md" exists with bad hash; file "bar.md" is gone.
+	fsMock := &filesystemtest.MockFilesystem{
+		ReadFileFn: func(name string) ([]byte, error) {
+			if filepath.Base(name) == "foo.md" {
+				return []byte("modified"), nil
+			}
+			return nil, &fs.PathError{Op: "open", Path: name, Err: os.ErrNotExist}
+		},
+	}
+
+	db := domain.InstallDatabase{
+		Markets: []domain.InstalledMarket{
+			{Market: "mkt", Packages: []domain.InstalledPackage{
+				{
+					Profile: "agents/group",
+					Version: "abc123",
+					Files:   domain.InstalledFiles{Agents: []string{"foo.md", "bar.md"}},
+					Locations: []domain.InstalledLocation{
+						{
+							Path: testProjectPath(),
+							Type: domain.RuntimeTypeClaudeCode,
+							Files: []domain.InstalledFile{
+								{Path: ".claude/agents/foo.md", XXH: "originalhash"},
+								{Path: ".claude/agents/bar.md", XXH: "originalhash"},
+							},
+						},
+					},
+				},
+			}},
+		},
+	}
+	idb := idbWithData(db)
+
+	app := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)
+	statuses, err := app.Check(service.CheckOpts{})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	for _, s := range statuses {
+		if s.State != domain.StateDrift {
+			t.Errorf("expected StateDrift for %s, got %v", s.Ref, s.State)
+		}
+	}
+}
+
+// TestDetectDriftSplit_Categorizes verifies that detectDriftSplit splits
+// modified vs deleted correctly when called directly. Exercises the v2
+// per-location hash path which is shared across Check, Sync and (later) Doctor.
+func TestDetectDriftSplit_Categorizes(t *testing.T) {
+	fsMock := &filesystemtest.MockFilesystem{
+		ReadFileFn: func(name string) ([]byte, error) {
+			switch filepath.Base(name) {
+			case "kept.md":
+				return []byte("k"), nil // hash will match
+			case "modified.md":
+				return []byte("changed"), nil // hash will not match
+			default:
+				return nil, &fs.PathError{Op: "open", Path: name, Err: os.ErrNotExist}
+			}
+		},
+	}
+
+	pkg := domain.InstalledPackage{
+		Profile: "p",
+		Version: "v1",
+		Files:   domain.InstalledFiles{Agents: []string{"kept.md", "modified.md", "deleted.md"}},
+		Locations: []domain.InstalledLocation{
+			{
+				Path: "/proj",
+				Type: domain.RuntimeTypeClaudeCode,
+				Files: []domain.InstalledFile{
+					{Path: ".claude/agents/kept.md", XXH: xxhashHex([]byte("k"))},
+					{Path: ".claude/agents/modified.md", XXH: xxhashHex([]byte("original"))},
+					{Path: ".claude/agents/deleted.md", XXH: xxhashHex([]byte("anything"))},
+				},
+			},
+		},
+	}
+
+	app := newTestApp(nil, nil, fsMock, nil, nil)
+	modified, deleted := app.detectDriftSplit(pkg, "/proj", "/clone", "main")
+
+	if len(modified) != 1 || modified[0] != ".claude/agents/modified.md" {
+		t.Errorf("expected modified=[modified.md], got %v", modified)
+	}
+	if len(deleted) != 1 || deleted[0] != ".claude/agents/deleted.md" {
+		t.Errorf("expected deleted=[deleted.md], got %v", deleted)
 	}
 }
 
@@ -205,16 +388,34 @@ func TestCheck_UpdateAndDrift(t *testing.T) {
 		RemoteHEADFn: func(clonePath, branch string) (string, error) {
 			return "newsha456", nil // different from installed version => update available
 		},
-		ReadFileAtRefFn: func(clonePath, branch, filePath, commitSHA string) ([]byte, error) {
-			return []byte("original"), nil // drift detection succeeds, but local file differs
+	}
+	// File exists on disk but its hash will not match the recorded XXH.
+	fsMock := &filesystemtest.MockFilesystem{
+		ReadFileFn: func(name string) ([]byte, error) {
+			return []byte("locally modified"), nil
 		},
 	}
-	// detectDrift uses os.ReadFile for local files which will fail => drift detected
-	fsMock := &filesystemtest.MockFilesystem{
-		MD5ChecksumFn: func(content []byte) string { return "hash" },
-	}
 
-	db := installedDB("mkt", "agents/foo.md", "oldsha123", domain.InstalledFiles{Agents: []string{"foo.md"}})
+	db := domain.InstallDatabase{
+		Markets: []domain.InstalledMarket{
+			{Market: "mkt", Packages: []domain.InstalledPackage{
+				{
+					Profile: "agents/foo.md",
+					Version: "oldsha123",
+					Files:   domain.InstalledFiles{Agents: []string{"foo.md"}},
+					Locations: []domain.InstalledLocation{
+						{
+							Path: testProjectPath(),
+							Type: domain.RuntimeTypeClaudeCode,
+							Files: []domain.InstalledFile{
+								{Path: ".claude/agents/foo.md", XXH: "originalhash"},
+							},
+						},
+					},
+				},
+			}},
+		},
+	}
 	idb := idbWithData(db)
 
 	app := newTestApp(cfg, git, fsMock, &statestoretest.MockStateStore{}, idb)

@@ -106,6 +106,7 @@ const (
 	StateNewInRegistry
 	StateOrphaned
 	StateUnknown
+	StateLocallyDeleted
 )
 
 var entryStateNames = map[EntryState]string{
@@ -117,6 +118,7 @@ var entryStateNames = map[EntryState]string{
 	StateNewInRegistry:   "new",
 	StateOrphaned:        "orphaned",
 	StateUnknown:         "unknown",
+	StateLocallyDeleted:  "locally_deleted",
 }
 
 func (s EntryState) String() string {

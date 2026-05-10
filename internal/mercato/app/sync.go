@@ -13,27 +13,74 @@ import (
 
 // detectDrift compares installed files at a location against the cached clone
 // at the version recorded in installdb. Returns list of files that differ.
+// detectDrift compares installed files at a location against the cached clone
+// at the version recorded in installdb. Returns the union of modified and
+// locally-deleted files (legacy single-list view).
+//
+// New callers should prefer detectDriftSplit which returns the two
+// categories separately.
 func (a *App) detectDrift(pkg domain.InstalledPackage, location, clonePath, branch string) []string {
+	modified, deleted := a.detectDriftSplit(pkg, location, clonePath, branch)
+	if len(deleted) == 0 {
+		return modified
+	}
+	if len(modified) == 0 {
+		return deleted
+	}
+	return append(modified, deleted...)
+}
+
+// detectDriftSplit compares installed files at a location against the cached
+// clone at the version recorded in installdb. Returns two lists:
+//   - modified: files that exist on disk but whose content hash differs from
+//     what was recorded at install time
+//   - deleted: files that were recorded as installed but whose on-disk copy
+//     no longer exists (user-side deletion, not upstream removal)
+//
+// detectDriftSplit compares installed files at a location against the cached
+// clone at the version recorded in installdb. Returns two lists:
+//   - modified: files that exist on disk but whose content hash differs from
+//     what was recorded at install time
+//   - deleted: files that were recorded as installed but whose on-disk copy
+//     no longer exists (user-side deletion, not upstream removal)
+//
+// detectDriftSplit compares installed files at a location against the cached
+// clone at the version recorded in installdb. Returns two lists:
+//   - modified: files that exist on disk but whose content hash differs from
+//     what was recorded at install time
+//   - deleted: files that were recorded as installed but whose on-disk copy
+//     no longer exists (user-side deletion, not upstream removal)
+//
+// All filesystem reads go through a.fs so the behaviour is identical between
+// the v2 (per-location hash) and legacy (git-comparison) paths and stays
+// fully fakeable in tests.
+func (a *App) detectDriftSplit(pkg domain.InstalledPackage, location, clonePath, branch string) (modified, deleted []string) {
+	classify := func(path string, err error, target *[]string) {
+		if os.IsNotExist(err) {
+			deleted = append(deleted, path)
+		} else {
+			*target = append(*target, path)
+		}
+	}
+
 	// Prefer per-location file hashes (v2 schema). Fall back to git-comparison
 	// for legacy packages whose locations have no Files list yet.
 	loc := pkg.FindLocation(location)
 	if loc != nil && len(loc.Files) > 0 && loc.Type == domain.RuntimeTypeClaudeCode {
-		var drifted []string
 		for _, f := range loc.Files {
 			abs := filepath.Join(location, f.Path)
-			data, err := os.ReadFile(abs)
+			data, err := a.fs.ReadFile(abs)
 			if err != nil {
-				drifted = append(drifted, f.Path)
+				classify(f.Path, err, &modified)
 				continue
 			}
 			if xxhashHex(data) != f.XXH {
-				drifted = append(drifted, f.Path)
+				modified = append(modified, f.Path)
 			}
 		}
-		return drifted
+		return modified, deleted
 	}
 
-	var drifted []string
 	localBase := filepath.Join(location, ".claude")
 
 	for _, skill := range pkg.Files.Skills {
@@ -46,9 +93,9 @@ func (a *App) detectDrift(pkg domain.InstalledPackage, location, clonePath, bran
 		}
 
 		skillDir := filepath.Join(localBase, "skills", skill)
-		entries, err := os.ReadDir(skillDir)
+		entries, err := a.fs.ReadDir(skillDir)
 		if err != nil {
-			drifted = append(drifted, "skills/"+skill)
+			classify("skills/"+skill, err, &modified)
 			continue
 		}
 		for _, entry := range entries {
@@ -62,16 +109,14 @@ func (a *App) detectDrift(pkg domain.InstalledPackage, location, clonePath, bran
 			}
 
 			localPath := filepath.Join(skillDir, entry.Name())
-			localContent, err := os.ReadFile(localPath)
+			localContent, err := a.fs.ReadFile(localPath)
 			if err != nil {
-				drifted = append(drifted, "skills/"+skill+"/"+entry.Name())
+				classify("skills/"+skill+"/"+entry.Name(), err, &modified)
 				continue
 			}
 
-			localHash := xxhash.Sum64(localContent)
-			originalHash := xxhash.Sum64(originalContent)
-			if localHash != originalHash {
-				drifted = append(drifted, "skills/"+skill+"/"+entry.Name())
+			if xxhash.Sum64(localContent) != xxhash.Sum64(originalContent) {
+				modified = append(modified, "skills/"+skill+"/"+entry.Name())
 			}
 		}
 	}
@@ -83,19 +128,17 @@ func (a *App) detectDrift(pkg domain.InstalledPackage, location, clonePath, bran
 		}
 
 		localPath := filepath.Join(localBase, "agents", agent)
-		localContent, err := os.ReadFile(localPath)
+		localContent, err := a.fs.ReadFile(localPath)
 		if err != nil {
-			drifted = append(drifted, "agents/"+agent)
+			classify("agents/"+agent, err, &modified)
 			continue
 		}
 
-		localHash := xxhash.Sum64(localContent)
-		originalHash := xxhash.Sum64(originalContent)
-		if localHash != originalHash {
-			drifted = append(drifted, "agents/"+agent)
+		if xxhash.Sum64(localContent) != xxhash.Sum64(originalContent) {
+			modified = append(modified, "agents/"+agent)
 		}
 	}
-	return drifted
+	return modified, deleted
 }
 
 // skillFileRepoPath derives the repo-relative path for a skill file given a
@@ -218,8 +261,9 @@ func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 				continue
 			}
 
-			driftFiles := a.detectDrift(pkg, projectPath, clonePath, mc.Branch)
-			hasDrift := len(driftFiles) > 0
+			modifiedFiles, deletedFiles := a.detectDriftSplit(pkg, projectPath, clonePath, mc.Branch)
+			hasModified := len(modifiedFiles) > 0
+			hasDeletedOnly := !hasModified && len(deletedFiles) > 0
 
 			// Per-hook drift: a hook is "drifted" when its mct_id-tagged
 			// body in settings.json no longer matches the recorded
@@ -235,10 +279,12 @@ func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 
 			pkgState := domain.StateClean
 			switch {
-			case hasDrift && hasUpdate:
+			case hasModified && hasUpdate:
 				pkgState = domain.StateUpdateAndDrift
-			case hasDrift:
+			case hasModified:
 				pkgState = domain.StateDrift
+			case hasDeletedOnly:
+				pkgState = domain.StateLocallyDeleted
 			case hasUpdate:
 				pkgState = domain.StateUpdateAvailable
 			}

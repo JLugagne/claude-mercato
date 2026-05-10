@@ -32,19 +32,39 @@ func NewAt(root string) *Adapter {
 
 // --- ReadFS methods ---
 
+// Open opens a file. Absolute paths bypass the rooted fs.FS and use os.Open.
 func (a *Adapter) Open(name string) (fs.File, error) {
+	if filepath.IsAbs(name) {
+		return os.Open(name)
+	}
 	return a.fsys.Open(name)
 }
 
+// ReadFile reads a file. Absolute paths bypass the rooted fs.FS and use
+// os.ReadFile directly so callers can target locations outside the
+// adapter's root (project directories, .claude trees, etc).
 func (a *Adapter) ReadFile(name string) ([]byte, error) {
+	if filepath.IsAbs(name) {
+		return os.ReadFile(name)
+	}
 	return fs.ReadFile(a.fsys, name)
 }
 
+// ReadDir lists a directory. Absolute paths bypass the rooted fs.FS and
+// use os.ReadDir directly.
 func (a *Adapter) ReadDir(name string) ([]fs.DirEntry, error) {
+	if filepath.IsAbs(name) {
+		return os.ReadDir(name)
+	}
 	return fs.ReadDir(a.fsys, name)
 }
 
+// Stat returns file info. Absolute paths bypass the rooted fs.FS and use
+// os.Stat directly.
 func (a *Adapter) Stat(name string) (fs.FileInfo, error) {
+	if filepath.IsAbs(name) {
+		return os.Stat(name)
+	}
 	return fs.Stat(a.fsys, name)
 }
 
