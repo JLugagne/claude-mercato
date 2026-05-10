@@ -49,15 +49,17 @@ Register a market and install an agent:
 
 ```bash
 mct market add team git@github.com:my-org/claude-agents.git
-mct add team/profile/agents/reviewer
+mct add team@profile/agents/reviewer
 ```
+
+Refs use the `market@path` form: the part before `@` is the market name you registered, the part after is the file path inside the repo.
 
 By default, the entry is installed for Claude Code (`.claude/`). Enable other tools to install it everywhere at once:
 
 ```bash
 mct config set tools.cursor true
 mct config set tools.windsurf true
-mct add team/profile/skills/code-style
+mct add team@profile/skills/code-style
 # Writes .claude/skills/code-style/SKILL.md
 #        .cursor/rules/code-style.mdc
 #        .windsurf/rules/code-style.md
@@ -97,17 +99,21 @@ Real features, all implemented today:
 
 - **Multi-tool installation** — write entries to Claude, Cursor, Windsurf, Codex, Gemini, OpenCode, Copilot, Supermaven, PearAI, RooCode, Continue from a single source
 - **Transformers** — entries are converted to each tool's native format (frontmatter, file extension, directory layout) at install time
-- **Tool mappings** — translate models (`opus`, `sonnet`, `haiku`) and built-in tool names (`Bash`, `Read`, `Edit`…) to each target tool's equivalent
-- **Dependency resolution** — skills can declare `requires_skills`, and `mct` installs the full graph
-- **Drift detection** — checksums detect local edits to installed files, so updates never silently overwrite your work
-- **Conflict handling** — when a local edit meets an upstream change, `mct` tells you and lets you resolve it
+- **Tool mappings** — translate models (`opus`, `sonnet`, `haiku`) and built-in tool names (`Bash`, `Read`, `Edit`…) to each target tool's equivalent. Editable in `~/.config/mct/toolmappings.yml` for power users
+- **Atomic install / update / remove** — every write goes through a per-package staging directory and is promoted in one commit. A crash mid-install never leaves a half-written tree, and a startup recovery pass replays leftover stages from previous crashed runs
+- **Dependency resolution** — skills can declare `requires_skills`, and `mct` installs the full graph. Cross-market deps auto-register the foreign market (with a confirmation prompt outside CI mode), and cycles are detected
+- **Drift detection** — xxhash checksums detect local edits to installed files, so updates never silently overwrite your work
+- **Conflict handling** — filename collisions across markets, version mismatches on shared deps, and hook `(event, matcher)` collisions are surfaced via `mct conflicts`
 - **Offline BM25 search** with fuzzy matching, across all registered markets
 - **Interactive TUI** for browsing markets and managing installations
-- **Prune** to handle entries deleted upstream (keep or remove)
+- **Prune** to handle entries deleted upstream — keep locally or remove, tracked via tombstones
+- **Lint** — validate a market repo's structure before publishing (`mct lint`)
 - **SSH support** for private repositories (system SSH agent, `~/.ssh/config`, `known_hosts`)
 - **JSON output** (`--json`) on most commands for scripting and CI
-- **Save / Restore** to a portable `.mct.json` file — share setups across machines and teammates
+- **Save / Restore** to a portable `.mct.json` file — share setups across machines and teammates. First run with no config auto-initializes the project
+- **Project-level overrides** — a project `.mct.json` can enable a different subset of tools than your global config; the two are merged at install time
 - **Git hooks** — `mct hook install post-pull` and `mct hook install pre-push` keep `.mct.json` and the local install in sync automatically
+- **Cross-process safe** — the install database uses cross-platform file locking, so two `mct` processes can't corrupt each other's state
 - **Self-update** — `mct dist-upgrade` updates the binary; a daily background check notifies you of new releases
 - **Tracking metadata** injected into frontmatter (`mct_ref`, `mct_version`, `mct_market`, `mct_installed_at`, `mct_checksum`) so installed files are self-describing
 
@@ -142,7 +148,7 @@ mct dist-upgrade
 | Windsurf   |        |   ✓    |          |       | `.windsurf/rules/<name>.md`            |
 | Codex      |        |   ✓    |          |       | `.codex/skills/<name>/SKILL.md`        |
 | Gemini     |        |   ✓    |          |       | `.gemini/rules/<name>.md`              |
-| OpenCode   |   ✓    |   ✓    |          |       | `.opencode/agents/`, `.opencode/skills/` |
+| OpenCode   |   ✓    |   ✓    |          |       | `.opencode/agents/<name>.md`, `.opencode/rules/<name>.md` |
 | Copilot    |        |   ✓    |          |       | `.github/copilot-instructions.md`      |
 | Continue   |        |   ✓    |          |       | `.continue/rules/<name>.md`            |
 | Supermaven |        |   ✓    |          |       | `.supermavenrules`                     |
@@ -164,10 +170,10 @@ mct market set <name> <key> <val> # update a market property (e.g. branch)
 mct market remove <name>
 
 # Install / remove entries
-mct add <market>/<path>           # install an agent, skill, command, or hook (with deps)
-mct add <market>@<profile>        # install all entries in a profile
+mct add <market>@<path>           # install an agent, skill, command, or hook (with deps)
 mct add <ref> --dry-run
-mct remove --ref <market>/<path>
+mct remove <market>@<path>        # uninstall an entry (also accepts --ref)
+# To install every entry in a profile, use `mct restore` or `mct import`
 
 # Sync
 mct refresh                       # fetch updates from all markets
@@ -195,7 +201,7 @@ mct import setup.json
 # Git hooks (save/restore automation — distinct from Claude Code hook entries)
 mct hook install post-pull        # auto-restore after git pull
 mct hook install pre-push         # auto-save .mct.json before push
-mct hook uninstall <name>
+mct hook uninstall <post-pull|pre-push>
 
 # Self-update
 mct dist-upgrade
