@@ -171,7 +171,7 @@ func TestInstallEntryFiles_Agent(t *testing.T) {
 	git := &gitrepotest.MockGitRepo{}
 	a := newTestApp(&configstoretest.MockConfigStore{}, git, fsMock, &statestoretest.MockStateStore{})
 
-	files, _, err := a.installEntryFiles("/clone", "main", "agents/foo.md", "/project/agents/foo.md", []byte("content"))
+	files, _, err := a.installEntryFiles(directWriter{fs: fsMock}, "/clone", "main", "agents/foo.md", "/project/agents/foo.md", []byte("content"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestInstallEntryFiles_FlatSkill(t *testing.T) {
 	git := &gitrepotest.MockGitRepo{}
 	a := newTestApp(&configstoretest.MockConfigStore{}, git, fsMock, &statestoretest.MockStateStore{})
 
-	files, _, err := a.installEntryFiles("/clone", "main", "skills/bar.md", "/project/skills/bar.md", []byte("content"))
+	files, _, err := a.installEntryFiles(directWriter{fs: fsMock}, "/clone", "main", "skills/bar.md", "/project/skills/bar.md", []byte("content"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestInstallEntryFiles_DirBasedSkill(t *testing.T) {
 	}
 	a := newTestApp(&configstoretest.MockConfigStore{}, git, fsMock, &statestoretest.MockStateStore{})
 
-	files, _, err := a.installEntryFiles("/clone", "main", "skills/baz/SKILL.md", "/project/skills/baz", []byte("unused"))
+	files, _, err := a.installEntryFiles(directWriter{fs: fsMock}, "/clone", "main", "skills/baz/SKILL.md", "/project/skills/baz", []byte("unused"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestInstallEntryFiles_WriteError(t *testing.T) {
 	}
 	a := newTestApp(&configstoretest.MockConfigStore{}, &gitrepotest.MockGitRepo{}, fsMock, &statestoretest.MockStateStore{})
 
-	_, _, err := a.installEntryFiles("/clone", "main", "agents/foo.md", "/project/agents/foo.md", []byte("content"))
+	_, _, err := a.installEntryFiles(directWriter{fs: fsMock}, "/clone", "main", "agents/foo.md", "/project/agents/foo.md", []byte("content"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -461,7 +461,7 @@ func TestCopyUpdatedFiles_Skills(t *testing.T) {
 		cfg:       domain.Config{LocalPath: ".claude"},
 	}
 
-	files, _ := a.copyUpdatedFiles(ctx)
+	files, _ := a.copyUpdatedFiles(directWriter{fs: fsMock}, ctx)
 	if len(files.Skills) != 1 || files.Skills[0] != "bar" {
 		t.Errorf("expected skill bar, got %v", files.Skills)
 	}
@@ -493,7 +493,7 @@ func TestCopyUpdatedFiles_Agents(t *testing.T) {
 		cfg:       domain.Config{LocalPath: ".claude"},
 	}
 
-	files, _ := a.copyUpdatedFiles(ctx)
+	files, _ := a.copyUpdatedFiles(directWriter{fs: fsMock}, ctx)
 	if len(files.Agents) != 1 || files.Agents[0] != "foo.md" {
 		t.Errorf("expected agent foo.md, got %v", files.Agents)
 	}

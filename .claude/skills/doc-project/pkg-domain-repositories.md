@@ -39,4 +39,13 @@ Supporting type: `MarketFile` — file content + version SHA tuple
 
 | Interface | Methods | Description |
 |-----------|---------|-------------|
-| `InstallDB` | `Load()`, `Save()`, `Lock()`, `Unlock()` | Install database with file locking (5s timeout, stale PID detection) |
+| `InstallDB` | `Load()`, `Save()`, `Marshal()`, `Path()`, `Lock()`, `Unlock()` | Install database with file locking (5s timeout, stale PID detection). `Marshal`/`Path` let the App stage a DB write through a tx instead of writing directly. |
+
+### tx/tx.go
+
+| Interface | Methods | Description |
+|-----------|---------|-------------|
+| `Tx` | `WriteFile()`, `DeleteFile()`, `DeleteAll()`, `Commit()`, `Rollback()` | Per-operation filesystem transaction. Writes are buffered in a staging dir; `Commit` promotes them atomically; `Rollback` discards them. |
+| `Manager` | `Begin(op)`, `RecoverPending()` | Opens new transactions and reconciles staging dirs left over from a crashed prior run. |
+
+A passthrough `Manager` is provided for tests/non-tx fallbacks; the production manager lives in `outbound/txadapter`.

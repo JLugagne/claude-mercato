@@ -11,6 +11,7 @@ import (
 	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/gitrepo"
 	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/installdb"
 	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/statestore"
+	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/tx"
 	"github.com/JLugagne/agents-mercato/internal/mercato/domain/service"
 )
 
@@ -56,6 +57,7 @@ type App struct {
 	cacheDir     string
 	transformers domain.TransformerRegistry
 	toolMappings configstore.ToolMappingStore
+	txm          tx.Manager
 }
 
 func New(git gitrepo.GitRepo, fs fsrepo.Filesystem, cfg configstore.ConfigStore, state statestore.StateStore, idb installdb.InstallDB, configPath, cacheDir string, opts ...AppOption) *App {
@@ -86,8 +88,16 @@ func WithTransformers(reg domain.TransformerRegistry) AppOption {
 }
 
 // WithToolMappings sets the tool mapping store for multi-tool support.
+// WithToolMappings sets the tool mapping store for multi-tool support.
 func WithToolMappings(store configstore.ToolMappingStore) AppOption {
 	return func(a *App) { a.toolMappings = store }
+}
+
+// WithTxManager sets the transactional filesystem manager used to make
+// install/update/remove flows atomic. Defaults to a manager rooted at
+// <cacheDir>/staging when unset.
+func WithTxManager(m tx.Manager) AppOption {
+	return func(a *App) { a.txm = m }
 }
 
 // projectPath returns the absolute project root derived from cfg.LocalPath.

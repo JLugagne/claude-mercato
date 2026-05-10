@@ -3,6 +3,7 @@ package mercato
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -16,6 +17,7 @@ import (
 	"github.com/JLugagne/agents-mercato/internal/mercato/outbound/cfgadapter"
 	"github.com/JLugagne/agents-mercato/internal/mercato/outbound/fsadapter"
 	"github.com/JLugagne/agents-mercato/internal/mercato/outbound/gitadapter"
+	"github.com/JLugagne/agents-mercato/internal/mercato/outbound/txadapter"
 	"github.com/JLugagne/agents-mercato/internal/mercato/update"
 )
 
@@ -60,9 +62,18 @@ func NewApp(configPath, cacheDir string) *cobra.Command {
 	}
 	toolMappingsStore := cfgadapter.NewToolMappingStore()
 
+	// Disk-backed transactional filesystem manager. Recovery is best-effort:
+	// any leftover staging directories from a previous crashed run are
+	// reconciled before any new writes happen.
+	txm := txadapter.New(filepath.Join(cacheDir, "staging"))
+	if err := txm.RecoverPending(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "mct: tx recovery:", err)
+	}
+
 	application := app.New(gitRepo, fs, cfgStore, stateStore, installDB, configPath, cacheDir,
 		app.WithTransformers(registry),
 		app.WithToolMappings(toolMappingsStore),
+		app.WithTxManager(txm),
 	)
 
 	svc := commands.Services{

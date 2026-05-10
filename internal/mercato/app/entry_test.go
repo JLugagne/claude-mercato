@@ -208,11 +208,12 @@ func TestAdd_Success(t *testing.T) {
 			return cfgWithMarket("mkt", "https://example.com", "main", ".claude"), nil
 		},
 	}
+	var writePaths []string
 	fsMock := &filesystemtest.MockFilesystem{
 		WriteFileFn: func(path string, content []byte) error {
-			writeFileCalled = true
-			if path != ".claude/agents/foo.md" {
-				t.Errorf("expected write path %q, got %q", ".claude/agents/foo.md", path)
+			writePaths = append(writePaths, path)
+			if path == ".claude/agents/foo.md" {
+				writeFileCalled = true
 			}
 			return nil
 		},
@@ -242,7 +243,7 @@ func TestAdd_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !writeFileCalled {
-		t.Error("expected WriteFile to be called")
+		t.Errorf("expected agent write, got writes: %v", writePaths)
 	}
 }
 
@@ -478,8 +479,16 @@ func TestAdd_ProfileExpand_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(writePaths) != 2 {
-		t.Errorf("expected WriteFile called twice, got %d: %v", len(writePaths), writePaths)
+	// Two entry writes (agent + skill) plus one DB save per package install
+	// (the install database is staged via the same writer for atomicity).
+	var entryWrites int
+	for _, p := range writePaths {
+		if filepath.Base(p) != "installed.json" {
+			entryWrites++
+		}
+	}
+	if entryWrites != 2 {
+		t.Errorf("expected 2 entry writes, got %d (all writes: %v)", entryWrites, writePaths)
 	}
 }
 
@@ -655,8 +664,16 @@ func TestAdd_ProfileExpand_PartialInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(writePaths) != 1 {
-		t.Errorf("expected WriteFile called once (only bar.md), got %d: %v", len(writePaths), writePaths)
+	// Only the bar skill should be written as an entry. The install
+	// database is staged via the same writer (counted separately).
+	var entryWrites int
+	for _, p := range writePaths {
+		if filepath.Base(p) != "installed.json" {
+			entryWrites++
+		}
+	}
+	if entryWrites != 1 {
+		t.Errorf("expected 1 entry write, got %d (all writes: %v)", entryWrites, writePaths)
 	}
 }
 
@@ -691,6 +708,7 @@ func TestRemove_Success(t *testing.T) {
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
+		WriteFileFn: func(path string, content []byte) error { return nil }, // installed.json save
 		DeleteFileFn: func(path string) error {
 			deleteFileCalled = true
 			if path != filepath.Join(".claude", "agents", "foo.md") {
@@ -743,6 +761,7 @@ func TestRemove_LastLocation_PackageRemoved(t *testing.T) {
 		},
 	}
 	fsMock := &filesystemtest.MockFilesystem{
+		WriteFileFn:  func(path string, content []byte) error { return nil },
 		DeleteFileFn: func(path string) error { return nil },
 	}
 
@@ -959,6 +978,7 @@ func TestPrune_AllRemove(t *testing.T) {
 
 	deleteFileCalled := false
 	fsMock := &filesystemtest.MockFilesystem{
+		WriteFileFn: func(path string, content []byte) error { return nil },
 		DeleteFileFn: func(path string) error {
 			deleteFileCalled = true
 			return nil
@@ -1195,9 +1215,8 @@ func TestAdd_SkillDirRef(t *testing.T) {
 	}
 	fsMock := &filesystemtest.MockFilesystem{
 		WriteFileFn: func(path string, content []byte) error {
-			writeFileCalled = true
-			if path != filepath.Join(".claude/skills/go-arch", "SKILL.md") {
-				t.Errorf("expected write to .claude/skills/go-arch/SKILL.md, got %q", path)
+			if path == filepath.Join(".claude/skills/go-arch", "SKILL.md") {
+				writeFileCalled = true
 			}
 			return nil
 		},

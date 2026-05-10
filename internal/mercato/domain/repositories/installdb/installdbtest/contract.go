@@ -1,6 +1,9 @@
 package installdbtest
 
 import (
+	"encoding/json"
+	"path/filepath"
+
 	"github.com/JLugagne/agents-mercato/internal/mercato/domain"
 	"github.com/JLugagne/agents-mercato/internal/mercato/domain/repositories/installdb"
 )
@@ -8,10 +11,12 @@ import (
 var _ installdb.InstallDB = (*MockInstallDB)(nil)
 
 type MockInstallDB struct {
-	LoadFn   func(cacheDir string) (domain.InstallDatabase, error)
-	SaveFn   func(cacheDir string, db domain.InstallDatabase) error
-	LockFn   func(cacheDir string) error
-	UnlockFn func(cacheDir string) error
+	LoadFn    func(cacheDir string) (domain.InstallDatabase, error)
+	SaveFn    func(cacheDir string, db domain.InstallDatabase) error
+	MarshalFn func(db domain.InstallDatabase) ([]byte, error)
+	PathFn    func(cacheDir string) string
+	LockFn    func(cacheDir string) error
+	UnlockFn  func(cacheDir string) error
 }
 
 func (m *MockInstallDB) Load(cacheDir string) (domain.InstallDatabase, error) {
@@ -26,6 +31,20 @@ func (m *MockInstallDB) Save(cacheDir string, db domain.InstallDatabase) error {
 		panic("called not defined SaveFn")
 	}
 	return m.SaveFn(cacheDir, db)
+}
+
+func (m *MockInstallDB) Marshal(db domain.InstallDatabase) ([]byte, error) {
+	if m.MarshalFn != nil {
+		return m.MarshalFn(db)
+	}
+	return json.Marshal(db)
+}
+
+func (m *MockInstallDB) Path(cacheDir string) string {
+	if m.PathFn != nil {
+		return m.PathFn(cacheDir)
+	}
+	return filepath.Join(cacheDir, "installed.json")
 }
 
 func (m *MockInstallDB) Lock(cacheDir string) error {

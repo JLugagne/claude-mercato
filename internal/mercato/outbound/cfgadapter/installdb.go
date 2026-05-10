@@ -229,15 +229,28 @@ func (a *InstallDBAdapter) Save(cacheDir string, db domain.InstallDatabase) erro
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return err
 	}
+	data, err := a.Marshal(db)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(a.Path(cacheDir), data, 0600)
+}
+
+// Marshal returns installed.json's on-disk byte representation.
+func (a *InstallDBAdapter) Marshal(db domain.InstallDatabase) ([]byte, error) {
 	if db.SchemaVersion == 0 {
 		db.SchemaVersion = domain.InstallSchemaVersion
 	}
-	path := filepath.Join(cacheDir, "installed.json")
 	data, err := json.MarshalIndent(db, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal install database: %w", err)
+		return nil, fmt.Errorf("marshal install database: %w", err)
 	}
-	return os.WriteFile(path, data, 0600)
+	return data, nil
+}
+
+// Path returns the absolute path of installed.json within cacheDir.
+func (a *InstallDBAdapter) Path(cacheDir string) string {
+	return filepath.Join(cacheDir, "installed.json")
 }
 
 func (a *InstallDBAdapter) Lock(cacheDir string) error {

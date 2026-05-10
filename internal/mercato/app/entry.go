@@ -308,7 +308,22 @@ func (a *App) addInternal(
 		return err
 	}
 
-	files, claudeFiles, err := a.installEntryFiles(clonePath, mc.Branch, relPath, localPath, content)
+	// Open a per-package transaction. All file writes (claude target +
+	// every enabled tool target) are buffered until commit. The install
+	// database save runs as an OnCommit hook so disk and DB land together
+	// or not at all.
+	w, commit, rollback, err := a.beginWriter("add:" + string(ref))
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = rollback()
+		}
+	}()
+
+	files, claudeFiles, err := a.installEntryFiles(w, clonePath, mc.Branch, relPath, localPath, content)
 	if err != nil {
 		return err
 	}
@@ -326,7 +341,7 @@ func (a *App) addInternal(
 		Type:     entryType,
 		Profile:  profile,
 	}
-	twr := a.writeToToolTargets(entryForTransform, content, projectPath)
+	twr := a.writeToToolTargets(w, entryForTransform, content, projectPath)
 
 	if result != nil {
 		mergeAddResult(result, twr)
@@ -368,9 +383,15 @@ func (a *App) addInternal(
 		})
 	}
 
-	if err := a.idb.Save(a.cacheDir, *db); err != nil {
+	// Stage the install database write so it lands in the same atomic
+	// commit as the file changes.
+	if err := a.stageDBSave(w, *db); err != nil {
 		return err
 	}
+	if err := commit(); err != nil {
+		return err
+	}
+	committed = true
 
 	if !opts.NoDeps && len(fm.RequiresSkills) > 0 {
 		if err := a.resolveDependencies(fm.RequiresSkills, marketName, profile, mc, cfg, db, visited, opts, result); err != nil {
@@ -388,8 +409,8 @@ func (a *App) addInternal(
 }
 
 // installEntryFiles writes skill or agent files to the local .claude/ directory
-// and returns the InstalledFiles record.
-func (a *App) installEntryFiles(clonePath, branch, relPath, localPath string, content []byte) (domain.InstalledFiles, []domain.InstalledFile, error) {
+// (via the supplied writer) and returns the InstalledFiles record.
+func (a *App) installEntryFiles(w txWriter, clonePath, branch, relPath, localPath string, content []byte) (domain.InstalledFiles, []domain.InstalledFile, error) {
 	var files domain.InstalledFiles
 	var written []domain.InstalledFile
 	entryType := inferEntryType(relPath)
@@ -428,7 +449,7 @@ func (a *App) installEntryFiles(clonePath, branch, relPath, localPath string, co
 				return files, written, err
 			}
 			fileDest := filepath.Join(localPath, filepath.Base(f))
-			if err := a.fs.WriteFile(fileDest, fileContent); err != nil {
+			if err := w.WriteFile(fileDest, fileContent); err != nil {
 				return files, written, err
 			}
 			written = append(written, domain.InstalledFile{
@@ -438,7 +459,7 @@ func (a *App) installEntryFiles(clonePath, branch, relPath, localPath string, co
 		}
 		files.Skills = append(files.Skills, filepath.Base(skillDirPath))
 	} else if entryType == domain.EntryTypeSkill {
-		if err := a.fs.WriteFile(localPath, content); err != nil {
+		if err := w.WriteFile(localPath, content); err != nil {
 			return files, written, err
 		}
 		stem := strings.TrimSuffix(filepath.Base(relPath), ".md")
@@ -448,7 +469,7 @@ func (a *App) installEntryFiles(clonePath, branch, relPath, localPath string, co
 			XXH:  xxhashHex(content),
 		})
 	} else {
-		if err := a.fs.WriteFile(localPath, content); err != nil {
+		if err := w.WriteFile(localPath, content); err != nil {
 			return files, written, err
 		}
 		files.Agents = append(files.Agents, filepath.Base(relPath))
@@ -832,6 +853,17 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.Remove
 		Profile:  profile,
 	}
 
+	w, commit, rollback, err := a.beginWriter("remove:" + string(ref))
+	if err != nil {
+		return service.RemoveResult{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = rollback()
+		}
+	}()
+
 	var removeResult service.RemoveResult
 	removeResult.ToolsRemoved = append(removeResult.ToolsRemoved, "claude")
 
@@ -845,10 +877,10 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.Remove
 			seen[loc.Path] = true
 			paths = append(paths, loc.Path)
 			localPath := filepath.Join(loc.Path, filepath.Base(cfg.LocalPath))
-			if err := a.deleteInstalledFiles(localPath, pkg.Files); err != nil {
+			if err := a.deleteInstalledFiles(w, localPath, pkg.Files); err != nil {
 				return service.RemoveResult{}, err
 			}
-			tr := a.removeFromToolTargets(entryForRemove, loc.Path)
+			tr := a.removeFromToolTargets(w, entryForRemove, loc.Path)
 			removeResult.ToolsRemoved = append(removeResult.ToolsRemoved, tr.Removed...)
 		}
 		for _, p := range paths {
@@ -859,27 +891,35 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.Remove
 			return service.RemoveResult{}, domain.ErrEntryNotInstalled
 		}
 
-		if err := a.deleteInstalledFiles(cfg.LocalPath, pkg.Files); err != nil {
+		if err := a.deleteInstalledFiles(w, cfg.LocalPath, pkg.Files); err != nil {
 			return service.RemoveResult{}, err
 		}
 
-		tr := a.removeFromToolTargets(entryForRemove, projectPath)
+		tr := a.removeFromToolTargets(w, entryForRemove, projectPath)
 		removeResult.ToolsRemoved = append(removeResult.ToolsRemoved, tr.Removed...)
 
 		db.RemoveLocation(marketName, profile, projectPath)
 	}
 
-	return removeResult, a.idb.Save(a.cacheDir, db)
+	if err := a.stageDBSave(w, db); err != nil {
+		return service.RemoveResult{}, err
+	}
+	if err := commit(); err != nil {
+		return service.RemoveResult{}, err
+	}
+	committed = true
+
+	return removeResult, nil
 }
 
-func (a *App) deleteInstalledFiles(localPath string, files domain.InstalledFiles) error {
+func (a *App) deleteInstalledFiles(w txWriter, localPath string, files domain.InstalledFiles) error {
 	for _, skill := range files.Skills {
-		if err := a.fs.RemoveAll(filepath.Join(localPath, "skills", skill)); err != nil {
+		if err := w.DeleteAll(filepath.Join(localPath, "skills", skill)); err != nil {
 			return err
 		}
 	}
 	for _, agent := range files.Agents {
-		if err := a.fs.DeleteFile(filepath.Join(localPath, "agents", agent)); err != nil {
+		if err := w.DeleteFile(filepath.Join(localPath, "agents", agent)); err != nil {
 			return err
 		}
 	}
@@ -957,19 +997,29 @@ func (a *App) Prune(opts service.PruneOpts) ([]service.PruneResult, error) {
 			if opts.AllKeep {
 				results = append(results, service.PruneResult{Ref: ref, Action: "kept"})
 			} else if opts.AllRemove {
-				if err := a.deleteInstalledFiles(cfg.LocalPath, pkg.Files); err != nil {
+				w, commit, rollback, err := a.beginWriter("prune:" + im.Market + ":" + pkg.Profile)
+				if err != nil {
+					results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
+					continue
+				}
+				if err := a.deleteInstalledFiles(w, cfg.LocalPath, pkg.Files); err != nil {
+					_ = rollback()
 					results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
 					continue
 				}
 				db.RemoveLocation(im.Market, pkg.Profile, projectPath)
+				if err := a.stageDBSave(w, db); err != nil {
+					_ = rollback()
+					results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
+					continue
+				}
+				if err := commit(); err != nil {
+					results = append(results, service.PruneResult{Ref: ref, Action: "remove", Err: err})
+					continue
+				}
 				results = append(results, service.PruneResult{Ref: ref, Action: "removed"})
 			}
 		}
-	}
-
-	// Save installdb
-	if err := a.idb.Save(a.cacheDir, db); err != nil {
-		return nil, err
 	}
 
 	return results, nil

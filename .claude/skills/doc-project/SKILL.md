@@ -117,11 +117,22 @@ inbound/queries/tui/      → Bubble Tea interactive UI
 app/                      → business logic (implements all service interfaces)
 domain/                   → types, errors, frontmatter parsing, state
 domain/service/           → port interfaces (queries + commands)
-domain/repositories/      → adapter interfaces (git, fs, config, state, installdb)
+domain/repositories/      → adapter interfaces (git, fs, config, state, installdb, tx)
 outbound/gitadapter/      → go-git implementation
 outbound/fsadapter/       → OS filesystem implementation
 outbound/cfgadapter/      → YAML config, JSON state, install DB with file locking
+outbound/txadapter/       → disk-backed transactional staging for atomic install/update/remove
 ```
+
+### Atomicity (transactional install/update/remove)
+
+Every mct write path (`Add`, `Update`, `Remove`, `Prune`) opens a per-package
+`tx.Tx` from the `tx.Manager` port. All file writes, deletes, and the install
+database save are buffered in a per-operation staging directory under
+`<cacheDir>/staging/<txID>/`. On `Commit` the manager promotes everything
+atomically (renames where same-fs; copy+remove cross-fs); on `Rollback` or
+process crash nothing on disk has changed. A startup recovery pass replays
+any leftover `committing` staging dirs from a previous crashed run.
 
 ## Package Index
 
@@ -137,6 +148,7 @@ outbound/cfgadapter/      → YAML config, JSON state, install DB with file lock
 | [outbound/gitadapter](./pkg-outbound-gitadapter.md) | Git adapter | go-git clone/fetch/diff/read, SSH auth |
 | [outbound/fsadapter](./pkg-outbound-fsadapter.md) | Filesystem adapter | Read/write/symlink, MD5 checksums |
 | [outbound/cfgadapter](./pkg-outbound-cfgadapter.md) | Config/state adapter | YAML config, JSON state/installdb, file locking |
+| outbound/txadapter | Tx adapter | Disk-backed staging dir + commit/rollback for atomic install/update/remove |
 
 ## Key Concepts
 

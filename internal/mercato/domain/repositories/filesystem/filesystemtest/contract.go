@@ -65,7 +65,10 @@ func (m *MockFilesystem) Stat(name string) (fs.FileInfo, error) {
 
 func (m *MockFilesystem) WriteFile(path string, content []byte) error {
 	if m.WriteFileFn == nil {
-		panic("called not defined WriteFileFn")
+		// Default to a silent no-op so tests that don't explicitly stub
+		// WriteFile (e.g. don't care about the install database write
+		// staged by every transactional flow) keep working.
+		return nil
 	}
 	return m.WriteFileFn(path, content)
 }

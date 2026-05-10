@@ -57,9 +57,10 @@ type toolWriteResult struct {
 }
 
 // writeToToolTargets transforms and writes the entry content to all enabled
-// tool targets. It returns per-tool file records (path + xxhash) and warnings.
-// The Claude tool is skipped here since it is handled by the existing code path.
-func (a *App) writeToToolTargets(entry domain.Entry, content []byte, projectDir string) toolWriteResult {
+// tool targets via the supplied writer. It returns per-tool file records
+// (path + xxhash) and warnings. The Claude tool is skipped here since it is
+// handled by the existing code path.
+func (a *App) writeToToolTargets(w txWriter, entry domain.Entry, content []byte, projectDir string) toolWriteResult {
 	enabledTools := a.loadEnabledTools()
 	if len(enabledTools) == 0 {
 		return toolWriteResult{}
@@ -112,7 +113,7 @@ func (a *App) writeToToolTargets(entry domain.Entry, content []byte, projectDir 
 			}
 		}
 
-		if err := a.fs.WriteFile(outPath, result.Content); err != nil {
+		if err := w.WriteFile(outPath, result.Content); err != nil {
 			warnings = append(warnings, fmt.Sprintf("%s: write error: %v", toolName, err))
 			continue
 		}
@@ -140,7 +141,9 @@ type toolRemoveResult struct {
 
 // removeFromToolTargets removes tool-specific files for the given entry from
 // all enabled tool directories.
-func (a *App) removeFromToolTargets(entry domain.Entry, projectDir string) toolRemoveResult {
+// removeFromToolTargets removes tool-specific files for the given entry from
+// all enabled tool directories via the supplied writer.
+func (a *App) removeFromToolTargets(w txWriter, entry domain.Entry, projectDir string) toolRemoveResult {
 	enabledTools := a.loadEnabledTools()
 	if len(enabledTools) == 0 {
 		return toolRemoveResult{}
@@ -158,7 +161,7 @@ func (a *App) removeFromToolTargets(entry domain.Entry, projectDir string) toolR
 		}
 
 		outPath := filepath.Join(projectDir, t.OutputPath(entry))
-		if err := a.fs.DeleteFile(outPath); err != nil {
+		if err := w.DeleteFile(outPath); err != nil {
 			// Ignore file-not-found type errors.
 			if !strings.Contains(err.Error(), "no such file") && !strings.Contains(err.Error(), "not exist") {
 				result.Errors = append(result.Errors, fmt.Errorf("%s: %w", t.ToolName(), err))

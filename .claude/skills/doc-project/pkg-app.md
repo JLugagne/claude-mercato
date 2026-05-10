@@ -10,15 +10,32 @@ The central business logic layer. The `App` struct implements all service interf
 
 ```go
 type App struct {
-    git        gitrepo.GitRepo
-    fs         filesystem.Filesystem
-    cfg        configstore.ConfigStore
-    state      statestore.StateStore
-    idb        installdb.InstallDB
-    configPath string
-    cacheDir   string
+    git          gitrepo.GitRepo
+    fs           filesystem.Filesystem
+    cfg          configstore.ConfigStore
+    state        statestore.StateStore
+    idb          installdb.InstallDB
+    configPath   string
+    cacheDir     string
+    transformers domain.TransformerRegistry
+    toolMappings configstore.ToolMappingStore
+    txm          tx.Manager  // staging-dir tx manager (defaults to passthrough)
 }
 ```
+
+### Transactional install/update/remove
+
+Every write path opens a `tx.Tx` via `App.beginWriter(op)`. Writes go through
+a `txWriter` (wrapping the tx); reads continue to use `a.fs` directly. The
+install database save is staged via `App.stageDBSave(w, db)` — `idb.Marshal`
++ `tx.WriteFile(idb.Path(...), data)` — so the DB lands atomically with the
+file changes. `commit()` promotes everything; on any error the deferred
+`rollback()` discards the staging dir.
+
+Granularity is **per-package**: each top-level `Add`/`Update`-at-location/
+`Remove`/`Prune` opens its own transaction. Recursive dependency installs
+each get their own transaction too, so partial-progress on a multi-skill
+add is preserved.
 
 ## Files
 
@@ -64,6 +81,7 @@ Implements `SyncQueries` + `SyncCommands`.
 | `Update(opts)` | Apply pending changes with drift/conflict handling |
 | `Sync(opts)` | Combined Refresh + Update |
 | `detectDrift()` | Compare local file xxhash vs upstream content at recorded version |
+| `pruneRemovedFiles()` | Diff old vs. new `[]InstalledFile`, delete `old\new` from disk, walk parent dirs and remove any that become empty (stops at project root). Called by `updatePackageAtLocation` (claude-code) and `reTransformToolTargets` (per tool) so files dropped upstream don't linger. |
 
 ### search.go — Full-Text Search
 

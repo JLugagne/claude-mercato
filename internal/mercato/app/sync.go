@@ -420,19 +420,17 @@ func (a *App) Update(opts service.UpdateOpts) ([]service.UpdateResult, error) {
 					clonePath: clonePath,
 					cfg:       cfg,
 					opts:      opts,
+					db:        &db,
 				})
 				results = append(results, r)
 			}
 		}
 	}
 
-	if err := a.idb.Save(a.cacheDir, db); err != nil {
-		return results, err
-	}
-
 	return results, nil
 }
 
+// updateCtx bundles the parameters needed by updatePackageAtLocation.
 // updateCtx bundles the parameters needed by updatePackageAtLocation.
 type updateCtx struct {
 	mc        domain.MarketConfig
@@ -443,6 +441,7 @@ type updateCtx struct {
 	clonePath string
 	cfg       domain.Config
 	opts      service.UpdateOpts
+	db        *domain.InstallDatabase
 }
 
 // findAffectedPackages identifies which installed packages in a market are
@@ -488,6 +487,10 @@ func (a *App) findAffectedPackages(im *domain.InstalledMarket, diffs []domain.Fi
 
 // updatePackageAtLocation performs the actual update of a single package at a
 // single location: drift check, file replacement, and tool re-transform.
+// updatePackageAtLocation performs the actual update of a single package at a
+// single location: drift check, file replacement, and tool re-transform. It
+// runs inside its own transaction so that on failure neither disk nor the
+// install database mutate.
 func (a *App) updatePackageAtLocation(ctx updateCtx) service.UpdateResult {
 	oldVersion := domain.MctVersion(ctx.pkg.Version)
 
@@ -514,6 +517,22 @@ func (a *App) updatePackageAtLocation(ctx updateCtx) service.UpdateResult {
 		}
 	}
 
+	w, commit, rollback, err := a.beginWriter("update:" + ctx.mc.Name + ":" + ctx.pkg.Profile)
+	if err != nil {
+		return service.UpdateResult{
+			Ref:      a.packagePrimaryRef(ctx.mc.Name, ctx.pkg),
+			Location: ctx.location,
+			Action:   "error",
+			Err:      err,
+		}
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = rollback()
+		}
+	}()
+
 	// Snapshot the previous claude-code file set BEFORE writing, so we can
 	// diff and prune orphans (files removed in the upstream version).
 	var oldClaudeFiles []domain.InstalledFile
@@ -521,9 +540,9 @@ func (a *App) updatePackageAtLocation(ctx updateCtx) service.UpdateResult {
 		oldClaudeFiles = append(oldClaudeFiles, loc.Files...)
 	}
 
-	newFiles, claudeFiles := a.copyUpdatedFiles(ctx)
+	newFiles, claudeFiles := a.copyUpdatedFiles(w, ctx)
 
-	a.pruneRemovedFiles(ctx.location, oldClaudeFiles, claudeFiles)
+	a.pruneRemovedFiles(w, ctx.location, oldClaudeFiles, claudeFiles)
 
 	newSHA, err := a.git.RemoteHEAD(ctx.clonePath, ctx.mc.Branch)
 	if err != nil {
@@ -550,7 +569,25 @@ func (a *App) updatePackageAtLocation(ctx updateCtx) service.UpdateResult {
 		})
 	}
 
-	a.reTransformToolTargets(ctx.mc, ctx.im, ctx.pkgIdx, newFiles, ctx.location)
+	a.reTransformToolTargets(w, ctx.mc, ctx.im, ctx.pkgIdx, newFiles, ctx.location)
+
+	if err := a.stageDBSave(w, *ctx.db); err != nil {
+		return service.UpdateResult{
+			Ref:      a.packagePrimaryRef(ctx.mc.Name, ctx.pkg),
+			Location: ctx.location,
+			Action:   "error",
+			Err:      err,
+		}
+	}
+	if err := commit(); err != nil {
+		return service.UpdateResult{
+			Ref:      a.packagePrimaryRef(ctx.mc.Name, ctx.pkg),
+			Location: ctx.location,
+			Action:   "error",
+			Err:      err,
+		}
+	}
+	committed = true
 
 	return service.UpdateResult{
 		Ref:        a.packagePrimaryRef(ctx.mc.Name, ctx.pkg),
@@ -564,7 +601,7 @@ func (a *App) updatePackageAtLocation(ctx updateCtx) service.UpdateResult {
 
 // copyUpdatedFiles reads updated skill and agent files from the cached clone
 // and writes them to the local project directory.
-func (a *App) copyUpdatedFiles(ctx updateCtx) (domain.InstalledFiles, []domain.InstalledFile) {
+func (a *App) copyUpdatedFiles(w txWriter, ctx updateCtx) (domain.InstalledFiles, []domain.InstalledFile) {
 	var newFiles domain.InstalledFiles
 	var written []domain.InstalledFile
 
@@ -592,7 +629,7 @@ func (a *App) copyUpdatedFiles(ctx updateCtx) (domain.InstalledFiles, []domain.I
 				continue
 			}
 			dest := filepath.Join(localSkillDir, filepath.Base(f))
-			if err := a.fs.WriteFile(dest, content); err != nil {
+			if err := w.WriteFile(dest, content); err != nil {
 				continue
 			}
 			written = append(written, domain.InstalledFile{
@@ -614,7 +651,7 @@ func (a *App) copyUpdatedFiles(ctx updateCtx) (domain.InstalledFiles, []domain.I
 			continue
 		}
 		localPath := filepath.Join(ctx.cfg.LocalPath, "agents", agent)
-		if err := a.fs.WriteFile(localPath, content); err != nil {
+		if err := w.WriteFile(localPath, content); err != nil {
 			continue
 		}
 		written = append(written, domain.InstalledFile{
@@ -629,7 +666,9 @@ func (a *App) copyUpdatedFiles(ctx updateCtx) (domain.InstalledFiles, []domain.I
 
 // reTransformToolTargets re-transforms all files in a package to enabled tool
 // targets and updates the tool checksums in the install database.
-func (a *App) reTransformToolTargets(mc domain.MarketConfig, im *domain.InstalledMarket, pkgIdx int, files domain.InstalledFiles, location string) {
+// reTransformToolTargets re-transforms all files in a package to enabled tool
+// targets and updates the tool checksums in the install database.
+func (a *App) reTransformToolTargets(w txWriter, mc domain.MarketConfig, im *domain.InstalledMarket, pkgIdx int, files domain.InstalledFiles, location string) {
 	pkg := &im.Packages[pkgIdx]
 
 	// Snapshot per-tool old file sets BEFORE re-writing so we can prune
@@ -663,7 +702,7 @@ func (a *App) reTransformToolTargets(mc domain.MarketConfig, im *domain.Installe
 			Type:     domain.EntryTypeSkill,
 			Profile:  pkg.Profile,
 		}
-		accumulate(a.writeToToolTargets(entry, content, location))
+		accumulate(a.writeToToolTargets(w, entry, content, location))
 	}
 
 	for _, agent := range files.Agents {
@@ -680,12 +719,12 @@ func (a *App) reTransformToolTargets(mc domain.MarketConfig, im *domain.Installe
 			Type:     domain.EntryTypeAgent,
 			Profile:  pkg.Profile,
 		}
-		accumulate(a.writeToToolTargets(entry, content, location))
+		accumulate(a.writeToToolTargets(w, entry, content, location))
 	}
 
 	// Prune per-tool: files in old\new are gone from the new version.
 	for toolName, oldFiles := range oldByTool {
-		a.pruneRemovedFiles(location, oldFiles, newByTool[toolName])
+		a.pruneRemovedFiles(w, location, oldFiles, newByTool[toolName])
 	}
 
 	// Replace each tool location's Files with the new authoritative set.
@@ -698,9 +737,9 @@ func (a *App) reTransformToolTargets(mc domain.MarketConfig, im *domain.Installe
 				Type:  toolName,
 				Files: toolFiles,
 			})
-			continue
+		} else {
+			loc.Files = toolFiles
 		}
-		loc.Files = toolFiles
 	}
 }
 
@@ -786,7 +825,15 @@ func (a *App) SyncState() (domain.SyncState, error) {
 // projectRoot is the project base (typically cfg.LocalPath's parent so
 // we don't accidentally remove .claude/). InstalledFile.Path is rooted
 // at projectRoot.
-func (a *App) pruneRemovedFiles(projectRoot string, oldFiles, newFiles []domain.InstalledFile) {
+// pruneRemovedFiles removes files that were present in the old version but
+// are gone from the new version. Empty parent directories are cleaned up
+// best-effort (directly via os, not via the tx — they're metadata, not
+// content).
+//
+// projectRoot is the project base (typically cfg.LocalPath's parent so
+// we don't accidentally remove .claude/). InstalledFile.Path is rooted
+// at projectRoot.
+func (a *App) pruneRemovedFiles(w txWriter, projectRoot string, oldFiles, newFiles []domain.InstalledFile) {
 	if len(oldFiles) == 0 {
 		return
 	}
@@ -799,7 +846,7 @@ func (a *App) pruneRemovedFiles(projectRoot string, oldFiles, newFiles []domain.
 			continue
 		}
 		abs := filepath.Join(projectRoot, filepath.FromSlash(f.Path))
-		if err := a.fs.DeleteFile(abs); err != nil && !os.IsNotExist(err) {
+		if err := w.DeleteFile(abs); err != nil && !os.IsNotExist(err) {
 			continue
 		}
 		dir := filepath.Dir(abs)

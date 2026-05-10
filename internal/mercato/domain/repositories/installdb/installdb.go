@@ -11,6 +11,14 @@ type InstallDB interface {
 	// Caller MUST hold the lock.
 	Save(cacheDir string, db domain.InstallDatabase) error
 
+	// Marshal returns the on-disk byte representation of the database
+	// without writing it. Used by transactional commits that need to
+	// stage the write alongside the actual file changes.
+	Marshal(db domain.InstallDatabase) ([]byte, error)
+
+	// Path returns the absolute path of installed.json within cacheDir.
+	Path(cacheDir string) string
+
 	// Lock acquires the file lock. Waits up to 5 seconds, then returns ErrLockContention.
 	// Detects and removes stale locks (PID no longer running).
 	Lock(cacheDir string) error
