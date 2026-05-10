@@ -51,12 +51,14 @@ type SyncOpts struct {
 }
 
 type RefreshResult struct {
-	Market           string `json:"market"`
-	OldSHA           string `json:"old_sha"`
-	NewSHA           string `json:"new_sha"`
-	ChangedFiles     int    `json:"changed_files"`
-	UpdatesAvailable int    `json:"updates_available"`
-	Err              error  `json:"error,omitempty"`
+	Market           string   `json:"market"`
+	OldSHA           string   `json:"old_sha"`
+	NewSHA           string   `json:"new_sha"`
+	ChangedFiles     int      `json:"changed_files"`
+	UpdatesAvailable int      `json:"updates_available"`
+	Err              error    `json:"error,omitempty"`
+	PrunedLocations  []string `json:"pruned_locations,omitempty"`
+	PrunedFiles      []string `json:"pruned_files,omitempty"`
 }
 
 type UpdateResult struct {

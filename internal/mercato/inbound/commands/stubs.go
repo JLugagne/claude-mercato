@@ -25,6 +25,15 @@ func newRefreshCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				return printJSON(cmd.OutOrStdout(), results)
 			}
 			for _, r := range results {
+				for _, p := range r.PrunedLocations {
+					cmd.Printf("  --  pruned stale location: %s\n", p)
+				}
+				for _, p := range r.PrunedFiles {
+					cmd.Printf("  --  pruned upstream-removed: %s\n", p)
+				}
+				if r.Market == "" {
+					continue
+				}
 				if r.Err != nil {
 					cmd.PrintErrf("  x  %s: %v\n", r.Market, r.Err)
 					continue
@@ -132,6 +141,15 @@ func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				return printJSON(cmd.OutOrStdout(), results)
 			}
 			for _, r := range results {
+				for _, p := range r.Refresh.PrunedLocations {
+					cmd.Printf("  --  pruned stale location: %s\n", p)
+				}
+				for _, p := range r.Refresh.PrunedFiles {
+					cmd.Printf("  --  pruned upstream-removed: %s\n", p)
+				}
+				if r.Refresh.Market == "" {
+					continue
+				}
 				if r.Refresh.Err != nil {
 					cmd.PrintErrf("  x  %s: %v\n", r.Refresh.Market, r.Refresh.Err)
 				} else {

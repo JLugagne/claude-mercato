@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"io/fs"
 	"path/filepath"
 	"testing"
 
@@ -476,6 +477,9 @@ func TestRefresh_UpdatesAvailable(t *testing.T) {
 		DiffSinceCommitFn: func(clonePath, branch, oldSHA string) ([]domain.FileDiff, error) {
 			return nil, nil
 		},
+		FileVersionFn: func(clonePath, filePath string) (domain.MctVersion, error) {
+			return domain.MctVersion("v"), nil
+		},
 	}
 
 	db := domain.InstallDatabase{
@@ -488,7 +492,12 @@ func TestRefresh_UpdatesAvailable(t *testing.T) {
 	}
 	idb := idbWithData(db)
 
-	app := newTestApp(cfg, git, &filesystemtest.MockFilesystem{}, state, idb)
+	fsMock := &filesystemtest.MockFilesystem{
+		StatFn: func(name string) (fs.FileInfo, error) {
+			return fakeDirInfo{name: name}, nil
+		},
+	}
+	app := newTestApp(cfg, git, fsMock, state, idb)
 	results, err := app.Refresh(service.RefreshOpts{})
 	if err != nil {
 		t.Fatal("unexpected error:", err)

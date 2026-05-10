@@ -301,6 +301,15 @@ func (a *App) Refresh(opts service.RefreshOpts) ([]service.RefreshResult, error)
 
 	var results []service.RefreshResult
 
+	var prunedLocations []string
+	if !opts.DryRun {
+		pruned, pruneErr := a.pruneStaleLocations()
+		if pruneErr != nil {
+			return nil, pruneErr
+		}
+		prunedLocations = pruned
+	}
+
 	for _, mc := range cfg.Markets {
 		if opts.Market != "" && mc.Name != opts.Market {
 			continue
@@ -365,6 +374,14 @@ func (a *App) Refresh(opts service.RefreshOpts) ([]service.RefreshResult, error)
 			}
 		}
 
+		var prunedFiles []string
+		if !opts.DryRun {
+			pf, pruneErr := a.pruneRemovedUpstreamFiles(mc.Name, mc.Branch, clonePath)
+			if pruneErr == nil {
+				prunedFiles = pf
+			}
+		}
+
 		if !opts.DryRun {
 			if err := a.state.SetMarketSyncClean(a.cacheDir, mc.Name, newSHA); err != nil {
 				results = append(results, service.RefreshResult{
@@ -377,13 +394,23 @@ func (a *App) Refresh(opts service.RefreshOpts) ([]service.RefreshResult, error)
 			}
 		}
 
-		results = append(results, service.RefreshResult{
+		rr := service.RefreshResult{
 			Market:           mc.Name,
 			OldSHA:           oldSHA,
 			NewSHA:           newSHA,
 			ChangedFiles:     changedFiles,
 			UpdatesAvailable: updatesAvailable,
-		})
+			PrunedFiles:      prunedFiles,
+		}
+		if len(prunedLocations) > 0 {
+			rr.PrunedLocations = prunedLocations
+			prunedLocations = nil
+		}
+		results = append(results, rr)
+	}
+
+	if len(prunedLocations) > 0 {
+		results = append(results, service.RefreshResult{PrunedLocations: prunedLocations})
 	}
 
 	return results, nil
@@ -954,4 +981,292 @@ func (a *App) pruneRemovedFiles(w txWriter, projectRoot string, oldFiles, newFil
 // Profile ""       + hook "go-vet.json" -> "hooks/go-vet.json"
 func (a *App) hookFileRepoPath(profile, hook string) string {
 	return hookFileRepoPathStandalone(profile, hook)
+}
+
+// pruneStaleLocations scans the install database and removes any Location
+// whose project directory no longer exists on disk. It does not touch any
+// file (the directory is already gone) — it only cleans the DB. Returns the
+// list of removed location paths (with their ref) for reporting.
+// pruneStaleLocations scans the install database and removes any Location
+// whose project directory no longer exists on the filesystem. It does not
+// touch any file (the directory is already gone) — it only cleans the DB.
+// Returns the list of removed location paths (with their ref) for reporting.
+func (a *App) pruneStaleLocations() ([]string, error) {
+	if err := a.idb.Lock(a.cacheDir); err != nil {
+		return nil, err
+	}
+	defer func() { _ = a.idb.Unlock(a.cacheDir) }()
+
+	db, err := a.idb.Load(a.cacheDir)
+	if err != nil {
+		return nil, err
+	}
+
+	type staleEntry struct {
+		market   string
+		profile  string
+		location string
+	}
+	var stale []staleEntry
+	for _, im := range db.Markets {
+		for _, pkg := range im.Packages {
+			for _, loc := range pkg.Locations {
+				info, statErr := a.fs.Stat(loc.Path)
+				if statErr == nil && info.IsDir() {
+					continue
+				}
+				if statErr != nil && !os.IsNotExist(statErr) {
+					continue
+				}
+				stale = append(stale, staleEntry{
+					market:   im.Market,
+					profile:  pkg.Profile,
+					location: loc.Path,
+				})
+			}
+		}
+	}
+
+	if len(stale) == 0 {
+		return nil, nil
+	}
+
+	for _, s := range stale {
+		db.RemoveLocation(s.market, s.profile, s.location)
+	}
+
+	w, commit, rollback, err := a.beginWriter("prune-stale-locations")
+	if err != nil {
+		return nil, err
+	}
+	if err := a.stageDBSave(w, db); err != nil {
+		_ = rollback()
+		return nil, err
+	}
+	if err := commit(); err != nil {
+		return nil, err
+	}
+
+	pruned := make([]string, 0, len(stale))
+	for _, s := range stale {
+		pruned = append(pruned, s.market+"@"+s.profile+" -> "+s.location)
+	}
+	return pruned, nil
+}
+
+// pruneRemovedUpstreamFiles inspects every package installed from the given
+// market and removes locally any skill/agent/command/hook whose source file
+// no longer exists at the market's HEAD after fetch. For each removed file
+// it deletes the on-disk content across all locations, drops it from
+// pkg.Files and from each location's recorded files. Hooks are spliced from
+// settings.json via removeHookSnippet using their mct_id.
+//
+// Returns the human-readable list of pruned items (one entry per
+// market@profile#kind/name removed). Any partial failure aborts and rolls
+// back the transaction.
+// pruneRemovedUpstreamFiles inspects every package installed from the given
+// market and removes locally any skill/agent/command/hook whose source file
+// no longer exists at the market's HEAD after fetch. For each removed file
+// it deletes the on-disk content across all locations, drops it from
+// pkg.Files and from each location's recorded files. Hooks are spliced from
+// settings.json via removeHookSnippet using their mct_id.
+//
+// Returns a human-readable list of pruned items (one entry per
+// market@profile#kind/name removed). Any partial failure aborts and rolls
+// back the transaction.
+// pruneRemovedUpstreamFiles inspects every package installed from the given
+// market and removes locally any skill/agent/command/hook whose source file
+// no longer exists at the market's HEAD after fetch. For each removed file
+// it deletes the on-disk content across all locations, drops it from
+// pkg.Files and from each location's recorded files. Hooks are spliced from
+// settings.json via removeHookSnippet using their mct_id.
+//
+// Returns a human-readable list of pruned items (one entry per
+// market@profile#kind/name removed). Any partial failure aborts and rolls
+// back the transaction.
+func (a *App) pruneRemovedUpstreamFiles(marketName, branch, clonePath string) ([]string, error) {
+	if err := a.idb.Lock(a.cacheDir); err != nil {
+		return nil, err
+	}
+	defer func() { _ = a.idb.Unlock(a.cacheDir) }()
+
+	dbVal, err := a.idb.Load(a.cacheDir)
+	if err != nil {
+		return nil, err
+	}
+	db := &dbVal
+
+	im := db.FindMarket(marketName)
+	if im == nil {
+		return nil, nil
+	}
+
+	type removal struct {
+		profile string
+		kind    string
+		name    string
+	}
+	var removals []removal
+
+	for _, pkg := range im.Packages {
+		for _, skill := range pkg.Files.Skills {
+			dir := a.skillDirRepoPath(pkg.Profile, skill)
+			files, err := a.git.ListDirFiles(clonePath, branch, dir)
+			if err != nil || len(files) == 0 {
+				removals = append(removals, removal{profile: pkg.Profile, kind: "skill", name: skill})
+			}
+		}
+		for _, agent := range pkg.Files.Agents {
+			path := a.agentFileRepoPath(pkg.Profile, agent)
+			if _, err := a.git.FileVersion(clonePath, path); err != nil {
+				removals = append(removals, removal{profile: pkg.Profile, kind: "agent", name: agent})
+			}
+		}
+		for _, cmd := range pkg.Files.Commands {
+			path := a.commandFileRepoPath(pkg.Profile, cmd)
+			if _, err := a.git.FileVersion(clonePath, path); err != nil {
+				removals = append(removals, removal{profile: pkg.Profile, kind: "command", name: cmd})
+			}
+		}
+		for _, hook := range pkg.Files.Hooks {
+			path := a.hookFileRepoPath(pkg.Profile, hook)
+			if _, err := a.git.FileVersion(clonePath, path); err != nil {
+				removals = append(removals, removal{profile: pkg.Profile, kind: "hook", name: hook})
+			}
+		}
+	}
+
+	if len(removals) == 0 {
+		return nil, nil
+	}
+
+	w, commit, rollback, err := a.beginWriter("prune-upstream:" + marketName)
+	if err != nil {
+		return nil, err
+	}
+
+	relTo := func(root, abs string) string {
+		rel, err := filepath.Rel(root, abs)
+		if err != nil {
+			return filepath.ToSlash(abs)
+		}
+		return filepath.ToSlash(rel)
+	}
+	dropName := func(list []string, name string) []string {
+		out := list[:0]
+		for _, s := range list {
+			if s != name {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	dropFileByPath := func(list []domain.InstalledFile, rel string) []domain.InstalledFile {
+		out := list[:0]
+		for _, f := range list {
+			if f.Path != rel {
+				out = append(out, f)
+			}
+		}
+		return out
+	}
+	dropFilesByPrefix := func(list []domain.InstalledFile, prefix string) []domain.InstalledFile {
+		out := list[:0]
+		for _, f := range list {
+			if f.Path == strings.TrimSuffix(prefix, "/") || strings.HasPrefix(f.Path, prefix) {
+				continue
+			}
+			out = append(out, f)
+		}
+		return out
+	}
+
+	pruned := make([]string, 0, len(removals))
+	for _, r := range removals {
+		pkg := db.FindPackage(marketName, r.profile)
+		if pkg == nil {
+			continue
+		}
+
+		switch r.kind {
+		case "skill":
+			for li := range pkg.Locations {
+				loc := &pkg.Locations[li]
+				skillDir := filepath.Join(loc.Path, ".claude", "skills", r.name)
+				if err := w.DeleteAll(skillDir); err != nil && !os.IsNotExist(err) {
+					_ = rollback()
+					return nil, err
+				}
+				prefix := relTo(loc.Path, skillDir) + "/"
+				loc.Files = dropFilesByPrefix(loc.Files, prefix)
+			}
+			pkg.Files.Skills = dropName(pkg.Files.Skills, r.name)
+
+		case "agent":
+			for li := range pkg.Locations {
+				loc := &pkg.Locations[li]
+				abs := filepath.Join(loc.Path, ".claude", "agents", r.name)
+				if err := w.DeleteFile(abs); err != nil && !os.IsNotExist(err) {
+					_ = rollback()
+					return nil, err
+				}
+				loc.Files = dropFileByPath(loc.Files, relTo(loc.Path, abs))
+			}
+			pkg.Files.Agents = dropName(pkg.Files.Agents, r.name)
+
+		case "command":
+			for li := range pkg.Locations {
+				loc := &pkg.Locations[li]
+				abs := filepath.Join(loc.Path, ".claude", "commands", r.name)
+				if err := w.DeleteFile(abs); err != nil && !os.IsNotExist(err) {
+					_ = rollback()
+					return nil, err
+				}
+				loc.Files = dropFileByPath(loc.Files, relTo(loc.Path, abs))
+			}
+			pkg.Files.Commands = dropName(pkg.Files.Commands, r.name)
+
+		case "hook":
+			repoPath := a.hookFileRepoPath(r.profile, r.name)
+			ref := domain.MctRef(marketName + "@" + repoPath)
+			locs := make([]string, 0, len(pkg.Locations))
+			for _, loc := range pkg.Locations {
+				locs = append(locs, loc.Path)
+			}
+			for _, locPath := range locs {
+				settings := filepath.Join(locPath, ".claude", "settings.json")
+				if err := a.removeHookSnippet(w, ref, settings); err != nil {
+					_ = rollback()
+					return nil, err
+				}
+				if err := a.dropHookFromPackage(db, marketName, r.profile, locPath, r.name); err != nil {
+					_ = rollback()
+					return nil, err
+				}
+			}
+		}
+
+		pruned = append(pruned, marketName+"@"+r.profile+"#"+r.kind+"/"+r.name)
+	}
+
+	// Drop empty packages and cascade empty markets.
+	if im2 := db.FindMarket(marketName); im2 != nil {
+		kept := im2.Packages[:0]
+		for _, pkg := range im2.Packages {
+			if len(pkg.Files.Skills) == 0 && len(pkg.Files.Agents) == 0 && len(pkg.Files.Commands) == 0 && len(pkg.Files.Hooks) == 0 {
+				continue
+			}
+			kept = append(kept, pkg)
+		}
+		im2.Packages = kept
+	}
+
+	if err := a.stageDBSave(w, *db); err != nil {
+		_ = rollback()
+		return nil, err
+	}
+	if err := commit(); err != nil {
+		return nil, err
+	}
+	return pruned, nil
 }

@@ -77,7 +77,9 @@ Implements `SyncQueries` + `SyncCommands`.
 | Method | Description |
 |--------|-------------|
 | `Check(opts)` | Compute EntryState for all installed entries (clean/update/drift/deleted/orphaned) |
-| `Refresh(opts)` | Fetch from all markets, build diff list |
+| `Refresh(opts)` | Prune stale install-DB locations, fetch from each market, then for each fetched market run upstream-removed file pruning. Surfaces `PrunedLocations` and `PrunedFiles` in `RefreshResult`. |
+| `pruneStaleLocations()` | DB-only cleanup: walks `installed.json`, drops every `Location` whose project dir no longer exists (uses `InstallDatabase.RemoveLocation` cascade), then stages an atomic DB save via the tx writer. No file deletion — files are already gone. Skipped on `DryRun`. |
+| `pruneRemovedUpstreamFiles(market, branch, clonePath)` | Per market, after fetch: walks every installed package, checks `pkg.Files.{Skills,Agents,Commands,Hooks}` against the clone at HEAD. Each missing entry is deleted on disk across **all** locations (skills via `DeleteAll`, agents/commands via `DeleteFile`, hooks via `removeHookSnippet` to splice `settings.json` by `mct_id`), removed from `pkg.Files`, removed from each `loc.Files`, and packages that become empty are dropped. Atomic via the tx writer. Skipped on `DryRun`. |
 | `Update(opts)` | Apply pending changes with drift/conflict handling |
 | `Sync(opts)` | Combined Refresh + Update |
 | `detectDrift()` | Compare local file xxhash vs upstream content at recorded version |
