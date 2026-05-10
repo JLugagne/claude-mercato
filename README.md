@@ -102,7 +102,9 @@ Real features, all implemented today:
 - **Tool mappings** — translate models (`opus`, `sonnet`, `haiku`) and built-in tool names (`Bash`, `Read`, `Edit`…) to each target tool's equivalent. Editable in `~/.config/mct/toolmappings.yml` for power users
 - **Atomic install / update / remove** — every write goes through a per-package staging directory and is promoted in one commit. A crash mid-install never leaves a half-written tree, and a startup recovery pass replays leftover stages from previous crashed runs
 - **Dependency resolution** — skills can declare `requires_skills`, and `mct` installs the full graph. Cross-market deps auto-register the foreign market (with a confirmation prompt outside CI mode), and cycles are detected
-- **Drift detection** — xxhash checksums detect local edits to installed files, so updates never silently overwrite your work
+- **Drift detection** — xxhash checksums detect local edits to installed files, so updates never silently overwrite your work. Locally-deleted files are flagged separately (`StateLocallyDeleted`) so `sync` can offer to restore them
+- **Self-healing sync** — `mct sync` prunes stale install locations and upstream-removed files automatically, then offers to **restore any locally-deleted file** interactively (`[r]/[k]/[a]/[n]` per file; `--restore-all` / `--restore-none` flags; CI mode skips silently)
+- **Doctor** — `mct doctor` runs a 100% offline read-only audit and surfaces every issue (modified files, locally-deleted, stale locations, upstream-removed, orphaned packages) in one shot, with `--json` for CI
 - **Conflict handling** — filename collisions across markets, version mismatches on shared deps, and hook `(event, matcher)` collisions are surfaced via `mct conflicts`
 - **Offline BM25 search** with fuzzy matching, across all registered markets
 - **Interactive TUI** for browsing markets and managing installations
@@ -176,11 +178,15 @@ mct remove <market>@<path>        # uninstall an entry (also accepts --ref)
 # To install every entry in a profile, use `mct restore` or `mct import`
 
 # Sync
-mct refresh                       # fetch updates from all markets
+mct refresh                       # fetch updates + prune stale locations + prune upstream-removed files
 mct update                        # apply pending changes locally
-mct sync                          # refresh + update
-mct check                         # show status of installed entries
-mct prune                         # handle entries deleted upstream
+mct sync                          # refresh + interactive restore-deleted + update
+mct sync --restore-all            # restore every locally-deleted file without prompting
+mct sync --restore-none           # skip the restore phase entirely (CI default)
+mct check                         # show status of installed entries (clean/drift/locally_deleted/...)
+mct doctor                        # offline read-only audit (drift + missing + stale + upstream-removed + orphans)
+mct doctor --json                 # same, machine-readable
+mct prune                         # handle entries fully deleted upstream
 
 # Search
 mct search "security review"

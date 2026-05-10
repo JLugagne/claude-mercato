@@ -33,11 +33,13 @@ mct uses **Git repositories as distribution channels** (called "markets"). A mar
 
 3. **Install an entry**: `mct add <market>@<path>` — mct reads the file from the cached clone, validates its YAML frontmatter, recursively resolves skill dependencies (with cycle detection), injects tracking metadata (`mct_ref`, `mct_version`, `mct_checksum`, etc.), writes files to `.claude/`, and records the installation in `~/.cache/mct/installed.json`
 
-4. **Check status**: `mct check` — for every installed entry, mct computes its state by comparing the local file hash (xxhash) against both the recorded version and the latest upstream version. States: clean, update_available, drift, update_and_drift, deleted, orphaned
+4. **Check status**: `mct check` — for every installed entry, mct computes its state by comparing the local file hash (xxhash) against both the recorded version and the latest upstream version. States: clean, update_available, drift, locally_deleted, update_and_drift, deleted, orphaned
 
-5. **Sync updates**: `mct sync` (or `mct refresh` + `mct update` separately) — fetches from all markets, computes diffs since last sync, and applies changes. Handles drift conflicts interactively (keep local / accept upstream / delete) or via policy flags (`--all-keep`, `--all-merge`)
+5. **Sync updates**: `mct sync` (or `mct refresh` + `mct update` separately) — fetches from all markets, prunes stale install locations and upstream-removed files, then offers to **restore any locally-deleted file** interactively (`[r]/[k]/[a]/[n]` prompt; `--restore-all` / `--restore-none` flags; CI mode skips silently), and finally applies updates. Drift conflicts are handled via policy flags (`--all-keep`, `--all-merge`)
 
-6. **Export/restore**: `mct save` writes a `.mct.json` manifest; `mct restore` re-installs from it. Combined with optional Git hooks (`mct hook install`), this enables fully automatic save-on-push and restore-on-pull workflows
+6. **Audit health**: `mct doctor` — read-only, offline. Surfaces every issue in one shot: drift, locally-deleted files, stale locations, upstream-removed files, orphaned packages. JSON output via `--json` for CI tooling. Run `mct refresh` first if you need a fresh upstream view.
+
+7. **Export/restore**: `mct save` writes a `.mct.json` manifest; `mct restore` re-installs from it. Combined with optional Git hooks (`mct hook install`), this enables fully automatic save-on-push and restore-on-pull workflows
 
 ### Market Format
 

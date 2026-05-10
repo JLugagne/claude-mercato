@@ -31,7 +31,9 @@ Full representation of an agent, skill, command, or hook with metadata, version,
 Parsed representation of a `.json` snippet under a market's `hooks/` directory. Fields: `Event`, `Matcher`, `Hooks []json.RawMessage`. Validated by `ParseHookSnippet([]byte) (HookSnippet, error)`. Errors: `ErrInvalidHookSnippet`, `ErrSettingsHooksMalformed`, `ErrConflictHookEventMatcher`.
 
 ### EntryState
-Enum: `Clean`, `UpdateAvailable`, `Drift`, `UpdateAndDrift`, `Deleted`, `NewInRegistry`, `Orphaned`, `Unknown`.
+Enum: `Clean`, `UpdateAvailable`, `Drift`, `UpdateAndDrift`, `Deleted`, `NewInRegistry`, `Orphaned`, `Unknown`, `LocallyDeleted`.
+
+`LocallyDeleted` distinguishes "the user removed the file from disk" from `Drift` ("the user modified the file content"). `Check` returns `Drift` when at least one file is modified (mix takes precedence — modified is more risky than missing) and `LocallyDeleted` only when *every* drifted file is missing. This drives the `mct sync` interactive restore flow.
 
 ### Frontmatter
 Parsed from YAML header in .md files. Fields: name, description, author, version, tags, deprecated, breaking_change, requires_skills. Mct-injected fields: mct_ref, mct_version, mct_market, mct_profile, mct_installed_at, mct_checksum.

@@ -46,7 +46,7 @@ type Services struct {
 | `remove_cmd.go` | `remove <ref>` | — | Uninstall entry |
 | `list_cmd.go` | `list` | — | List installed entries |
 | `search_cmd.go` | `search <query>` | — | Full-text search |
-| `sync_cmd.go` | `sync` | — | Refresh + update |
+| `sync_cmd.go` | `sync` | — | Refresh, restore-deleted (interactive), then update |
 | `refresh_cmd.go` | `refresh` | — | Fetch updates |
 | `update_cmd.go` | `update` | — | Apply changes |
 | `check_cmd.go` | `check` | `status` | Show entry states |
@@ -60,6 +60,8 @@ type Services struct {
 | `hook_cmd.go` | `hook install`, `hook uninstall` | — | Git hook management |
 | `sync_state_cmd.go` | `sync-state` | — | Per-market sync state |
 | `index_cmd.go` | `index dump`, `index bench` | — | Index debugging |
+| `doctor_cmd.go` | `doctor` | — | Read-only health audit (drift, locally-deleted, stale locations, upstream-removed, orphans) |
+| `restore_prompt.go` | (helper) | — | Per-file `[r]estore / [k]eep / [a]ll / [n]one` prompt used by `sync` between Refresh and Update |
 
 ## Utility Files
 
