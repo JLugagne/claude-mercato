@@ -79,11 +79,13 @@ func (s *stubMarkets) LintMarket(fsys fs.FS, dir string) (service.LintResult, er
 // ---------------------------------------------------------------------------
 
 type stubSync struct {
-	checkFn     func(opts service.CheckOpts) ([]domain.EntryStatus, error)
-	syncStateFn func() (domain.SyncState, error)
-	refreshFn   func(opts service.RefreshOpts) ([]service.RefreshResult, error)
-	updateFn    func(opts service.UpdateOpts) ([]service.UpdateResult, error)
-	syncFn      func(opts service.SyncOpts) ([]service.SyncResult, error)
+	checkFn          func(opts service.CheckOpts) ([]domain.EntryStatus, error)
+	syncStateFn      func() (domain.SyncState, error)
+	refreshFn        func(opts service.RefreshOpts) ([]service.RefreshResult, error)
+	updateFn         func(opts service.UpdateOpts) ([]service.UpdateResult, error)
+	syncFn           func(opts service.SyncOpts) ([]service.SyncResult, error)
+	detectDeletedFn  func(opts service.DetectDeletedOpts) ([]service.DeletedFile, error)
+	restoreDeletedFn func(files []service.DeletedFile, opts service.RestoreOpts) ([]service.RestoreResult, error)
 }
 
 func (s *stubSync) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
@@ -117,6 +119,20 @@ func (s *stubSync) Update(opts service.UpdateOpts) ([]service.UpdateResult, erro
 func (s *stubSync) Sync(opts service.SyncOpts) ([]service.SyncResult, error) {
 	if s.syncFn != nil {
 		return s.syncFn(opts)
+	}
+	return nil, nil
+}
+
+func (s *stubSync) DetectDeleted(opts service.DetectDeletedOpts) ([]service.DeletedFile, error) {
+	if s.detectDeletedFn != nil {
+		return s.detectDeletedFn(opts)
+	}
+	return nil, nil
+}
+
+func (s *stubSync) RestoreDeleted(files []service.DeletedFile, opts service.RestoreOpts) ([]service.RestoreResult, error) {
+	if s.restoreDeletedFn != nil {
+		return s.restoreDeletedFn(files, opts)
 	}
 	return nil, nil
 }
@@ -1115,18 +1131,14 @@ func TestUpdateCmd_Error(t *testing.T) {
 func TestSyncCmd_Default(t *testing.T) {
 	svc := mockServices()
 	svc.Sync = &stubSync{
-		syncFn: func(opts service.SyncOpts) ([]service.SyncResult, error) {
-			return []service.SyncResult{
-				{
-					Refresh: service.RefreshResult{
-						Market: "mkt",
-						OldSHA: "aaaaaaa0000",
-						NewSHA: "bbbbbbb1111",
-					},
-					Updates: []service.UpdateResult{
-						{Ref: "mkt@agents/bar.md", Action: "update"},
-					},
-				},
+		refreshFn: func(opts service.RefreshOpts) ([]service.RefreshResult, error) {
+			return []service.RefreshResult{
+				{Market: "mkt", OldSHA: "aaaaaaa0000", NewSHA: "bbbbbbb1111"},
+			}, nil
+		},
+		updateFn: func(opts service.UpdateOpts) ([]service.UpdateResult, error) {
+			return []service.UpdateResult{
+				{Ref: "mkt@agents/bar.md", Action: "update"},
 			}, nil
 		},
 	}
@@ -1142,15 +1154,9 @@ func TestSyncCmd_Default(t *testing.T) {
 func TestSyncCmd_JSON(t *testing.T) {
 	svc := mockServices()
 	svc.Sync = &stubSync{
-		syncFn: func(opts service.SyncOpts) ([]service.SyncResult, error) {
-			return []service.SyncResult{
-				{
-					Refresh: service.RefreshResult{
-						Market: "mkt",
-						OldSHA: "aaaaaaa0000",
-						NewSHA: "bbbbbbb1111",
-					},
-				},
+		refreshFn: func(opts service.RefreshOpts) ([]service.RefreshResult, error) {
+			return []service.RefreshResult{
+				{Market: "mkt", OldSHA: "aaaaaaa0000", NewSHA: "bbbbbbb1111"},
 			}, nil
 		},
 	}
@@ -1162,11 +1168,15 @@ func TestSyncCmd_JSON(t *testing.T) {
 }
 
 func TestSyncCmd_DryRun(t *testing.T) {
-	var capturedOpts service.SyncOpts
+	var refreshDryRun, updateDryRun bool
 	svc := mockServices()
 	svc.Sync = &stubSync{
-		syncFn: func(opts service.SyncOpts) ([]service.SyncResult, error) {
-			capturedOpts = opts
+		refreshFn: func(opts service.RefreshOpts) ([]service.RefreshResult, error) {
+			refreshDryRun = opts.DryRun
+			return nil, nil
+		},
+		updateFn: func(opts service.UpdateOpts) ([]service.UpdateResult, error) {
+			updateDryRun = opts.DryRun
 			return nil, nil
 		},
 	}
@@ -1174,8 +1184,8 @@ func TestSyncCmd_DryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !capturedOpts.DryRun {
-		t.Errorf("expected DryRun=true to be passed to syncFn, got false")
+	if !refreshDryRun || !updateDryRun {
+		t.Errorf("expected DryRun=true on both Refresh and Update, got refresh=%v update=%v", refreshDryRun, updateDryRun)
 	}
 }
 

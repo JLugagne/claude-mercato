@@ -12,6 +12,8 @@ type SyncCommands interface {
 	Refresh(opts RefreshOpts) ([]RefreshResult, error)
 	Update(opts UpdateOpts) ([]UpdateResult, error)
 	Sync(opts SyncOpts) ([]SyncResult, error)
+	DetectDeleted(opts DetectDeletedOpts) ([]DeletedFile, error)
+	RestoreDeleted(files []DeletedFile, opts RestoreOpts) ([]RestoreResult, error)
 }
 
 type CheckOpts struct {
@@ -72,6 +74,32 @@ type UpdateResult struct {
 }
 
 type SyncResult struct {
-	Refresh RefreshResult  `json:"refresh"`
-	Updates []UpdateResult `json:"updates"`
+	Refresh  RefreshResult   `json:"refresh"`
+	Updates  []UpdateResult  `json:"updates"`
+	Restored []RestoreResult `json:"restored,omitempty"`
+}
+
+// DeletedFile identifies a file that was recorded as installed in the
+// install database but is no longer present on disk (locally deleted by
+// the user, not pruned by sync).
+type DeletedFile struct {
+	Market   string `json:"market"`
+	Profile  string `json:"profile"`
+	Location string `json:"location"`
+	RelPath  string `json:"rel_path"`
+	XXH      string `json:"xxh"`
+}
+
+type DetectDeletedOpts struct {
+	Market string
+}
+
+type RestoreOpts struct {
+	DryRun bool
+}
+
+type RestoreResult struct {
+	File    DeletedFile `json:"file"`
+	Action  string      `json:"action"` // "restored" | "failed"
+	Err     error       `json:"error,omitempty"`
 }

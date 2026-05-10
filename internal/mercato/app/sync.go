@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1316,3 +1317,217 @@ func (a *App) pruneRemovedUpstreamFiles(marketName, branch, clonePath string) ([
 	}
 	return pruned, nil
 }
+
+// DetectDeleted scans the install database and returns every file that was
+// recorded as installed but is missing on disk (locally deleted by the user
+// or otherwise vanished). It does NOT touch anything — read-only.
+//
+// Hooks are spliced into settings.json rather than written as standalone
+// files; their "deletion" is hook drift, handled separately by detectHookDrift,
+// so they are excluded here to avoid false positives.
+func (a *App) DetectDeleted(opts service.DetectDeletedOpts) ([]service.DeletedFile, error) {
+	cfg, err := a.cfg.Load(a.configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := a.idb.Load(a.cacheDir)
+	if err != nil {
+		return nil, err
+	}
+
+	projectPath := projectPath(cfg.LocalPath)
+
+	var deleted []service.DeletedFile
+	for _, im := range db.Markets {
+		if opts.Market != "" && im.Market != opts.Market {
+			continue
+		}
+		for _, pkg := range im.Packages {
+			for _, loc := range pkg.Locations {
+				if loc.Path != projectPath {
+					continue
+				}
+				if loc.Type != domain.RuntimeTypeClaudeCode {
+					continue
+				}
+				for _, f := range loc.Files {
+					// Skip hook entries — their "presence" is in settings.json
+					// under an mct_id, not a standalone file.
+					if strings.Contains(f.Path, "#hooks/") {
+						continue
+					}
+					abs := filepath.Join(loc.Path, f.Path)
+					if _, err := a.fs.Stat(abs); err != nil && os.IsNotExist(err) {
+						deleted = append(deleted, service.DeletedFile{
+							Market:   im.Market,
+							Profile:  pkg.Profile,
+							Location: loc.Path,
+							RelPath:  f.Path,
+							XXH:      f.XXH,
+						})
+					}
+				}
+			}
+		}
+	}
+	return deleted, nil
+}
+
+// RestoreDeleted reinstalls files that were recorded as installed but went
+// missing on disk. Each file is read from the cached clone at the package's
+// recorded version and written back via the transactional writer; the
+// install database xxhash is left untouched (the original hash is restored).
+//
+// On DryRun, no write happens and every result is "would_restore".
+func (a *App) RestoreDeleted(files []service.DeletedFile, opts service.RestoreOpts) ([]service.RestoreResult, error) {
+	if len(files) == 0 {
+		return nil, nil
+	}
+
+	cfg, err := a.cfg.Load(a.configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := a.idb.Lock(a.cacheDir); err != nil {
+		return nil, err
+	}
+	defer func() { _ = a.idb.Unlock(a.cacheDir) }()
+
+	db, err := a.idb.Load(a.cacheDir)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]service.RestoreResult, 0, len(files))
+
+	// Group by (market, profile, location) for tx granularity.
+	type key struct{ market, profile, location string }
+	groups := make(map[key][]service.DeletedFile)
+	order := []key{}
+	for _, f := range files {
+		k := key{f.Market, f.Profile, f.Location}
+		if _, ok := groups[k]; !ok {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], f)
+	}
+
+	for _, k := range order {
+		group := groups[k]
+		mc := findMarketConfig(cfg, k.market)
+		if mc == nil {
+			for _, f := range group {
+				results = append(results, service.RestoreResult{File: f, Action: "failed", Err: errMarketNotFound})
+			}
+			continue
+		}
+		pkg := db.FindPackage(k.market, k.profile)
+		if pkg == nil {
+			for _, f := range group {
+				results = append(results, service.RestoreResult{File: f, Action: "failed", Err: errPackageNotFound})
+			}
+			continue
+		}
+		clonePath := a.clonePath(k.market)
+
+		if opts.DryRun {
+			for _, f := range group {
+				results = append(results, service.RestoreResult{File: f, Action: "would_restore"})
+			}
+			continue
+		}
+
+		w, commit, rollback, err := a.beginWriter("restore-deleted:" + k.market + ":" + k.profile)
+		if err != nil {
+			for _, f := range group {
+				results = append(results, service.RestoreResult{File: f, Action: "failed", Err: err})
+			}
+			continue
+		}
+
+		groupErr := error(nil)
+		writtenResults := make([]service.RestoreResult, 0, len(group))
+		for _, f := range group {
+			repoPath := a.deletedFileRepoPath(pkg.Profile, f.RelPath)
+			if repoPath == "" {
+				writtenResults = append(writtenResults, service.RestoreResult{File: f, Action: "failed", Err: errUnknownFileShape})
+				continue
+			}
+			content, readErr := a.git.ReadFileAtRef(clonePath, mc.Branch, repoPath, pkg.Version)
+			if readErr != nil {
+				writtenResults = append(writtenResults, service.RestoreResult{File: f, Action: "failed", Err: readErr})
+				continue
+			}
+			abs := filepath.Join(f.Location, f.RelPath)
+			if writeErr := w.WriteFile(abs, content); writeErr != nil {
+				groupErr = writeErr
+				writtenResults = append(writtenResults, service.RestoreResult{File: f, Action: "failed", Err: writeErr})
+				break
+			}
+			writtenResults = append(writtenResults, service.RestoreResult{File: f, Action: "restored"})
+		}
+
+		if groupErr != nil {
+			_ = rollback()
+		} else if err := commit(); err != nil {
+			for i := range writtenResults {
+				if writtenResults[i].Action == "restored" {
+					writtenResults[i].Action = "failed"
+					writtenResults[i].Err = err
+				}
+			}
+		}
+		results = append(results, writtenResults...)
+	}
+
+	return results, nil
+}
+
+// deletedFileRepoPath maps a recorded local relative path (e.g.
+// ".claude/agents/foo.md", ".claude/skills/bar/SKILL.md",
+// ".claude/commands/baz.md") back to the upstream repo-relative path so
+// the restore flow can read the original content.
+//
+// Returns "" if the shape is unrecognized (defensive — callers report a
+// failed restore for that entry).
+// deletedFileRepoPath maps a recorded local relative path (e.g.
+// ".claude/agents/foo.md", ".claude/skills/bar/SKILL.md",
+// ".claude/commands/baz.md") back to the upstream repo-relative path so
+// the restore flow can read the original content.
+//
+// Returns "" if the shape is unrecognized (defensive — callers report a
+// failed restore for that entry).
+func (a *App) deletedFileRepoPath(profile, relPath string) string {
+	const claudePrefix = ".claude/"
+	rest := strings.TrimPrefix(relPath, claudePrefix)
+	if rest == relPath {
+		return ""
+	}
+	switch {
+	case strings.HasPrefix(rest, "agents/"):
+		return a.agentFileRepoPath(profile, strings.TrimPrefix(rest, "agents/"))
+	case strings.HasPrefix(rest, "commands/"):
+		return a.commandFileRepoPath(profile, strings.TrimPrefix(rest, "commands/"))
+	case strings.HasPrefix(rest, "skills/"):
+		// "skills/<name>/<file>" — split into skill + file for skillFileRepoPath.
+		body := strings.TrimPrefix(rest, "skills/")
+		slash := strings.Index(body, "/")
+		if slash < 0 {
+			return ""
+		}
+		return a.skillFileRepoPath(profile, body[:slash], body[slash+1:])
+	default:
+		return ""
+	}
+}
+
+// errMarketNotFound, errPackageNotFound and errUnknownFileShape are
+// sentinel errors returned by RestoreDeleted to keep its result rows
+// machine-readable.
+var (
+	errMarketNotFound   = errors.New("market not found in config")
+	errPackageNotFound  = errors.New("package not found in install database")
+	errUnknownFileShape = errors.New("unrecognized installed file path shape")
+)

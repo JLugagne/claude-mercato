@@ -118,15 +118,51 @@ func newUpdateCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Refresh and update in one step",
+		Short: "Refresh, restore deleted files (interactive), then update",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			market, _ := cmd.Flags().GetString("market")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			acceptBreaking, _ := cmd.Flags().GetBool("accept-breaking")
 			allMerge, _ := cmd.Flags().GetBool("all-merge")
 			allLocations, _ := cmd.Flags().GetBool("all")
+			restoreAll, _ := cmd.Flags().GetBool("restore-all")
+			restoreNone, _ := cmd.Flags().GetBool("restore-none")
 			jsonOut, _ := cmd.Flags().GetBool("json")
-			results, err := svc.Sync.Sync(service.SyncOpts{
+
+			// Phase 1: refresh (fetch + prune stale locations + prune upstream-removed).
+			refreshResults, err := svc.Sync.Refresh(service.RefreshOpts{
+				Market: market,
+				DryRun: dryRun,
+				CI:     opts.CI,
+			})
+			if err != nil {
+				return err
+			}
+
+			// Phase 2: detect locally-deleted files and offer to restore them.
+			var restored []service.RestoreResult
+			if !dryRun {
+				deleted, err := svc.Sync.DetectDeleted(service.DetectDeletedOpts{Market: market})
+				if err != nil {
+					return err
+				}
+				if len(deleted) > 0 {
+					toRestore := chooseFilesToRestore(cmd, deleted, restoreFlags{
+						all:  restoreAll,
+						none: restoreNone,
+						ci:   opts.CI,
+					})
+					if len(toRestore) > 0 {
+						restored, err = svc.Sync.RestoreDeleted(toRestore, service.RestoreOpts{})
+						if err != nil {
+							return err
+						}
+					}
+				}
+			}
+
+			// Phase 3: update.
+			updateResults, err := svc.Sync.Update(service.UpdateOpts{
 				Market:         market,
 				DryRun:         dryRun,
 				CI:             opts.CI,
@@ -137,6 +173,21 @@ func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			// Stitch into SyncResult shape for output parity with svc.Sync.Sync.
+			updatesByMarket := make(map[string][]service.UpdateResult)
+			for _, u := range updateResults {
+				updatesByMarket[u.Ref.Market()] = append(updatesByMarket[u.Ref.Market()], u)
+			}
+			results := make([]service.SyncResult, 0, len(refreshResults))
+			for i, r := range refreshResults {
+				sr := service.SyncResult{Refresh: r, Updates: updatesByMarket[r.Market]}
+				if i == 0 {
+					sr.Restored = restored
+				}
+				results = append(results, sr)
+			}
+
 			if jsonOut {
 				return printJSON(cmd.OutOrStdout(), results)
 			}
@@ -146,6 +197,16 @@ func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 				}
 				for _, p := range r.Refresh.PrunedFiles {
 					cmd.Printf("  --  pruned upstream-removed: %s\n", p)
+				}
+				for _, rr := range r.Restored {
+					switch rr.Action {
+					case "restored":
+						cmd.Printf("  ++  restored %s in %s\n", rr.File.RelPath, rr.File.Location)
+					case "would_restore":
+						cmd.Printf("  ?   would restore %s in %s\n", rr.File.RelPath, rr.File.Location)
+					case "failed":
+						cmd.PrintErrf("  x  restore failed for %s: %v\n", rr.File.RelPath, rr.Err)
+					}
 				}
 				if r.Refresh.Market == "" {
 					continue
@@ -167,6 +228,8 @@ func newSyncCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 	cmd.Flags().Bool("accept-breaking", false, "accept breaking changes")
 	cmd.Flags().Bool("all-merge", false, "merge all changes")
 	cmd.Flags().Bool("all", false, "update all locations where entries are installed")
+	cmd.Flags().Bool("restore-all", false, "restore every locally-deleted file without prompting")
+	cmd.Flags().Bool("restore-none", false, "skip restoring locally-deleted files (no prompt)")
 	cmd.Flags().Bool("json", false, "JSON output")
 	return cmd
 }
