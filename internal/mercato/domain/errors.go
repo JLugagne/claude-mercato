@@ -64,9 +64,15 @@ var (
 )
 
 var (
-	ErrConflictRefCollision = &DomainError{Code: "CONFLICT_REF_COLLISION", Message: "same filename in two markets resolves to same local path"}
-	ErrConflictDepVersion   = &DomainError{Code: "CONFLICT_DEP_VERSION", Message: "two agents require same skill at incompatible versions"}
-	ErrConflictDepDeleted   = &DomainError{Code: "CONFLICT_DEP_DELETED", Message: "a required skill was deleted from its market"}
+	ErrConflictRefCollision     = &DomainError{Code: "CONFLICT_REF_COLLISION", Message: "same filename in two markets resolves to same local path"}
+	ErrConflictDepVersion       = &DomainError{Code: "CONFLICT_DEP_VERSION", Message: "two agents require same skill at incompatible versions"}
+	ErrConflictDepDeleted       = &DomainError{Code: "CONFLICT_DEP_DELETED", Message: "a required skill was deleted from its market"}
+	ErrConflictHookEventMatcher = &DomainError{Code: "CONFLICT_HOOK_EVENT_MATCHER", Message: "two markets provide hooks for the same (event, matcher) pair"}
+)
+
+var (
+	ErrInvalidHookSnippet     = &DomainError{Code: "INVALID_HOOK_SNIPPET", Message: "hook snippet must contain a non-empty 'event' string and a non-empty 'hooks' array"}
+	ErrSettingsHooksMalformed = &DomainError{Code: "SETTINGS_HOOKS_MALFORMED", Message: "settings.json 'hooks' key has unexpected shape; refusing to install"}
 )
 
 var (

@@ -43,6 +43,7 @@ const (
 	EntryTypeAgent   EntryType = "agent"
 	EntryTypeSkill   EntryType = "skill"
 	EntryTypeCommand EntryType = "command"
+	EntryTypeHook    EntryType = "hook"
 )
 
 type Market struct {

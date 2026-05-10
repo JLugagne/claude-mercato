@@ -51,6 +51,7 @@ type InstalledFiles struct {
 	Skills   []string `json:"skills,omitempty"`
 	Agents   []string `json:"agents,omitempty"`
 	Commands []string `json:"commands,omitempty"`
+	Hooks    []string `json:"hooks,omitempty"`
 }
 
 // FindPackage returns a pointer to the installed package for the given market
@@ -177,11 +178,14 @@ func MergeLocationFiles(existing, incoming []InstalledFile) []InstalledFile {
 // lists. Used alongside MergeLocationFiles for incremental adds.
 // MergePackageFiles returns the union of existing and incoming leaf-name
 // lists. Used alongside MergeLocationFiles for incremental adds.
+// MergePackageFiles returns the union of existing and incoming leaf-name
+// lists. Used alongside MergeLocationFiles for incremental adds.
 func MergePackageFiles(existing, incoming InstalledFiles) InstalledFiles {
 	out := InstalledFiles{
 		Skills:   append([]string(nil), existing.Skills...),
 		Agents:   append([]string(nil), existing.Agents...),
 		Commands: append([]string(nil), existing.Commands...),
+		Hooks:    append([]string(nil), existing.Hooks...),
 	}
 	for _, s := range incoming.Skills {
 		if !slices.Contains(out.Skills, s) {
@@ -196,6 +200,11 @@ func MergePackageFiles(existing, incoming InstalledFiles) InstalledFiles {
 	for _, c := range incoming.Commands {
 		if !slices.Contains(out.Commands, c) {
 			out.Commands = append(out.Commands, c)
+		}
+	}
+	for _, h := range incoming.Hooks {
+		if !slices.Contains(out.Hooks, h) {
+			out.Hooks = append(out.Hooks, h)
 		}
 	}
 	return out

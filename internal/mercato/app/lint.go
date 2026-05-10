@@ -36,6 +36,7 @@ type lintProfileData struct {
 	hasReadme bool
 	hasTags   bool
 	commands  []string
+	hooks     []string
 }
 
 type lintAgentDeps struct {
@@ -55,7 +56,12 @@ func walkMarketEntries(fsys fs.FS, dir string, result *service.LintResult) (lint
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(path, ".md") {
+		if d.IsDir() {
+			return nil
+		}
+		isMD := strings.HasSuffix(path, ".md")
+		isHookJSON := strings.HasSuffix(path, ".json") && strings.Contains(path, "/hooks/")
+		if !isMD && !isHookJSON {
 			return nil
 		}
 
@@ -71,7 +77,7 @@ func walkMarketEntries(fsys fs.FS, dir string, result *service.LintResult) (lint
 		profile := parts[0] + "/" + parts[1]
 
 		// Profile-level README
-		if len(parts) == 3 && strings.EqualFold(parts[2], "README.md") {
+		if isMD && len(parts) == 3 && strings.EqualFold(parts[2], "README.md") {
 			pd := w.ensureProfile(profile)
 			pd.hasReadme = true
 			content, readErr := fs.ReadFile(fsys, path)
@@ -91,6 +97,24 @@ func walkMarketEntries(fsys fs.FS, dir string, result *service.LintResult) (lint
 		if readErr != nil {
 			return nil
 		}
+
+		// Hook snippets get their own validation path; they have no YAML
+		// frontmatter and parse as JSON.
+		if isHookJSON {
+			pd := w.ensureProfile(profile)
+			if _, err := domain.ParseHookSnippet(content); err != nil {
+				result.Issues = append(result.Issues, service.LintIssue{
+					Profile:  profile,
+					Severity: "error",
+					Message:  rel + ": invalid hook snippet: " + err.Error(),
+				})
+				return nil
+			}
+			pd.hooks = append(pd.hooks, rel)
+			w.knownPaths[rel] = struct{}{}
+			return nil
+		}
+
 		fm, parseErr := domain.ParseFrontmatter(content)
 		if parseErr != nil {
 			w.ensureProfile(profile).agents = append(w.ensureProfile(profile).agents, rel)

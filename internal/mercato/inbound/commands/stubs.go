@@ -513,7 +513,7 @@ func newSearchCmd(svc Services, opts *GlobalOpts) *cobra.Command {
 		},
 	}
 	cmd.Flags().Int("limit", 10, "max results")
-	cmd.Flags().String("type", "", "filter by type (agent|skill|command)")
+	cmd.Flags().String("type", "", "filter by type (agent|skill|command|hook)")
 	cmd.Flags().String("market", "", "filter by market")
 	cmd.Flags().String("category", "", "filter by category")
 	cmd.Flags().Bool("installed", false, "only installed")

@@ -654,7 +654,7 @@ func (m *AppModel) updateEntriesList() {
 		return
 	}
 
-	title := "Agents, Skills & Commands"
+	title := "Agents, Skills, Commands & Hooks"
 	switch m.typeFilter {
 	case domain.EntryTypeAgent:
 		title = "Agents"
@@ -662,6 +662,8 @@ func (m *AppModel) updateEntriesList() {
 		title = "Skills"
 	case domain.EntryTypeCommand:
 		title = "Commands"
+	case domain.EntryTypeHook:
+		title = "Hooks"
 	}
 	m.entriesList.Title = title
 
@@ -1069,6 +1071,7 @@ func RunTUI(svc TUIServices, updateAvailable bool, latestVersion string) error {
 }
 
 // nextTypeFilter cycles through: "" (all) -> agent -> skill -> command -> "" (all).
+// nextTypeFilter cycles through: "" (all) -> agent -> skill -> command -> hook -> "" (all).
 func nextTypeFilter(current domain.EntryType) domain.EntryType {
 	switch current {
 	case "":
@@ -1077,6 +1080,8 @@ func nextTypeFilter(current domain.EntryType) domain.EntryType {
 		return domain.EntryTypeSkill
 	case domain.EntryTypeSkill:
 		return domain.EntryTypeCommand
+	case domain.EntryTypeCommand:
+		return domain.EntryTypeHook
 	default:
 		return ""
 	}

@@ -321,6 +321,8 @@ func (a *Adapter) ListFiles(clonePath, branch string) ([]string, error) {
 	err = tree.Files().ForEach(func(f *object.File) error {
 		if strings.HasSuffix(f.Name, ".md") && (isAgentOrSkillPath(f.Name) || isReadmePath(f.Name)) {
 			paths = append(paths, f.Name)
+		} else if isHookPath(f.Name) {
+			paths = append(paths, f.Name)
 		}
 		return nil
 	})
@@ -356,10 +358,12 @@ func (a *Adapter) ReadMarketFiles(clonePath, branch string) ([]gitrepo.MarketFil
 	var paths []string
 	contentByPath := make(map[string][]byte)
 	err = tree.Files().ForEach(func(f *object.File) error {
-		if !strings.HasSuffix(f.Name, ".md") {
+		md := strings.HasSuffix(f.Name, ".md")
+		hook := isHookPath(f.Name)
+		if !md && !hook {
 			return nil
 		}
-		if !isAgentOrSkillPath(f.Name) && !isReadmePath(f.Name) {
+		if md && !isAgentOrSkillPath(f.Name) && !isReadmePath(f.Name) {
 			return nil
 		}
 		paths = append(paths, f.Name)

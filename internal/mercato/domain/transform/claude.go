@@ -19,6 +19,11 @@ func (t *ClaudeTransformer) OutputPath(entry domain.Entry) string {
 	if entry.Type == domain.EntryTypeCommand {
 		return ".claude/commands/" + name + ".md"
 	}
+	if entry.Type == domain.EntryTypeHook {
+		// Hooks are merged into a single settings.json by the App layer;
+		// the path is reported here for traceability.
+		return ".claude/settings.json"
+	}
 	return ".claude/skills/" + name + "/SKILL.md"
 }
 

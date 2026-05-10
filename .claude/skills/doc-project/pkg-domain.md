@@ -25,7 +25,10 @@ Defines all core types, error codes, frontmatter parsing, sync state, and the in
 Canonical reference: `"market@profile/category/type/name"`. Methods: `Parse()` splits into market + path.
 
 ### Entry
-Full representation of an agent, skill, or command with metadata, version, state, dependencies, and profile context. `EntryType` constants: `EntryTypeAgent`, `EntryTypeSkill`, `EntryTypeCommand`.
+Full representation of an agent, skill, command, or hook with metadata, version, state, dependencies, and profile context. `EntryType` constants: `EntryTypeAgent`, `EntryTypeSkill`, `EntryTypeCommand`, `EntryTypeHook`.
+
+### HookSnippet (`hook.go`)
+Parsed representation of a `.json` snippet under a market's `hooks/` directory. Fields: `Event`, `Matcher`, `Hooks []json.RawMessage`. Validated by `ParseHookSnippet([]byte) (HookSnippet, error)`. Errors: `ErrInvalidHookSnippet`, `ErrSettingsHooksMalformed`, `ErrConflictHookEventMatcher`.
 
 ### EntryState
 Enum: `Clean`, `UpdateAvailable`, `Drift`, `UpdateAndDrift`, `Deleted`, `NewInRegistry`, `Orphaned`, `Unknown`.
@@ -35,7 +38,7 @@ Parsed from YAML header in .md files. Fields: name, description, author, version
 
 ### InstallDatabase (schema v2)
 Tracks all installed packages across all projects. Keyed by market name, then by profile. Each package carries:
-- `Files` — package-wide skill/agent/command leaf names (drives sync diffs and ref enumeration). `InstalledFiles` has `Skills`, `Agents`, and `Commands []string` fields.
+- `Files` — package-wide skill/agent/command/hook leaf names (drives sync diffs and ref enumeration). `InstalledFiles` has `Skills`, `Agents`, `Commands`, and `Hooks []string` fields. For hooks, the per-location `InstalledFile.Path` uses a `<settings.json>#hooks/<file>` suffix so multiple hooks per package keep distinct per-hook checksums.
 - `Locations []InstalledLocation` — one entry per (project path, runtime type). The same project path appears multiple times when a package was installed for several runtimes (e.g. claude-code + cursor).
 
 `InstalledLocation { Path, Type, Files []InstalledFile }` — `Type` is `claude-code`, `cursor`, `windsurf`, etc. (taken from `Transformer.ToolName()` for non-claude tools, the constant `RuntimeTypeClaudeCode` for the built-in path). `Files []InstalledFile { Path, XXH }` records every file actually written, with its xxhash64 at install/update time. This is the source of truth for drift detection AND for prune-on-update: each `AddOrUpdatePackage` call replaces the (Path, Type) entry's `Files` wholesale, and the sync flow diffs old vs. new to delete files dropped upstream. For single-entry adds the caller composes the full set with `MergeLocationFiles` / `MergePackageFiles` before calling.

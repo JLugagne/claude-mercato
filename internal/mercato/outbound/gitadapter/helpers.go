@@ -196,3 +196,19 @@ func isSSHURL(url string) bool {
 		strings.HasPrefix(url, "ssh://") ||
 		(strings.Contains(url, "@") && !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://"))
 }
+
+// isHookPath returns true when path is a hook snippet — a .json file under
+// a hooks/ segment. Used by the market scanner to include hook entries
+// alongside agents/skills.
+func isHookPath(path string) bool {
+	if !strings.HasSuffix(path, ".json") {
+		return false
+	}
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	for _, p := range parts {
+		if p == "hooks" {
+			return true
+		}
+	}
+	return false
+}

@@ -69,9 +69,12 @@ Determined by path convention, not declaration:
 - `.md` file under `agents/` → Agent (installed to `.claude/agents/<name>.md`)
 - `SKILL.md` under `skills/<name>/` → Skill (installed to `.claude/skills/<name>/`)
 - `.md` file under `commands/` → Command (installed to `.claude/commands/<name>.md`)
+- `.json` file under `hooks/` → Hook (merged into `.claude/settings.json`)
 - Everything else → Ignored by mct
 
 Commands are flat single-file entries (like agents), Claude-Code-specific — other transform targets (codex, gemini, etc.) skip them. Commands support `requires_skills` in frontmatter, resolved via the same dependency engine as skills.
+
+Hooks are JSON snippets, NOT files copied to disk. Install merges the snippet's `hooks[]` array into `.claude/settings.json` under `hooks[<event>]` and injects an `mct_id` field (xxhash of the ref) on every hook object so removal can target the right entries. Drift detection compares the canonical body checksum (mct_id excluded) against the recorded value, so user reformatting doesn't trigger drift but command edits do. Two markets providing hooks with the same `(event, matcher)` are blocked at install with `ErrConflictHookEventMatcher`. Note: `mct hook install` (the existing CLI command) installs **git** hooks for save/restore automation — unrelated to the new `hook` entry type.
 
 ### Dependency Resolution
 
@@ -156,7 +159,7 @@ any leftover `committing` staging dirs from a previous crashed run.
 ## Key Concepts
 
 - **Market** — A Git repo containing agent/skill definitions in a hierarchical or flat layout
-- **Entry** — An agent (.md file under `agents/`), skill (`SKILL.md` under `skills/<name>/`), or command (.md file under `commands/`)
+- **Entry** — An agent (.md under `agents/`), skill (`SKILL.md` under `skills/<name>/`), command (.md under `commands/`), or hook (.json under `hooks/`, merged into `.claude/settings.json`)
 - **Profile** — First two path segments group entries (e.g., `dev/go`)
 - **MctRef** — Canonical reference in `market@path` format
 - **Drift** — Local modifications detected via xxhash comparison against upstream

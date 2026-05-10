@@ -251,11 +251,47 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 			if mc.SkillsOnly && !isSkillPath(mf.Path, mc.SkillsPath) {
 				continue
 			}
+			ref := domain.MctRef(mc.Name + "@" + mf.Path)
+			entryType := inferEntryType(mf.Path)
+
+			// Hooks are JSON snippets, not markdown. They have no
+			// frontmatter; parse with the snippet validator instead so
+			// they appear in the search index alongside agents/skills.
+			if entryType == domain.EntryTypeHook {
+				snip, err := domain.ParseHookSnippet(mf.Content)
+				if err != nil {
+					continue
+				}
+				desc := snip.Event
+				if snip.Matcher != "" {
+					desc = snip.Event + " " + snip.Matcher
+				}
+				entry := domain.Entry{
+					Ref:         ref,
+					Market:      mc.Name,
+					RelPath:     mf.Path,
+					Filename:    filepath.Base(mf.Path),
+					Category:    inferCategory(mf.Path),
+					Type:        entryType,
+					Description: desc,
+					Version:     mf.Version,
+					Installed:   installedRefs[ref],
+				}
+				if ri, ok := readmeByProfile[profilePrefix(mf.Path)]; ok {
+					entry.ReadmeContext = ri.content
+					entry.MctTags = ri.tags
+					entry.ProfileDescription = ri.description
+				} else {
+					entry.ReadmeContext = string(mf.Content)
+				}
+				entries = append(entries, entry)
+				continue
+			}
+
 			fm, err := domain.ParseFrontmatter(mf.Content)
 			if err != nil {
 				continue
 			}
-			ref := domain.MctRef(mc.Name + "@" + mf.Path)
 
 			entry := domain.Entry{
 				Ref:            ref,
@@ -263,7 +299,7 @@ func (a *App) buildCorpus() ([]domain.Entry, error) {
 				RelPath:        mf.Path,
 				Filename:       filepath.Base(mf.Path),
 				Category:       inferCategory(mf.Path),
-				Type:           inferEntryType(mf.Path),
+				Type:           entryType,
 				Description:    fm.Description,
 				Author:         fm.Author,
 				Version:        mf.Version,

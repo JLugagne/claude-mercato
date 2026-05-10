@@ -154,7 +154,7 @@ func (a *App) skillDirRepoPath(profile, skill string) string {
 
 // packageFileRefs returns all MctRefs for the files in an installed package.
 func (a *App) packageFileRefs(market string, pkg domain.InstalledPackage) []domain.MctRef {
-	refs := make([]domain.MctRef, 0, len(pkg.Files.Skills)+len(pkg.Files.Agents)+len(pkg.Files.Commands))
+	refs := make([]domain.MctRef, 0, len(pkg.Files.Skills)+len(pkg.Files.Agents)+len(pkg.Files.Commands)+len(pkg.Files.Hooks))
 	for _, skill := range pkg.Files.Skills {
 		repoPath := a.skillFileRepoPath(pkg.Profile, skill, "SKILL.md")
 		refs = append(refs, domain.MctRef(market+"@"+repoPath))
@@ -165,6 +165,10 @@ func (a *App) packageFileRefs(market string, pkg domain.InstalledPackage) []doma
 	}
 	for _, cmd := range pkg.Files.Commands {
 		repoPath := a.commandFileRepoPath(pkg.Profile, cmd)
+		refs = append(refs, domain.MctRef(market+"@"+repoPath))
+	}
+	for _, hook := range pkg.Files.Hooks {
+		repoPath := a.hookFileRepoPath(pkg.Profile, hook)
 		refs = append(refs, domain.MctRef(market+"@"+repoPath))
 	}
 	return refs
@@ -217,34 +221,59 @@ func (a *App) Check(opts service.CheckOpts) ([]domain.EntryStatus, error) {
 			driftFiles := a.detectDrift(pkg, projectPath, clonePath, mc.Branch)
 			hasDrift := len(driftFiles) > 0
 
+			// Per-hook drift: a hook is "drifted" when its mct_id-tagged
+			// body in settings.json no longer matches the recorded
+			// checksum (or has been removed).
+			driftedHooks := a.detectHookDrift(im.Market, pkg, projectPath)
+			driftedHookSet := make(map[string]struct{}, len(driftedHooks))
+			for _, h := range driftedHooks {
+				driftedHookSet[h] = struct{}{}
+			}
+
 			headSHA, err := a.git.RemoteHEAD(clonePath, mc.Branch)
 			hasUpdate := err == nil && headSHA != pkg.Version
 
-			var state domain.EntryState
+			pkgState := domain.StateClean
 			switch {
 			case hasDrift && hasUpdate:
-				state = domain.StateUpdateAndDrift
+				pkgState = domain.StateUpdateAndDrift
 			case hasDrift:
-				state = domain.StateDrift
+				pkgState = domain.StateDrift
 			case hasUpdate:
-				state = domain.StateUpdateAvailable
-			default:
-				state = domain.StateClean
+				pkgState = domain.StateUpdateAvailable
 			}
 
 			for _, ref := range a.packageFileRefs(im.Market, pkg) {
+				_, refRelPath, _ := ref.Parse()
+				refType := inferEntryType(refRelPath)
+
+				state := pkgState
+				if refType == domain.EntryTypeHook {
+					hookFile := filepath.Base(refRelPath)
+					_, drifted := driftedHookSet["hooks/"+hookFile]
+					switch {
+					case drifted && hasUpdate:
+						state = domain.StateUpdateAndDrift
+					case drifted:
+						state = domain.StateDrift
+					case hasUpdate:
+						state = domain.StateUpdateAvailable
+					default:
+						state = domain.StateClean
+					}
+				}
+
 				es := domain.EntryStatus{
 					Ref:   ref,
 					State: state,
 				}
 
-				_, refRelPath, _ := ref.Parse()
 				entryForCheck := domain.Entry{
 					Ref:      ref,
 					Market:   im.Market,
 					RelPath:  refRelPath,
 					Filename: filepath.Base(refRelPath),
-					Type:     inferEntryType(refRelPath),
+					Type:     refType,
 					Profile:  pkg.Profile,
 				}
 				if toolStates := a.detectToolDrift(entryForCheck, pkg, projectPath); len(toolStates) > 0 {
@@ -616,6 +645,8 @@ func (a *App) updatePackageAtLocation(ctx updateCtx) service.UpdateResult {
 
 // copyUpdatedFiles reads updated skill and agent files from the cached clone
 // and writes them to the local project directory.
+// copyUpdatedFiles reads updated skill, agent, command, and hook files from
+// the cached clone and writes them to the local project directory.
 func (a *App) copyUpdatedFiles(w txWriter, ctx updateCtx) (domain.InstalledFiles, []domain.InstalledFile) {
 	var newFiles domain.InstalledFiles
 	var written []domain.InstalledFile
@@ -632,8 +663,6 @@ func (a *App) copyUpdatedFiles(w txWriter, ctx updateCtx) (domain.InstalledFiles
 		skillDirPath := a.skillDirRepoPath(ctx.pkg.Profile, skill)
 		dirFiles, err := a.git.ListDirFiles(ctx.clonePath, ctx.mc.Branch, skillDirPath)
 		if err != nil || len(dirFiles) == 0 {
-			// Skill removed upstream — skip; pruning will drop the leftover
-			// files from disk and the location's Files list.
 			continue
 		}
 		localSkillDir := filepath.Join(ctx.cfg.LocalPath, "skills", skill)
@@ -662,7 +691,6 @@ func (a *App) copyUpdatedFiles(w txWriter, ctx updateCtx) (domain.InstalledFiles
 		repoPath := a.agentFileRepoPath(ctx.pkg.Profile, agent)
 		content, err := a.git.ReadFileAtRef(ctx.clonePath, ctx.mc.Branch, repoPath, "HEAD")
 		if err != nil {
-			// Agent removed upstream — skip.
 			continue
 		}
 		localPath := filepath.Join(ctx.cfg.LocalPath, "agents", agent)
@@ -674,6 +702,48 @@ func (a *App) copyUpdatedFiles(w txWriter, ctx updateCtx) (domain.InstalledFiles
 			XXH:  xxhashHex(content),
 		})
 		newFiles.Agents = append(newFiles.Agents, agent)
+	}
+
+	for _, cmd := range ctx.pkg.Files.Commands {
+		repoPath := a.commandFileRepoPath(ctx.pkg.Profile, cmd)
+		content, err := a.git.ReadFileAtRef(ctx.clonePath, ctx.mc.Branch, repoPath, "HEAD")
+		if err != nil {
+			continue
+		}
+		localPath := filepath.Join(ctx.cfg.LocalPath, "commands", cmd)
+		if err := w.WriteFile(localPath, content); err != nil {
+			continue
+		}
+		written = append(written, domain.InstalledFile{
+			Path: projectRel(localPath),
+			XXH:  xxhashHex(content),
+		})
+		newFiles.Commands = append(newFiles.Commands, cmd)
+	}
+
+	// Hooks: upstream body changes require splice-then-merge under the
+	// same mct_id so existing entries with the old body get replaced.
+	for _, hookFile := range ctx.pkg.Files.Hooks {
+		repoPath := a.hookFileRepoPath(ctx.pkg.Profile, hookFile)
+		content, err := a.git.ReadFileAtRef(ctx.clonePath, ctx.mc.Branch, repoPath, "HEAD")
+		if err != nil {
+			continue
+		}
+		snippet, err := domain.ParseHookSnippet(content)
+		if err != nil {
+			continue
+		}
+		ref := domain.MctRef(ctx.mc.Name + "@" + repoPath)
+		settingsAbsPath := filepath.Join(ctx.cfg.LocalPath, "settings.json")
+		if err := a.removeHookSnippet(w, ref, settingsAbsPath); err != nil {
+			continue
+		}
+		hookWritten, err := a.installHookSnippet(w, ref, snippet, settingsAbsPath, hookFile)
+		if err != nil {
+			continue
+		}
+		written = append(written, hookWritten...)
+		newFiles.Hooks = append(newFiles.Hooks, hookFile)
 	}
 
 	return newFiles, written
@@ -876,4 +946,12 @@ func (a *App) pruneRemovedFiles(w txWriter, projectRoot string, oldFiles, newFil
 			dir = filepath.Dir(dir)
 		}
 	}
+}
+
+// hookFileRepoPath derives the repo-relative path for a hook json file
+// given a package profile and the hook filename.
+// Profile "dev/go" + hook "go-vet.json" -> "dev/go/hooks/go-vet.json"
+// Profile ""       + hook "go-vet.json" -> "hooks/go-vet.json"
+func (a *App) hookFileRepoPath(profile, hook string) string {
+	return hookFileRepoPathStandalone(profile, hook)
 }

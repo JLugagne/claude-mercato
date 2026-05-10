@@ -92,6 +92,24 @@ func (a *App) List(opts service.ListOpts) ([]domain.Entry, error) {
 				}
 				entries = append(entries, entry)
 			}
+			for _, hook := range pkg.Files.Hooks {
+				repoPath := a.hookFileRepoPath(pkg.Profile, hook)
+				ref := domain.MctRef(im.Market + "@" + repoPath)
+				entry := domain.Entry{
+					Ref:       ref,
+					Market:    im.Market,
+					RelPath:   repoPath,
+					Filename:  hook,
+					Type:      domain.EntryTypeHook,
+					Version:   domain.MctVersion(pkg.Version),
+					Profile:   pkg.Profile,
+					Installed: true,
+				}
+				if opts.Type != "" && entry.Type != opts.Type {
+					continue
+				}
+				entries = append(entries, entry)
+			}
 			for _, cmd := range pkg.Files.Commands {
 				repoPath := a.commandFileRepoPath(pkg.Profile, cmd)
 				ref := domain.MctRef(im.Market + "@" + repoPath)
@@ -290,6 +308,15 @@ func (a *App) addInternal(
 
 	projectPath := projectPath(cfg.LocalPath)
 
+	entryType := inferEntryType(relPath)
+
+	// Hooks: take a dedicated path. Hooks are JSON merged into
+	// .claude/settings.json, not files copied to disk; ParseFrontmatter
+	// would fail on a JSON snippet.
+	if entryType == domain.EntryTypeHook {
+		return a.addHook(ref, marketName, relPath, profile, cfg, mc, db, projectPath, opts, result)
+	}
+
 	// Check if already installed at this location.
 	// Disk presence is the source of truth — pkg.Files is package-wide and
 	// can carry over from a sibling location after RemoveLocation.
@@ -313,7 +340,6 @@ func (a *App) addInternal(
 		return domain.ErrInvalidFrontmatter.Wrap(err)
 	}
 
-	entryType := inferEntryType(relPath)
 	if entryType == domain.EntryTypeAgent {
 		content = domain.StripRequiresSkills(content)
 	}
@@ -833,12 +859,17 @@ func isSkillDirRef(relPath string) bool {
 // isProfileRef returns true when relPath is a profile directory path
 // (e.g. "dev/go-hexagonal") rather than a concrete file path.
 // A profile path never ends in ".md" and has no "agents" or "skills" segment.
+// isProfileRef returns true when relPath is a profile directory path
+// (e.g. "dev/go-hexagonal") rather than a concrete file path.
+// A profile path never ends in ".md" or ".json" and has no
+// agents/skills/commands/hooks segment.
 func isProfileRef(relPath string) bool {
-	if strings.HasSuffix(relPath, ".md") {
+	if strings.HasSuffix(relPath, ".md") || strings.HasSuffix(relPath, ".json") {
 		return false
 	}
 	for _, seg := range strings.Split(relPath, "/") {
-		if seg == "agents" || seg == "skills" {
+		switch seg {
+		case "agents", "skills", "commands", "hooks":
 			return false
 		}
 	}
@@ -879,12 +910,13 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.Remove
 
 	projectPath := projectPath(cfg.LocalPath)
 
+	entryType := inferEntryType(relPath)
 	entryForRemove := domain.Entry{
 		Ref:      ref,
 		Market:   marketName,
 		RelPath:  relPath,
 		Filename: filepath.Base(relPath),
-		Type:     inferEntryType(relPath),
+		Type:     entryType,
 		Profile:  profile,
 	}
 
@@ -901,6 +933,32 @@ func (a *App) Remove(ref domain.MctRef, opts service.RemoveOpts) (service.Remove
 
 	var removeResult service.RemoveResult
 	removeResult.ToolsRemoved = append(removeResult.ToolsRemoved, "claude")
+
+	// Hooks need a dedicated removal path: splice from settings.json by
+	// mct_id and update the package's Hooks slice in installdb. The
+	// generic deleteInstalledFiles + RemoveLocation flow does not work
+	// because hooks share a single settings.json file across multiple
+	// hook installs in the same package.
+	if entryType == domain.EntryTypeHook {
+		hookFile := filepath.Base(relPath)
+		settingsAbsPath := filepath.Join(cfg.LocalPath, "settings.json")
+		if err := a.removeHookSnippet(w, ref, settingsAbsPath); err != nil {
+			return service.RemoveResult{}, err
+		}
+		// Update installdb: drop hookFile from pkg.Files.Hooks and from
+		// the location's Files list.
+		if err := a.dropHookFromPackage(&db, marketName, profile, projectPath, hookFile); err != nil {
+			return service.RemoveResult{}, err
+		}
+		if err := a.stageDBSave(w, db); err != nil {
+			return service.RemoveResult{}, err
+		}
+		if err := commit(); err != nil {
+			return service.RemoveResult{}, err
+		}
+		committed = true
+		return removeResult, nil
+	}
 
 	if opts.AllLocations {
 		seen := make(map[string]bool)
@@ -963,6 +1021,10 @@ func (a *App) deleteInstalledFiles(w txWriter, localPath string, files domain.In
 			return err
 		}
 	}
+	// Hooks are spliced from settings.json by the caller (App.Remove
+	// dispatches to removeHookSnippet because the splice needs the ref to
+	// compute the mct_id; that information isn't on InstalledFiles). Skip
+	// here so we don't accidentally delete the settings.json file.
 	return nil
 }
 
@@ -1199,6 +1261,12 @@ func (a *App) resolveLocalPath(cfg domain.Config, relPath string) (string, error
 		if p == "commands" {
 			return filepath.Join(cfg.LocalPath, p, filename), nil
 		}
+		if p == "hooks" {
+			// Hooks are merged into a single settings.json file. The
+			// "local path" returned here is the settings.json path that
+			// the install/remove helpers operate on.
+			return filepath.Join(cfg.LocalPath, "settings.json"), nil
+		}
 		if p == "skills" {
 			// For directory-based skills: return <localPath>/skills/<skillname>/
 			if i+2 < len(parts) {
@@ -1239,6 +1307,15 @@ func inferEntryType(relPath string) domain.EntryType {
 			return domain.EntryTypeSkill
 		case "commands":
 			return domain.EntryTypeCommand
+		case "hooks":
+			// Hooks are .json snippets under hooks/. The case where a
+			// non-.json file ends up here (e.g. README.md inside a hooks
+			// directory) is treated as not-a-hook so the lint walker can
+			// still classify or skip it explicitly.
+			if strings.HasSuffix(relPath, ".json") {
+				return domain.EntryTypeHook
+			}
+			return ""
 		}
 	}
 	return ""

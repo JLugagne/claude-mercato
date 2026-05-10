@@ -11,6 +11,7 @@ func TestNextTypeFilter_CyclesAllTypes(t *testing.T) {
 		domain.EntryTypeAgent,
 		domain.EntryTypeSkill,
 		domain.EntryTypeCommand,
+		domain.EntryTypeHook,
 		"",
 		domain.EntryTypeAgent,
 	}
