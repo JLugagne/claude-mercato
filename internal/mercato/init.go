@@ -83,6 +83,7 @@ func NewApp(configPath, cacheDir string) *cobra.Command {
 		Search:  application,
 		Readmes: application,
 		Config:  application,
+		Doctor:  application,
 	}
 	rootCmd := commands.NewRootCmd(svc)
 

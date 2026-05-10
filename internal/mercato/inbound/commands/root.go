@@ -29,6 +29,7 @@ type Services struct {
 	Search  service.SearchQueries
 	Readmes service.ReadmeQueries
 	Config  service.ConfigCommands
+	Doctor  service.DoctorQueries
 }
 
 // NewRootCmd builds the root cobra command with all subcommands
@@ -75,6 +76,7 @@ func NewRootCmd(svc Services) *cobra.Command {
 		newImportCmd(svc, opts),
 		newLintCmd(svc, opts),
 		newHookCmd(svc, opts),
+		newDoctorCmd(svc, opts),
 		newUpgradeCmd(opts),
 	)
 

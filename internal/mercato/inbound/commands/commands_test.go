@@ -301,7 +301,19 @@ func mockServices() Services {
 		Search:  &stubSearch{},
 		Readmes: &stubReadmes{},
 		Config:  &stubConfig{},
+		Doctor:  &stubDoctor{},
 	}
+}
+
+type stubDoctor struct {
+	doctorFn func(opts service.DoctorOpts) (service.DoctorReport, error)
+}
+
+func (s *stubDoctor) Doctor(opts service.DoctorOpts) (service.DoctorReport, error) {
+	if s.doctorFn != nil {
+		return s.doctorFn(opts)
+	}
+	return service.DoctorReport{}, nil
 }
 
 func runCmd(t *testing.T, svc Services, args ...string) (string, error) {
