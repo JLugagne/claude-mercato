@@ -20,17 +20,6 @@ func mctIDForRef(ref domain.MctRef) string {
 	return strconv.FormatUint(xxhash.Sum64String(string(ref)), 16)
 }
 
-// hookBodyChecksum returns the xxhash64 hex of the JSON canonicalized hook
-// body with the mct_id field stripped. This is the value compared at
-// drift-detection time.
-func hookBodyChecksum(body json.RawMessage) (string, error) {
-	canonical, err := canonicalHookBody(body)
-	if err != nil {
-		return "", err
-	}
-	return strconv.FormatUint(xxhash.Sum64(canonical), 16), nil
-}
-
 // canonicalHookBody returns the JSON-marshalled object with the mct_id key
 // removed and all keys sorted alphabetically. This is the form hashed for
 // drift detection so that user reformatting of settings.json (key reorder,
